@@ -20,6 +20,40 @@ Size uses T-shirt units. It reflects estimated implementation effort for a two-p
 
 Acceptance criteria are one or more Given/When/Then rules. Each rule sits on its own row. When a story has more than one rule, only the first row repeats the story text, priority, and size.
 
+## Personas
+
+Personas use archetype titles, not personal names. Each one grounds a subset of the stories below.
+
+### The Cyclist (primary)
+
+- 28, weekend road cyclist, fair skin (Fitzpatrick II).
+- Goals: know UV before a ride, avoid a bad burn on long rides, get a reminder to reapply sunscreen at rest stops.
+- Frustrations: guessing sun strength through cloud, forgetting the reapply timer, keeping the phone in a jersey pocket without the countdown drifting.
+- Anchors: US-01, US-02, US-08, US-11.
+
+### The Tourist (secondary)
+
+- 32, first-time visitor to Melbourne from a lower-UV country, medium-fair skin (Fitzpatrick III).
+- Goals: understand how strong Australian UV is, decide whether to spend the afternoon outdoors, confirm which suburb the app is reading.
+- Frustrations: unfamiliar with local UV levels, does not carry a UV meter, does not want to install extra apps.
+- Anchors: US-01, US-03, US-04, US-09.
+
+The Cyclist justifies the fair-skin edge case in US-02 and the pocket-pause behaviour in US-08. The Tourist justifies the place-name display (US-04) and the hourly chart (US-09).
+
+## Mental model
+
+Users think in feelings, not in UV-index numbers. They think of "shade" as "cannot feel heat on skin", not as a lux threshold. They think of sunburn as a time budget ("how long can I stay out?"), which matches the countdown metaphor in US-02.
+
+The app maps user vocabulary to on-screen labels. Keep these pairings consistent when writing `strings.xml`.
+
+| User word           | App word / label            | Where          |
+| ------------------- | --------------------------- | -------------- |
+| "sun strength"      | UV index + colour band      | Main screen    |
+| "in the shade"      | "In shade"                  | Context label  |
+| "how long is safe?" | "Safe minutes"              | Countdown      |
+| "put on sunscreen"  | "Reapply sunscreen now."    | Notification   |
+| "where am I?"       | Suburb + city (Nominatim)   | Main screen    |
+
 ## Stories
 
 | ID    | Story                                                                                                                             | Priority | Size | Given                                                                                    | When                                             | Then                                                                             |
