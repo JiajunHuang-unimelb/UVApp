@@ -22,7 +22,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v6
       - name: Assemble debug
         run: ./gradlew assembleDebug
       - name: Upload APK
@@ -42,7 +42,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v3
+      - uses: gradle/actions/setup-gradle@v6
       - name: Unit tests
         run: ./gradlew testDebugUnitTest
       - name: Upload test report
@@ -61,6 +61,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v3
+      - uses: gradle/actions/setup-gradle@v6
       - name: Ktlint check
         run: ./gradlew ktlintCheck
