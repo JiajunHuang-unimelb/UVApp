@@ -1,2 +1,46 @@
-# Android Studio / IntelliJ project state
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
 .idea/
+*.iml
+.DS_Store
+local.properties
+captures/
+
+# Kotlin
+.kotlin/
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+release/
+proguard/
+
+# Signing
+*.jks
+*.keystore
+
+# Log files
+*.log
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Node (in case of any tooling)
+node_modules/
+
+# Secrets
+.env

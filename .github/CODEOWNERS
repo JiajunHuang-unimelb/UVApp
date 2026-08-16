@@ -1,0 +1,34 @@
+# CODEOWNERS
+
+# Default: everyone reviews everything unless a more specific rule matches
+*                              @member-1 @member-2
+
+# Networking + data layer
+app/src/main/java/**/data/openmeteo/**   @member-1
+app/src/main/java/**/data/nominatim/**   @member-1
+app/src/main/java/**/data/db/**          @member-1
+
+# Location + notifications
+app/src/main/java/**/platform/location/**   @member-2
+app/src/main/java/**/platform/notify/**     @member-5
+
+# Sensors
+app/src/main/java/**/sensing/light/**     @member-3
+app/src/main/java/**/sensing/posture/**   @member-3
+app/src/main/java/**/sensing/camera/**    @member-4
+
+# Domain model
+app/src/main/java/**/domain/uvmodel/**   @member-5
+
+# UI + ViewModels
+app/src/main/java/**/ui/**          @member-6
+app/src/main/java/**/viewmodel/**   @member-6
+app/src/main/res/**                 @member-6
+
+# Build files
+gradle/libs.versions.toml           @member-1
+app/build.gradle.kts                @member-1
+build.gradle.kts                    @member-1
+
+# CI
+.github/**                          @member-1 @member-6
