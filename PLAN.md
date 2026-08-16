@@ -557,6 +557,77 @@ enum class SkinType(val baseMinutesAtUv1: Int) {
 - On a fresh API response, delete rows for that (lat, lon) with `timestampEpochHour < now`, then insert the new rows.
 - On network failure, read the newest row for the current hour; if empty, show "UV data unavailable".
 
+## API demo (Android)
+
+A single-screen Compose app that fetches live data from both APIs and displays it interactively. Purpose: verify the APIs work on Android and demo the data to the team. Uses hardcoded Melbourne coordinates (-37.81, 144.96). No DI, no Room, no navigation.
+
+Static HTML version: `docs/api-demo.html`.
+
+**Dependencies to add to `libs.versions.toml`**
+
+| Artifact | Version |
+|----------|---------|
+| `com.squareup.retrofit2:retrofit` | 2.11.0 |
+| `com.squareup.retrofit2:converter-kotlinx-serialization` | 2.11.0 |
+| `com.squareup.okhttp3:okhttp` | 4.12.0 |
+| `com.squareup.okhttp3:logging-interceptor` | 4.12.0 |
+| `org.jetbrains.kotlinx:kotlinx-serialization-json` | 1.8.1 (verify compatibility with Kotlin 2.2.10) |
+| `androidx.lifecycle:lifecycle-viewmodel-compose` | (use existing `lifecycle` version) |
+
+Also add `kotlin-serialization` plugin to root `build.gradle.kts` (apply false) and `app/build.gradle.kts`.
+
+Add `<uses-permission android:name="android.permission.INTERNET"/>` to `AndroidManifest.xml`.
+
+**Files to create** (all under `app/src/main/java/com/example/uvapp/`):
+
+| File | Content |
+|------|---------|
+| `data/openmeteo/OpenMeteoUvResponse.kt` | `@Serializable` DTO with nested `HourlyBlock` and `DailyBlock` |
+| `data/openmeteo/OpenMeteoApi.kt` | Retrofit interface, `@GET("v1/forecast")`, returns `ResponseBody` for raw JSON capture |
+| `data/nominatim/NominatimResponse.kt` | `@Serializable` DTO with nested `Address` |
+| `data/nominatim/NominatimApi.kt` | Retrofit interface, `@GET("reverse")`, OkHttp interceptor adds `User-Agent` |
+| `domain/model/UvBand.kt` | Enum: LOW/MODERATE/HIGH/VERY_HIGH/EXTREME with thresholds 3/6/8/11 and colors |
+| `domain/model/SkinType.kt` | Fitzpatrick enum I(67)–VI(500) + `calculateBurnTime(skinType, spf, uv)` |
+| `viewmodel/MainViewModel.kt` | Builds Retrofit inline, fetches both APIs in parallel, exposes `StateFlow<UiState>` |
+| `ui/main/MainScreen.kt` | Scrollable Compose screen: API cards, UV hero, location, day selector, hour slider, burn calculator |
+| `ui/common/UvChart.kt` | Compose `Canvas` chart: grid, UV band backgrounds, filled area, clear-sky dashed line, selected-hour marker |
+
+**Files to modify**: `gradle/libs.versions.toml`, `build.gradle.kts` (root), `app/build.gradle.kts`, `AndroidManifest.xml`, `MainActivity.kt` (wire MainScreen), `ui/theme/Color.kt` (add UV band colors).
+
+**ViewModel state**
+
+```kotlin
+data class UiState(
+    val isLoading: Boolean = true,
+    val error: String? = null,
+    val uvResponse: OpenMeteoUvResponse? = null,
+    val geoResponse: NominatimResponse? = null,
+    val rawUvJson: String = "",
+    val rawGeoJson: String = "",
+    val selectedDayIndex: Int = 0,
+    val selectedHour: Int = 12,
+    val selectedSkinType: SkinType = SkinType.II,
+    val selectedSpf: Int = 30,
+)
+```
+
+Actions: `selectDay(index)`, `selectHour(hour)`, `selectSkinType(type)`, `selectSpf(value)`.
+
+**UI hierarchy**
+
+```
+MainScreen (Column + verticalScroll)
+├── ExpandableApiCard × 2     — URL + raw JSON for each API
+├── UvHeroCard + LocationCard — side by side
+├── DaySelectorRow            — 7 day buttons (LazyRow)
+├── HourSliderCard            — Slider 0–23
+├── UvChart                   — Canvas, 24h UV curve for selected day
+├── BurnTimeCard              — skin type + SPF dropdowns, result
+└── FooterAttribution         — data source credits
+```
+
+**Verification**: Gradle sync succeeds, `assembleDebug` passes, app launches on emulator showing live UV data for Melbourne with all interactive controls working.
+
 ## Sensor pattern
 
 Every sensor module follows the same shape. Concrete example for the light sensor:

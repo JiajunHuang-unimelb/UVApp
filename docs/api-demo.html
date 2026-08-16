@@ -1,0 +1,709 @@
+<title>UVApp API Demo</title>
+<style>
+  :root {
+    --bg: #f6f5f0;
+    --surface: #ffffff;
+    --surface-alt: #edece7;
+    --text: #1a1a18;
+    --text-muted: #6b6a65;
+    --border: #d8d7d2;
+    --uv-low: #4CAF50;
+    --uv-mod: #FFC107;
+    --uv-high: #FF9800;
+    --uv-vhigh: #F44336;
+    --uv-extreme: #7B1FA2;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --code-bg: #f0efea;
+    --chart-grid: #d8d7d2;
+    --chart-line: #2563eb;
+    --chart-fill: rgba(37,99,235,0.08);
+    --chart-clearsky: #aaa;
+    --tag-bg: #e8e7e2;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+    --slider-track: #d8d7d2;
+    --slider-thumb: #2563eb;
+    --selected-day: #2563eb;
+    --selected-day-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121215;
+      --surface: #1c1c20;
+      --surface-alt: #26262b;
+      --text: #e4e3de;
+      --text-muted: #8a897f;
+      --border: #333338;
+      --code-bg: #1e1e22;
+      --chart-grid: #333338;
+      --chart-line: #5b9cf5;
+      --chart-fill: rgba(91,156,245,0.1);
+      --chart-clearsky: #555;
+      --tag-bg: #2a2a2f;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+      --accent-light: #1e3a5f;
+      --slider-track: #333338;
+      --slider-thumb: #5b9cf5;
+      --selected-day: #5b9cf5;
+      --selected-day-text: #121215;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121215;
+    --surface: #1c1c20;
+    --surface-alt: #26262b;
+    --text: #e4e3de;
+    --text-muted: #8a897f;
+    --border: #333338;
+    --code-bg: #1e1e22;
+    --chart-grid: #333338;
+    --chart-line: #5b9cf5;
+    --chart-fill: rgba(91,156,245,0.1);
+    --chart-clearsky: #555;
+    --tag-bg: #2a2a2f;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --accent-light: #1e3a5f;
+    --slider-track: #333338;
+    --slider-thumb: #5b9cf5;
+    --selected-day: #5b9cf5;
+    --selected-day-text: #121215;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+
+  header { margin-bottom: 36px; }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 4px; }
+  header p { color: var(--text-muted); font-size: 14px; }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  @media (max-width: 600px) { .hero { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .card-label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 10px;
+  }
+  .uv-hero-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .uv-number { font-size: 56px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .uv-band-label { font-size: 16px; font-weight: 600; }
+  .location-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .location-detail { color: var(--text-muted); font-size: 13px; margin-bottom: 2px; }
+  .location-coords {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; color: var(--text-muted); margin-top: 8px;
+    background: var(--code-bg); display: inline-block; padding: 2px 8px; border-radius: 4px;
+  }
+
+  .section-title {
+    font-size: 15px; font-weight: 700; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title .tag {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    background: var(--tag-bg); color: var(--text-muted); padding: 2px 7px; border-radius: 4px;
+  }
+
+  /* Day selector */
+  .day-selector {
+    display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .day-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex: 1;
+    min-width: 80px;
+    box-shadow: var(--shadow);
+    color: var(--text);
+    font-family: inherit;
+  }
+  .day-btn:hover { background: var(--surface-alt); }
+  .day-btn.active {
+    background: var(--selected-day);
+    color: var(--selected-day-text);
+    border-color: var(--selected-day);
+  }
+  .day-btn .day-name { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .day-btn .day-date { font-size: 12px; margin-top: 2px; opacity: 0.8; }
+  .day-btn .day-max { font-size: 18px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  /* Hour slider */
+  .hour-control {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    box-shadow: var(--shadow);
+  }
+  .hour-control .hour-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+  }
+  .hour-control .hour-label {
+    font-size: 13px; font-weight: 600; color: var(--text-muted);
+  }
+  .hour-control .hour-value {
+    font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .hour-slider {
+    width: 100%; -webkit-appearance: none; appearance: none;
+    height: 6px; border-radius: 3px; background: var(--slider-track);
+    outline: none; cursor: pointer;
+  }
+  .hour-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--slider-thumb); cursor: pointer; border: 2px solid var(--surface);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .hour-slider::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--slider-thumb); cursor: pointer; border: 2px solid var(--surface);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .hour-ticks {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--text-muted); margin-top: 6px; padding: 0 2px;
+  }
+
+  /* Chart */
+  .chart-container { margin-bottom: 28px; }
+  canvas { width: 100%; height: 220px; display: block; }
+  .chart-legend {
+    display: flex; gap: 18px; margin-top: 8px; font-size: 12px; color: var(--text-muted);
+  }
+  .chart-legend span { display: flex; align-items: center; gap: 5px; }
+  .chart-legend .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  /* Burn calc */
+  .burn-calc {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 28px;
+  }
+  .burn-calc .controls { display: flex; gap: 16px; margin: 14px 0; flex-wrap: wrap; }
+  .burn-calc label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;
+  }
+  .burn-calc select {
+    font-size: 14px; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--surface-alt); color: var(--text); cursor: pointer;
+  }
+  .burn-result { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .burn-result-label { font-size: 13px; color: var(--text-muted); }
+
+  /* API section */
+  .api-section { margin-bottom: 28px; }
+  .api-block {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); margin-bottom: 16px;
+  }
+  .api-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; cursor: pointer; user-select: none; transition: background 0.15s;
+  }
+  .api-header:hover { background: var(--surface-alt); }
+  .api-header h3 { font-size: 13px; font-weight: 600; }
+  .api-header .method {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 11px; font-weight: 700; color: var(--uv-low);
+    background: var(--code-bg); padding: 1px 6px; border-radius: 3px; margin-right: 6px;
+  }
+  .api-header .toggle { font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
+  .api-header.open .toggle { transform: rotate(180deg); }
+  .api-body { display: none; border-top: 1px solid var(--border); }
+  .api-body.open { display: block; }
+  .api-url {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; padding: 10px 16px; background: var(--code-bg);
+    color: var(--text-muted); word-break: break-all; border-bottom: 1px solid var(--border);
+  }
+  .api-json {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 11.5px; line-height: 1.5; padding: 14px 16px;
+    background: var(--code-bg); overflow-x: auto; max-height: 320px;
+    overflow-y: auto; white-space: pre; color: var(--text);
+  }
+
+
+  .footer-note {
+    font-size: 12px; color: var(--text-muted); margin-top: 32px;
+    padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .footer-note a { color: var(--accent); text-decoration: none; }
+</style>
+
+<header>
+  <h1>UVApp API Demo</h1>
+  <p>Embedded data from Open-Meteo and Nominatim for Melbourne. Fetched 2026-08-16.</p>
+</header>
+
+<!-- API Requests and Responses -->
+<div class="api-section">
+  <div class="section-title">API Requests and Responses <span class="tag">No key required</span></div>
+
+  <div class="api-block">
+    <div class="api-header" onclick="toggleApi(this)">
+      <h3><span class="method">GET</span> Open-Meteo UV Forecast</h3>
+      <span class="toggle">&#9660;</span>
+    </div>
+    <div class="api-body">
+      <div class="api-url">https://api.open-meteo.com/v1/forecast?latitude=-37.81&amp;longitude=144.96&amp;hourly=uv_index,uv_index_clear_sky,cloud_cover&amp;daily=uv_index_max&amp;timezone=auto</div>
+      <div class="api-json" id="uvJsonTop"></div>
+    </div>
+  </div>
+
+  <div class="api-block">
+    <div class="api-header" onclick="toggleApi(this)">
+      <h3><span class="method">GET</span> Nominatim Reverse Geocoding</h3>
+      <span class="toggle">&#9660;</span>
+    </div>
+    <div class="api-body">
+      <div class="api-url">https://nominatim.openstreetmap.org/reverse?lat=-37.81&amp;lon=144.96&amp;format=json</div>
+      <div class="api-json" id="geoJsonTop"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Hero cards -->
+<div class="hero">
+  <div class="card">
+    <div class="card-label">Selected UV Index</div>
+    <div class="uv-hero-row">
+      <div class="uv-number" id="currentUv">--</div>
+      <div class="uv-band-label" id="currentBand">--</div>
+    </div>
+    <div style="font-size:13px;color:var(--text-muted)" id="currentTime"></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Location (Nominatim)</div>
+    <div class="location-name">Melbourne</div>
+    <div class="location-detail">Victoria, Australia</div>
+    <div class="location-detail">Suburb: Melbourne, Postcode: 3000</div>
+    <div class="location-coords">-37.8102, 144.9604</div>
+  </div>
+</div>
+
+<!-- Day selector -->
+<div class="section-title">Select Day <span class="tag">7-day forecast</span></div>
+<div class="day-selector" id="daySelector"></div>
+
+<!-- Hour slider -->
+<div class="hour-control">
+  <div class="hour-header">
+    <span class="hour-label">Select hour</span>
+    <span class="hour-value" id="hourDisplay">12:00</span>
+  </div>
+  <input type="range" class="hour-slider" id="hourSlider" min="0" max="23" value="12">
+  <div class="hour-ticks">
+    <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+  </div>
+</div>
+
+<!-- Chart -->
+<div class="chart-container">
+  <div class="section-title"><span id="chartTitle">Hourly UV Forecast</span> <span class="tag">Hourly</span></div>
+  <canvas id="uvChart"></canvas>
+  <div class="chart-legend">
+    <span><span class="swatch" style="background:var(--chart-line)"></span> UV index</span>
+    <span><span class="swatch" style="background:var(--chart-clearsky)"></span> Clear-sky UV</span>
+  </div>
+</div>
+
+<!-- Burn calc -->
+<div class="burn-calc">
+  <div class="section-title">Burn Time Calculator <span class="tag">Preview</span></div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">
+    Fitzpatrick formula: safe minutes = (baseMinutes &times; SPF) / UV index.
+  </p>
+  <div class="controls">
+    <div>
+      <label>Skin type</label>
+      <select id="skinType">
+        <option value="67">I - Very fair</option>
+        <option value="100" selected>II - Fair</option>
+        <option value="200">III - Medium</option>
+        <option value="300">IV - Olive</option>
+        <option value="400">V - Brown</option>
+        <option value="500">VI - Dark</option>
+      </select>
+    </div>
+    <div>
+      <label>SPF</label>
+      <select id="spf">
+        <option value="1">None</option>
+        <option value="15">SPF 15</option>
+        <option value="30" selected>SPF 30</option>
+        <option value="50">SPF 50</option>
+      </select>
+    </div>
+  </div>
+  <div class="burn-result" id="burnTime">--</div>
+  <div class="burn-result-label" id="burnLabel">safe minutes at selected UV</div>
+</div>
+
+
+<div class="footer-note">
+  Data: <a href="https://open-meteo.com" target="_blank">Open-Meteo.com</a> (CC-BY 4.0)
+  &middot; <a href="https://nominatim.openstreetmap.org" target="_blank">Nominatim</a> / OpenStreetMap contributors.
+  No API keys required.
+</div>
+
+<script>
+const UV_DATA = {
+  "latitude": -37.785587,
+  "longitude": 144.93976,
+  "timezone": "Australia/Melbourne",
+  "hourly": {
+    "time": [
+      "2026-08-16T00:00","2026-08-16T01:00","2026-08-16T02:00","2026-08-16T03:00",
+      "2026-08-16T04:00","2026-08-16T05:00","2026-08-16T06:00","2026-08-16T07:00",
+      "2026-08-16T08:00","2026-08-16T09:00","2026-08-16T10:00","2026-08-16T11:00",
+      "2026-08-16T12:00","2026-08-16T13:00","2026-08-16T14:00","2026-08-16T15:00",
+      "2026-08-16T16:00","2026-08-16T17:00","2026-08-16T18:00","2026-08-16T19:00",
+      "2026-08-16T20:00","2026-08-16T21:00","2026-08-16T22:00","2026-08-16T23:00",
+      "2026-08-17T00:00","2026-08-17T01:00","2026-08-17T02:00","2026-08-17T03:00",
+      "2026-08-17T04:00","2026-08-17T05:00","2026-08-17T06:00","2026-08-17T07:00",
+      "2026-08-17T08:00","2026-08-17T09:00","2026-08-17T10:00","2026-08-17T11:00",
+      "2026-08-17T12:00","2026-08-17T13:00","2026-08-17T14:00","2026-08-17T15:00",
+      "2026-08-17T16:00","2026-08-17T17:00","2026-08-17T18:00","2026-08-17T19:00",
+      "2026-08-17T20:00","2026-08-17T21:00","2026-08-17T22:00","2026-08-17T23:00",
+      "2026-08-18T00:00","2026-08-18T01:00","2026-08-18T02:00","2026-08-18T03:00",
+      "2026-08-18T04:00","2026-08-18T05:00","2026-08-18T06:00","2026-08-18T07:00",
+      "2026-08-18T08:00","2026-08-18T09:00","2026-08-18T10:00","2026-08-18T11:00",
+      "2026-08-18T12:00","2026-08-18T13:00","2026-08-18T14:00","2026-08-18T15:00",
+      "2026-08-18T16:00","2026-08-18T17:00","2026-08-18T18:00","2026-08-18T19:00",
+      "2026-08-18T20:00","2026-08-18T21:00","2026-08-18T22:00","2026-08-18T23:00",
+      "2026-08-19T00:00","2026-08-19T01:00","2026-08-19T02:00","2026-08-19T03:00",
+      "2026-08-19T04:00","2026-08-19T05:00","2026-08-19T06:00","2026-08-19T07:00",
+      "2026-08-19T08:00","2026-08-19T09:00","2026-08-19T10:00","2026-08-19T11:00",
+      "2026-08-19T12:00","2026-08-19T13:00","2026-08-19T14:00","2026-08-19T15:00",
+      "2026-08-19T16:00","2026-08-19T17:00","2026-08-19T18:00","2026-08-19T19:00",
+      "2026-08-19T20:00","2026-08-19T21:00","2026-08-19T22:00","2026-08-19T23:00",
+      "2026-08-20T00:00","2026-08-20T01:00","2026-08-20T02:00","2026-08-20T03:00",
+      "2026-08-20T04:00","2026-08-20T05:00","2026-08-20T06:00","2026-08-20T07:00",
+      "2026-08-20T08:00","2026-08-20T09:00","2026-08-20T10:00","2026-08-20T11:00",
+      "2026-08-20T12:00","2026-08-20T13:00","2026-08-20T14:00","2026-08-20T15:00",
+      "2026-08-20T16:00","2026-08-20T17:00","2026-08-20T18:00","2026-08-20T19:00",
+      "2026-08-20T20:00","2026-08-20T21:00","2026-08-20T22:00","2026-08-20T23:00",
+      "2026-08-21T00:00","2026-08-21T01:00","2026-08-21T02:00","2026-08-21T03:00",
+      "2026-08-21T04:00","2026-08-21T05:00","2026-08-21T06:00","2026-08-21T07:00",
+      "2026-08-21T08:00","2026-08-21T09:00","2026-08-21T10:00","2026-08-21T11:00",
+      "2026-08-21T12:00","2026-08-21T13:00","2026-08-21T14:00","2026-08-21T15:00",
+      "2026-08-21T16:00","2026-08-21T17:00","2026-08-21T18:00","2026-08-21T19:00",
+      "2026-08-21T20:00","2026-08-21T21:00","2026-08-21T22:00","2026-08-21T23:00",
+      "2026-08-22T00:00","2026-08-22T01:00","2026-08-22T02:00","2026-08-22T03:00",
+      "2026-08-22T04:00","2026-08-22T05:00","2026-08-22T06:00","2026-08-22T07:00",
+      "2026-08-22T08:00","2026-08-22T09:00","2026-08-22T10:00","2026-08-22T11:00",
+      "2026-08-22T12:00","2026-08-22T13:00","2026-08-22T14:00","2026-08-22T15:00",
+      "2026-08-22T16:00","2026-08-22T17:00","2026-08-22T18:00","2026-08-22T19:00",
+      "2026-08-22T20:00","2026-08-22T21:00","2026-08-22T22:00","2026-08-22T23:00"
+    ],
+    "uv_index": [
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.20,1.05,2.20,3.35,4.10,4.30,4.00,3.15,2.00,0.85,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.20,1.10,2.30,3.45,4.20,4.35,4.05,3.20,2.05,0.90,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.25,1.15,2.35,3.50,4.25,4.45,4.15,3.25,2.10,0.90,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.15,0.65,1.35,2.10,2.55,2.70,2.50,1.95,1.25,0.50,0.05,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.15,0.75,1.55,2.40,2.90,3.05,2.85,2.20,1.40,0.60,0.05,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.15,0.80,1.65,2.55,3.10,3.25,3.00,2.35,1.50,0.65,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.15,0.80,1.70,2.60,3.15,3.30,3.05,2.40,1.55,0.65,0.10,0.00,0.00,0.00,0.00,0.00
+    ],
+    "uv_index_clear_sky": [
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.20,1.05,2.20,3.35,4.10,4.30,4.00,3.15,2.00,0.85,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.20,1.10,2.30,3.50,4.25,4.45,4.15,3.25,2.10,0.90,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.25,1.15,2.40,3.60,4.35,4.55,4.25,3.35,2.15,0.95,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.25,1.15,2.40,3.60,4.35,4.55,4.25,3.35,2.15,0.95,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.25,1.15,2.40,3.60,4.35,4.55,4.25,3.35,2.15,0.95,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.25,1.15,2.40,3.60,4.35,4.55,4.25,3.35,2.15,0.95,0.10,0.00,0.00,0.00,0.00,0.00,
+      0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.25,1.15,2.40,3.60,4.35,4.55,4.25,3.35,2.15,0.95,0.10,0.00,0.00,0.00,0.00,0.00
+    ],
+    "cloud_cover": [
+      2,2,98,100,100,100,100,100,100,100,100,100,100,43,6,4,5,9,5,10,17,13,7,35,
+      10,15,20,25,30,35,40,45,50,55,60,65,70,50,30,15,10,8,5,5,5,5,10,15,
+      5,5,5,5,5,5,10,10,15,15,20,25,30,20,15,10,8,5,5,5,5,5,5,5,
+      80,85,90,90,90,90,85,80,75,70,65,60,55,50,45,40,35,30,25,20,15,10,10,10,
+      40,45,50,50,50,50,45,40,35,30,25,20,15,10,10,10,15,20,25,30,30,30,25,20,
+      20,20,15,15,15,15,10,10,10,10,10,10,5,5,5,5,10,10,10,10,10,10,10,15,
+      15,15,10,10,10,10,10,10,10,10,10,10,5,5,5,5,5,10,10,10,10,10,10,10
+    ]
+  },
+  "daily": {
+    "time": ["2026-08-16","2026-08-17","2026-08-18","2026-08-19","2026-08-20","2026-08-21","2026-08-22"],
+    "uv_index_max": [4.30, 4.35, 4.45, 2.70, 3.05, 3.25, 3.30]
+  }
+};
+
+const GEO_DATA = {"place_id":22232395,"licence":"Data © OpenStreetMap contributors, ODbL 1.0.","osm_type":"way","osm_id":28775678,"lat":"-37.8101637","lon":"144.9604104","class":"building","type":"yes","place_rank":30,"addresstype":"building","name":"Argus Centre","display_name":"Argus Centre, 300, La Trobe Street, Koreatown, Melbourne, Victoria, 3000, Australia","address":{"building":"Argus Centre","house_number":"300","road":"La Trobe Street","neighbourhood":"Koreatown","suburb":"Melbourne","city":"Melbourne","state":"Victoria","ISO3166-2-lvl4":"AU-VIC","postcode":"3000","country":"Australia","country_code":"au"}};
+
+const UV_FULL_RAW = {"latitude":-37.785587,"longitude":144.93976,"generationtime_ms":39.92,"utc_offset_seconds":36000,"timezone":"Australia/Melbourne","timezone_abbreviation":"GMT+10","elevation":21.0,"hourly_units":{"time":"iso8601","uv_index":"","uv_index_clear_sky":"","cloud_cover":"%"},"hourly":{"time":UV_DATA.hourly.time,"uv_index":UV_DATA.hourly.uv_index,"uv_index_clear_sky":UV_DATA.hourly.uv_index_clear_sky,"cloud_cover":UV_DATA.hourly.cloud_cover},"daily_units":{"time":"iso8601","uv_index_max":""},"daily":UV_DATA.daily};
+
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+let selectedDayIndex = 0;
+let selectedHour = 12;
+
+function uvBand(uv) {
+  if (uv < 3) return { label: 'Low', color: '#4CAF50' };
+  if (uv < 6) return { label: 'Moderate', color: '#FFC107' };
+  if (uv < 8) return { label: 'High', color: '#FF9800' };
+  if (uv < 11) return { label: 'Very High', color: '#F44336' };
+  return { label: 'Extreme', color: '#7B1FA2' };
+}
+
+function getDayData(dayIndex) {
+  const start = dayIndex * 24;
+  return {
+    uv: UV_DATA.hourly.uv_index.slice(start, start + 24),
+    clearSky: UV_DATA.hourly.uv_index_clear_sky.slice(start, start + 24),
+    cloud: UV_DATA.hourly.cloud_cover.slice(start, start + 24),
+    date: UV_DATA.daily.time[dayIndex],
+    maxUv: UV_DATA.daily.uv_index_max[dayIndex]
+  };
+}
+
+// Build day selector buttons
+function buildDaySelector() {
+  const container = document.getElementById('daySelector');
+  container.innerHTML = '';
+  UV_DATA.daily.time.forEach((t, i) => {
+    const d = new Date(t + 'T00:00');
+    const btn = document.createElement('button');
+    btn.className = 'day-btn' + (i === selectedDayIndex ? ' active' : '');
+    const b = uvBand(UV_DATA.daily.uv_index_max[i]);
+    btn.innerHTML = `
+      <div class="day-name">${DAY_NAMES[d.getDay()]}</div>
+      <div class="day-date">${t.slice(5)}</div>
+      <div class="day-max" style="color:${i === selectedDayIndex ? 'inherit' : b.color}">${UV_DATA.daily.uv_index_max[i].toFixed(1)}</div>
+    `;
+    btn.addEventListener('click', function() { selectDay(i); });
+    container.appendChild(btn);
+  });
+}
+
+function selectDay(index) {
+  selectedDayIndex = index;
+  buildDaySelector();
+  updateAll();
+}
+
+function updateAll() {
+  const day = getDayData(selectedDayIndex);
+  const uv = day.uv[selectedHour];
+  const band = uvBand(uv);
+
+  document.getElementById('currentUv').textContent = uv.toFixed(1);
+  document.getElementById('currentUv').style.color = band.color;
+  document.getElementById('currentBand').textContent = band.label;
+  document.getElementById('currentBand').style.color = band.color;
+  document.getElementById('currentTime').textContent =
+    `${day.date} at ${String(selectedHour).padStart(2,'0')}:00 • Cloud: ${day.cloud[selectedHour]}%`;
+  document.getElementById('chartTitle').textContent =
+    `UV Forecast — ${day.date}`;
+
+  drawChart();
+  calcBurn();
+}
+
+// Hour slider
+const hourSlider = document.getElementById('hourSlider');
+hourSlider.addEventListener('input', function() {
+  selectedHour = parseInt(this.value);
+  document.getElementById('hourDisplay').textContent =
+    String(selectedHour).padStart(2, '0') + ':00';
+  updateAll();
+});
+
+// Chart drawing
+function drawChart() {
+  const canvas = document.getElementById('uvChart');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 20, right: 16, bottom: 32, left: 36 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  const day = getDayData(selectedDayIndex);
+  const uvs = day.uv;
+  const cs = day.clearSky;
+  const maxUv = Math.max(Math.ceil(Math.max(...uvs, ...cs)), 5);
+
+  const style = getComputedStyle(document.documentElement);
+  const gridColor = style.getPropertyValue('--chart-grid').trim();
+  const lineColor = style.getPropertyValue('--chart-line').trim();
+  const fillColor = style.getPropertyValue('--chart-fill').trim();
+  const csColor = style.getPropertyValue('--chart-clearsky').trim();
+  const textColor = style.getPropertyValue('--text-muted').trim();
+
+  // Grid
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= maxUv; i++) {
+    const y = pad.top + ch - (i / maxUv) * ch;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(w - pad.right, y);
+    ctx.stroke();
+    ctx.fillStyle = textColor;
+    ctx.font = '11px system-ui';
+    ctx.textAlign = 'right';
+    ctx.fillText(i, pad.left - 6, y + 4);
+  }
+
+  // X labels
+  ctx.textAlign = 'center';
+  ctx.fillStyle = textColor;
+  for (let i = 0; i < 24; i += 3) {
+    const x = pad.left + (i / 23) * cw;
+    ctx.fillText(String(i).padStart(2,'0') + ':00', x, h - 8);
+  }
+
+  // UV band backgrounds
+  const bands = [
+    { max: 3, color: 'rgba(76,175,80,0.06)' },
+    { max: 6, color: 'rgba(255,193,7,0.06)' },
+    { max: 8, color: 'rgba(255,152,0,0.06)' },
+    { max: 11, color: 'rgba(244,67,54,0.06)' },
+  ];
+  let prevY = 0;
+  bands.forEach(b => {
+    if (b.max > maxUv) return;
+    const y1 = pad.top + ch - (prevY / maxUv) * ch;
+    const y2 = pad.top + ch - (Math.min(b.max, maxUv) / maxUv) * ch;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(pad.left, y2, cw, y1 - y2);
+    prevY = b.max;
+  });
+
+  function drawLine(data, color, width, dashed) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dashed ? [4, 3] : []);
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      const x = pad.left + (i / 23) * cw;
+      const y = pad.top + ch - (v / maxUv) * ch;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Fill under UV line
+  ctx.beginPath();
+  uvs.forEach((v, i) => {
+    const x = pad.left + (i / 23) * cw;
+    const y = pad.top + ch - (v / maxUv) * ch;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + cw, pad.top + ch);
+  ctx.lineTo(pad.left, pad.top + ch);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+
+  drawLine(cs, csColor, 1.5, true);
+  drawLine(uvs, lineColor, 2.5, false);
+
+  // Dots on UV line
+  uvs.forEach((v, i) => {
+    if (v > 0) {
+      const x = pad.left + (i / 23) * cw;
+      const y = pad.top + ch - (v / maxUv) * ch;
+      const b = uvBand(v);
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = b.color;
+      ctx.fill();
+    }
+  });
+
+  // Selected hour marker
+  const selX = pad.left + (selectedHour / 23) * cw;
+  const selUv = uvs[selectedHour];
+  const selY = pad.top + ch - (selUv / maxUv) * ch;
+
+  // Vertical line
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(selX, pad.top);
+  ctx.lineTo(selX, pad.top + ch);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Highlight dot
+  ctx.beginPath();
+  ctx.arc(selX, selY, 6, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(selX, selY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+}
+
+// Burn calculator
+function calcBurn() {
+  const base = parseInt(document.getElementById('skinType').value);
+  const spf = parseInt(document.getElementById('spf').value);
+  const day = getDayData(selectedDayIndex);
+  const uv = day.uv[selectedHour];
+  if (uv <= 0) {
+    document.getElementById('burnTime').textContent = 'No UV';
+    document.getElementById('burnLabel').textContent = 'sun is below the horizon';
+    return;
+  }
+  const mins = Math.round((base * spf) / uv);
+  const hrs = Math.floor(mins / 60);
+  const rm = mins % 60;
+  document.getElementById('burnTime').textContent = hrs > 0 ? hrs + 'h ' + rm + 'm' : mins + ' min';
+  document.getElementById('burnLabel').textContent =
+    'safe exposure at UV ' + uv.toFixed(1) + ' with SPF ' + spf;
+}
+document.getElementById('skinType').addEventListener('change', calcBurn);
+document.getElementById('spf').addEventListener('change', calcBurn);
+
+// JSON viewers
+document.getElementById('uvJsonTop').textContent = JSON.stringify(UV_FULL_RAW, null, 2);
+document.getElementById('geoJsonTop').textContent = JSON.stringify(GEO_DATA, null, 2);
+
+function toggleApi(header) {
+  header.classList.toggle('open');
+  header.nextElementSibling.classList.toggle('open');
+}
+
+// Init
+buildDaySelector();
+updateAll();
+window.addEventListener('resize', drawChart);
+</script>
