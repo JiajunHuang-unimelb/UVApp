@@ -1,3 +1,8 @@
+# COMP90018-2026-T01/05-01
+[![Trello](https://img.shields.io/badge/Trello-%23026AA7?style=flat-square&logo=trello&logoColor=white)](https://trello.com/b/8E7gcOPB)
+[![HackMD](https://img.shields.io/badge/HackMD-453AFF?style=flat-square&logo=hackmd&logoColor=white)](https://hackmd.io/RvN3BtlnT2eZUoOSIXsi_Q)
+
+## 📑 Table of Contents
 # UVApp
 
 An Android app that shows the local UV index and a personal sun-protection countdown.
