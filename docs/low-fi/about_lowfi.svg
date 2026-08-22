@@ -1,0 +1,16 @@
+<svg viewBox="0 0 360 740" xmlns="http://www.w3.org/2000/svg" font-family="monospace">
+  <rect x="0" y="0" width="360" height="740" fill="#ffffff" stroke="#333333" stroke-width="2"/>
+
+  <!-- Toolbar -->
+  <rect x="0" y="0" width="360" height="56" fill="#eeeeee" stroke="#333333" stroke-width="1"/>
+  <text x="16" y="34" font-size="14" fill="#333333">&lt;</text>
+  <text x="40" y="34" font-size="16" fill="#333333">About</text>
+
+  <text x="16" y="92" font-size="16" fill="#333333">UVApp</text>
+  <text x="16" y="118" font-size="12" fill="#888888">[ Version 0.1.0 ]</text>
+
+  <text x="16" y="160" font-size="12" fill="#666666">[ UV data: Open-Meteo attribution ]</text>
+  <text x="16" y="184" font-size="12" fill="#666666">[ Place lookup: Nominatim attribution ]</text>
+
+  <text x="180" y="710" font-size="10" fill="#bbbbbb" text-anchor="middle">About - low-fidelity wireframe</text>
+</svg>

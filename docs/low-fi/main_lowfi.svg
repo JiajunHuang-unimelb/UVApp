@@ -1,0 +1,39 @@
+<svg viewBox="0 0 360 740" xmlns="http://www.w3.org/2000/svg" font-family="monospace">
+  <rect x="0" y="0" width="360" height="740" fill="#ffffff" stroke="#333333" stroke-width="2"/>
+
+  <!-- Toolbar -->
+  <rect x="0" y="0" width="360" height="56" fill="#eeeeee" stroke="#333333" stroke-width="1"/>
+  <text x="16" y="34" font-size="16" fill="#333333">UVApp</text>
+  <circle cx="264" cy="28" r="12" fill="none" stroke="#333333" stroke-width="1.5"/>
+  <text x="258" y="33" font-size="12" fill="#333333">R</text>
+  <circle cx="300" cy="28" r="12" fill="none" stroke="#333333" stroke-width="1.5"/>
+  <text x="294" y="33" font-size="12" fill="#333333">S</text>
+  <circle cx="336" cy="28" r="12" fill="none" stroke="#333333" stroke-width="1.5"/>
+  <text x="330" y="33" font-size="12" fill="#333333">i</text>
+
+  <!-- Hero card -->
+  <rect x="16" y="76" width="328" height="150" fill="none" stroke="#666666" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="180" y="140" font-size="40" fill="#333333" text-anchor="middle">[ UV 3.0 ]</text>
+  <text x="180" y="170" font-size="16" fill="#666666" text-anchor="middle">[ Moderate ]</text>
+
+  <!-- Place name -->
+  <text x="180" y="248" font-size="13" fill="#888888" text-anchor="middle">[ Suburb, State ]</text>
+
+  <!-- Context row -->
+  <circle cx="150" cy="270" r="5" fill="#999999"/>
+  <text x="164" y="275" font-size="13" fill="#666666">[ Direct sun ]</text>
+
+  <!-- Countdown card -->
+  <rect x="16" y="296" width="328" height="120" fill="none" stroke="#666666" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="180" y="326" font-size="12" fill="#888888" text-anchor="middle">Safe Timer</text>
+  <text x="180" y="365" font-size="30" fill="#333333" text-anchor="middle">[ 1:06 ]</text>
+  <rect x="130" y="382" width="100" height="24" fill="none" stroke="#999999" stroke-width="1" rx="4"/>
+  <text x="180" y="398" font-size="11" fill="#999999" text-anchor="middle">Reset Timer</text>
+
+  <!-- Forecast toggle -->
+  <rect x="16" y="432" width="328" height="44" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
+  <text x="180" y="459" font-size="14" fill="#666666" text-anchor="middle">Forecast  v</text>
+
+  <!-- collapsed forecast note -->
+  <text x="180" y="500" font-size="11" fill="#aaaaaa" text-anchor="middle" font-style="italic">(day selector + hour slider + UV chart when expanded)</text>
+</svg>
