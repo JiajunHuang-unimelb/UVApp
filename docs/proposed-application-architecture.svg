@@ -1,0 +1,222 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1080" viewBox="0 0 1800 1080" role="img" aria-labelledby="diagram-title diagram-desc">
+  <title id="diagram-title">Proposed Application Architecture</title>
+  <desc id="diagram-desc">Layered architecture for a Jetpack Compose UV exposure application. Required and optional sensor inputs and external services feed repository and domain layers, then a ViewModel exposes immutable UI state to the Compose interface and alert outputs.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #172033; }
+      .subtitle { font: 400 17px Arial, sans-serif; fill: #64748b; }
+      .layer-label { font: 700 14px Arial, sans-serif; letter-spacing: 1.8px; fill: #64748b; }
+      .node-title { font: 700 18px Arial, sans-serif; fill: #172033; }
+      .node-text { font: 400 14px Arial, sans-serif; fill: #475569; }
+      .node-code { font: 400 13px Consolas, monospace; fill: #334155; }
+      .tag { font: 700 11px Arial, sans-serif; letter-spacing: 1px; }
+      .edge-label { font: 600 12px Arial, sans-serif; fill: #475569; }
+      .band { stroke: #e2e8f0; stroke-width: 1.5; }
+      .node { stroke-width: 1.8; }
+      .edge { fill: none; stroke: #475569; stroke-width: 2.1; marker-end: url(#arrow); }
+      .edge-blue { fill: none; stroke: #2563eb; stroke-width: 2.3; marker-end: url(#arrow-blue); }
+      .edge-dashed { fill: none; stroke: #64748b; stroke-width: 2; stroke-dasharray: 8 7; marker-end: url(#arrow); }
+      .edge-bidir { fill: none; stroke: #475569; stroke-width: 2.1; marker-start: url(#arrow); marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1080" fill="#ffffff"/>
+  <text x="900" y="48" text-anchor="middle" class="title">Proposed Application Architecture</text>
+  <text x="900" y="78" text-anchor="middle" class="subtitle">Jetpack Compose · MVVM · Unidirectional Data Flow · Offline-first repositories</text>
+
+  <!-- Layer bands -->
+  <rect x="28" y="105" width="1744" height="210" rx="18" fill="#f8fafc" class="band"/>
+  <rect x="28" y="340" width="1744" height="185" rx="18" fill="#f7fbf8" class="band"/>
+  <rect x="28" y="550" width="1744" height="180" rx="18" fill="#fffaf3" class="band"/>
+  <rect x="28" y="755" width="1744" height="245" rx="18" fill="#faf8ff" class="band"/>
+
+  <text x="55" y="132" class="layer-label">INPUTS &amp; SERVICES</text>
+  <text x="55" y="367" class="layer-label">DATA LAYER</text>
+  <text x="55" y="577" class="layer-label">DOMAIN LAYER</text>
+  <text x="55" y="782" class="layer-label">PRESENTATION &amp; OUTPUTS</text>
+
+  <!-- Inputs -->
+  <g>
+    <rect x="100" y="155" width="245" height="110" rx="16" fill="#eaf2ff" stroke="#93b4ea" class="node"/>
+    <rect x="116" y="169" width="92" height="22" rx="11" fill="#d8e8ff"/>
+    <text x="162" y="184" text-anchor="middle" class="tag" fill="#1d4ed8">REQUIRED</text>
+    <text x="122" y="218" class="node-title">Ambient light</text>
+    <text x="122" y="243" class="node-code">Sensor.TYPE_LIGHT</text>
+  </g>
+
+  <g>
+    <rect x="370" y="155" width="245" height="110" rx="16" fill="#eaf2ff" stroke="#93b4ea" class="node"/>
+    <rect x="386" y="169" width="92" height="22" rx="11" fill="#d8e8ff"/>
+    <text x="432" y="184" text-anchor="middle" class="tag" fill="#1d4ed8">REQUIRED</text>
+    <text x="392" y="218" class="node-title">Accelerometer</text>
+    <text x="392" y="243" class="node-code">TYPE_ACCELEROMETER</text>
+  </g>
+
+  <g>
+    <rect x="640" y="155" width="205" height="110" rx="16" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="8 6" class="node"/>
+    <rect x="656" y="169" width="82" height="22" rx="11" fill="#e2e8f0"/>
+    <text x="697" y="184" text-anchor="middle" class="tag" fill="#475569">OPTIONAL</text>
+    <text x="662" y="218" class="node-title">Camera</text>
+    <text x="662" y="243" class="node-code">CameraX ImageAnalysis</text>
+  </g>
+
+  <g>
+    <rect x="870" y="155" width="205" height="110" rx="16" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="8 6" class="node"/>
+    <rect x="886" y="169" width="82" height="22" rx="11" fill="#e2e8f0"/>
+    <text x="927" y="184" text-anchor="middle" class="tag" fill="#475569">OPTIONAL</text>
+    <text x="892" y="218" class="node-title">Microphone</text>
+    <text x="892" y="243" class="node-code">AudioRecord · RMS only</text>
+  </g>
+
+  <g>
+    <rect x="1110" y="155" width="205" height="110" rx="16" fill="#eaf2ff" stroke="#93b4ea" class="node"/>
+    <text x="1132" y="204" class="node-title">Device location</text>
+    <text x="1132" y="230" class="node-code">FusedLocationProvider</text>
+    <text x="1132" y="251" class="node-text">coordinates</text>
+  </g>
+
+  <g>
+    <rect x="1340" y="140" width="340" height="60" rx="14" fill="#eaf2ff" stroke="#93b4ea" class="node"/>
+    <text x="1362" y="168" class="node-title">Open-Meteo</text>
+    <text x="1362" y="189" class="node-text">hourly UV forecast</text>
+    <rect x="1340" y="215" width="340" height="60" rx="14" fill="#eaf2ff" stroke="#93b4ea" class="node"/>
+    <text x="1362" y="243" class="node-title">Nominatim</text>
+    <text x="1362" y="264" class="node-text">reverse geocoding</text>
+  </g>
+
+  <!-- Data layer -->
+  <g>
+    <rect x="165" y="395" width="720" height="92" rx="16" fill="#eaf8ef" stroke="#80b994" class="node"/>
+    <text x="525" y="426" text-anchor="middle" class="node-title">Sensor modules &amp; SensorRepository</text>
+    <text x="525" y="452" text-anchor="middle" class="node-code">StateFlow&lt;Reading&gt; · start() · stop()</text>
+    <text x="525" y="474" text-anchor="middle" class="node-text">timestamp · confidence · availability</text>
+  </g>
+
+  <g>
+    <rect x="980" y="395" width="465" height="92" rx="16" fill="#eaf8ef" stroke="#80b994" class="node"/>
+    <text x="1212" y="426" text-anchor="middle" class="node-title">ForecastRepository &amp; PlaceNameService</text>
+    <text x="1212" y="452" text-anchor="middle" class="node-code">Retrofit · OkHttp · explicit timeouts</text>
+    <text x="1212" y="474" text-anchor="middle" class="node-text">hourly refresh · 1 km movement gate</text>
+  </g>
+
+  <g>
+    <rect x="1510" y="395" width="210" height="92" rx="16" fill="#eaf8ef" stroke="#80b994" class="node"/>
+    <text x="1615" y="426" text-anchor="middle" class="node-title">Room cache</text>
+    <text x="1615" y="452" text-anchor="middle" class="node-text">168 hourly rows</text>
+    <text x="1615" y="474" text-anchor="middle" class="node-text">live / cached provenance</text>
+  </g>
+
+  <!-- Domain layer -->
+  <g>
+    <rect x="260" y="605" width="455" height="92" rx="16" fill="#fff0d9" stroke="#d9a75d" class="node"/>
+    <text x="487" y="636" text-anchor="middle" class="node-title">ContextClassifier</text>
+    <text x="487" y="662" text-anchor="middle" class="node-code">weighted sensor fusion</text>
+    <text x="487" y="684" text-anchor="middle" class="node-text">INDOOR · SHADE · DIRECT_SUN · UNKNOWN</text>
+  </g>
+
+  <g>
+    <rect x="840" y="605" width="520" height="92" rx="16" fill="#fff0d9" stroke="#d9a75d" class="node"/>
+    <text x="1100" y="636" text-anchor="middle" class="node-title">ExposureModel</text>
+    <text x="1100" y="662" text-anchor="middle" class="node-code">Fitzpatrick · sunscreen factor · cumulative dose</text>
+    <text x="1100" y="684" text-anchor="middle" class="node-text">remaining time · pause/resume · expiry event</text>
+  </g>
+
+  <g>
+    <rect x="1450" y="605" width="270" height="92" rx="16" fill="#fff0d9" stroke="#d9a75d" class="node"/>
+    <text x="1585" y="636" text-anchor="middle" class="node-title">Refresh policy</text>
+    <text x="1585" y="662" text-anchor="middle" class="node-text">stale forecast OR</text>
+    <text x="1585" y="684" text-anchor="middle" class="node-text">movement &gt; 1 km</text>
+  </g>
+
+  <!-- Presentation and outputs -->
+  <g>
+    <rect x="680" y="810" width="335" height="92" rx="16" fill="#efeaff" stroke="#9d8bd8" class="node"/>
+    <text x="847" y="842" text-anchor="middle" class="node-title">MainViewModel</text>
+    <text x="847" y="868" text-anchor="middle" class="node-text">combines repository and domain state</text>
+    <text x="847" y="890" text-anchor="middle" class="node-code">viewModelScope</text>
+  </g>
+
+  <g>
+    <rect x="1075" y="810" width="285" height="92" rx="16" fill="#efeaff" stroke="#9d8bd8" class="node"/>
+    <text x="1217" y="842" text-anchor="middle" class="node-title">StateFlow&lt;UiState&gt;</text>
+    <text x="1217" y="868" text-anchor="middle" class="node-text">immutable screen state</text>
+    <text x="1217" y="890" text-anchor="middle" class="node-code">collectAsStateWithLifecycle()</text>
+  </g>
+
+  <g>
+    <rect x="1420" y="810" width="300" height="92" rx="16" fill="#efeaff" stroke="#9d8bd8" class="node"/>
+    <text x="1570" y="842" text-anchor="middle" class="node-title">Jetpack Compose UI</text>
+    <text x="1570" y="868" text-anchor="middle" class="node-text">renders state · emits actions</text>
+    <text x="1570" y="890" text-anchor="middle" class="node-text">manual context fallback</text>
+  </g>
+
+  <g>
+    <rect x="110" y="810" width="450" height="140" rx="16" fill="#fff1f0" stroke="#dc8f88" class="node"/>
+    <text x="335" y="842" text-anchor="middle" class="node-title">Reminder &amp; alert outputs</text>
+    <rect x="140" y="870" width="115" height="50" rx="12" fill="#ffffff" stroke="#e4aaa5"/>
+    <text x="197" y="900" text-anchor="middle" class="node-text">Notification</text>
+    <rect x="278" y="870" width="115" height="50" rx="12" fill="#ffffff" stroke="#e4aaa5"/>
+    <text x="335" y="900" text-anchor="middle" class="node-text">Vibration</text>
+    <rect x="416" y="870" width="115" height="50" rx="12" fill="#ffffff" stroke="#e4aaa5"/>
+    <text x="473" y="900" text-anchor="middle" class="node-text">Audio</text>
+  </g>
+
+  <!-- Edges: inputs to data -->
+  <path d="M 222 265 L 222 335 L 320 335 L 320 395" class="edge-blue"/>
+  <path d="M 492 265 L 492 395" class="edge-blue"/>
+  <path d="M 742 265 L 742 335 L 650 335 L 650 395" class="edge-dashed"/>
+  <path d="M 972 265 L 972 320 L 780 320 L 780 395" class="edge-dashed"/>
+  <path d="M 1212 265 L 1212 395" class="edge-blue"/>
+  <path d="M 1510 200 L 1510 320 L 1300 320 L 1300 395" class="edge-blue"/>
+  <path d="M 1510 275 L 1510 335 L 1360 335 L 1360 395" class="edge-blue"/>
+
+  <!-- Data and domain edges -->
+  <path d="M 525 487 L 525 605" class="edge"/>
+  <text x="540" y="553" class="edge-label">readings</text>
+
+  <path d="M 1445 441 L 1510 441" class="edge-bidir"/>
+  <text x="1477" y="425" text-anchor="middle" class="edge-label">cache</text>
+
+  <path d="M 1212 487 L 1212 545 L 1180 545 L 1180 605" class="edge"/>
+  <text x="1225" y="548" class="edge-label">UV forecast</text>
+
+  <path d="M 1350 487 L 1585 487 L 1585 605" class="edge"/>
+  <text x="1470" y="508" text-anchor="middle" class="edge-label">freshness &amp; movement</text>
+
+  <path d="M 715 651 L 840 651" class="edge"/>
+  <text x="777" y="633" text-anchor="middle" class="edge-label">context factor</text>
+
+  <!-- Domain to presentation -->
+  <path d="M 1100 697 L 1100 748 L 847 748 L 847 810" class="edge-blue"/>
+  <text x="982" y="738" text-anchor="middle" class="edge-label">dose · remaining time</text>
+
+  <path d="M 980 487 L 935 487 L 935 750 L 820 750 L 820 810" class="edge"/>
+  <text x="949" y="585" class="edge-label">place name / cache state</text>
+
+  <path d="M 1015 856 L 1075 856" class="edge-blue"/>
+  <path d="M 1360 856 L 1420 856" class="edge-blue"/>
+
+  <!-- UI actions and outputs -->
+  <path d="M 1570 902 L 1570 960 L 880 960 L 880 902" class="edge-dashed"/>
+  <text x="1220" y="983" text-anchor="middle" class="edge-label">user actions · skin type · sunscreen · manual context</text>
+
+  <path d="M 680 856 L 560 856" class="edge"/>
+  <text x="620" y="839" text-anchor="middle" class="edge-label">expiry / reminder event</text>
+
+  <!-- Legend -->
+  <g transform="translate(118,1027)">
+    <line x1="0" y1="0" x2="60" y2="0" stroke="#2563eb" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+    <text x="74" y="5" class="node-text">primary data/state flow</text>
+    <line x1="280" y1="0" x2="340" y2="0" stroke="#64748b" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+    <text x="354" y="5" class="node-text">optional input or user action</text>
+    <rect x="660" y="-14" width="26" height="26" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="6 4"/>
+    <text x="700" y="5" class="node-text">optional component</text>
+    <text x="1280" y="5" class="node-text">Figure: proposed design, not completed implementation</text>
+  </g>
+</svg>
