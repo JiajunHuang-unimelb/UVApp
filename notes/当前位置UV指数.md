@@ -81,7 +81,11 @@ data class UvReading(
 
 | 方法 | 路径 | 说明 | 请求参数 | 返回值 |
 |------|------|------|----------|--------|
-| GET | `https://api.open-meteo.com/v1/forecast` | 获取当前位置的当前 UV 指数 | `latitude`、`longitude`、`current=uv_index`、`timezone=Australia/Melbourne` | `current.uv_index`、`current.time` |
+| GET | `https://api.open-meteo.com/v1/forecast` | 获取当前位置的当前 UV 指数 | `latitude`、`longitude`、`current=uv_index`、`timezone=Australia/Melbourne` | `current.uv_index`、`current.time`、`current.interval` |
+
+**观测时间说明：**
+
+Open-Meteo 当前 UV 数据使用 15 分钟时间片，响应中的 `current.interval` 为 `900` 秒。`current.time` 表示 UV 数据所属时间片，不是用户点击 Refresh 的请求时间，因此页面时间可能比当前时间早约 15 分钟。项目没有为该请求配置数据库或 HTTP response cache；跨过下一个 15 分钟边界后再次刷新，时间会更新到新的时间片。
 
 ---
 
@@ -93,6 +97,7 @@ data class UvReading(
 | 模拟器网络和数据已开启，但返回 `Current location is unavailable` | `BALANCED_POWER_ACCURACY` 在该模拟器上偏向没有位置的 network provider，结果返回 `null` | 一次性定位请求改为 `PRIORITY_HIGH_ACCURACY`，使用模拟器 GPS fix |
 | 观测时间比墨尔本时间早 10 小时 | Open-Meteo 未指定 `timezone` 时默认返回 GMT 时间 | 请求增加 `timezone=Australia/Melbourne` |
 | Compose lint 报告 `NonObservableLocale` | Composable 中直接调用 `Locale.getDefault()` 不会响应 locale 状态变化 | 坐标固定使用 `Locale.US` 格式化小数点 |
+| Refresh 后观测时间仍比当前时间早十几分钟 | Open-Meteo 的当前 UV 以 15 分钟为一个时间片，`current.time` 不是请求发出时间 | 保留 API 原始数据时间；将其视为正常数据粒度，不增加 App cache 或额外刷新逻辑 |
 
 **关键代码片段：**
 
@@ -129,6 +134,7 @@ api.getCurrentUv(
 | TC03 | ViewModel 使用设备坐标 | Fake Sydney 坐标 | 用当前位置请求 UV 并更新 UI state | 坐标、UV、时间断言通过 | ✅ |
 | TC04 | 模拟器端到端流程 | 模拟 GPS 坐标、粗略定位权限、网络连接 | 页面显示坐标、UV 和 Melbourne 时间 | 显示坐标 `-37.8919, 144.7522`、UV `0.25`、时间 `2026-08-26T17:30` | ✅ |
 | TC05 | 项目构建和静态检查 | Debug variant | 测试、lint、APK 构建成功 | `testDebugUnitTest`、`lintDebug`、`assembleDebug` 通过 | ✅ |
+| TC06 | 验证 UV 数据时间片 | Pixel 7 / API 36，系统时间 `20:00` | Refresh 后显示最新 Open-Meteo 时间片 | 页面从 `19:45` 更新为 `20:00`，API 返回 `interval=900` | ✅ |
 
 ### 4.2 Bug 记录
 
@@ -144,3 +150,5 @@ api.getCurrentUv(
 - 当前只显示经纬度，没有 suburb/city 反向地理编码。
 - App 每次进入页面或点击 Refresh 时获取一次位置，不进行持续后台定位。
 - 用户只授权 approximate location 时，Android 会对坐标做模糊处理；需要更准确坐标时应授权 Precise location。
+- 虚拟设备手测推荐使用 **Pixel 7 / API 36**（Google APIs 或 Google Play system image），该组合已验证可以正常注入位置并完成定位 → Open-Meteo → UI 流程。
+- 当前环境中的 Android 37.1 AVD 曾出现位置注入不进入 Android location service 的问题，因此不作为本功能的推荐手测版本。
