@@ -15,6 +15,7 @@ class ExposureSessionManagerTest {
 
         assertTrue(snapshot.isRunning)
         assertEquals(SkinType.TYPE_II, snapshot.skinType)
+        assertEquals(ExposureContext.UNKNOWN, snapshot.context)
         assertEquals(0.0, snapshot.accumulatedDoseSed, 0.0)
         assertEquals(2.5, snapshot.doseLimitSed, 0.0)
         assertEquals(20.833333333333332, snapshot.estimatedRemainingMinutes!!, EPSILON)
@@ -69,6 +70,51 @@ class ExposureSessionManagerTest {
 
         assertEquals(2.25, snapshot.accumulatedDoseSed, EPSILON)
         assertEquals(10.0, snapshot.uvIndex, 0.0)
+    }
+
+    @Test
+    fun `context changes split intervals without resetting accumulated dose`() {
+        session.start(
+            skinType = SkinType.TYPE_III,
+            uvIndex = 10.0,
+            nowElapsedMs = 0L,
+            context = ExposureContext.DIRECT_SUN,
+        )
+        session.updateContext(ExposureContext.SHADE, 600_000L)
+        session.updateContext(ExposureContext.INDOOR, 1_200_000L)
+
+        val snapshot = session.refresh(1_800_000L)
+
+        assertEquals(2.25, snapshot.accumulatedDoseSed, EPSILON)
+        assertEquals(ExposureContext.INDOOR, snapshot.context)
+        assertNull(snapshot.estimatedRemainingMinutes)
+    }
+
+    @Test
+    fun `unknown context uses the conservative full exposure rate`() {
+        session.start(SkinType.TYPE_III, 10.0, 0L)
+
+        val snapshot = session.refresh(600_000L)
+
+        assertEquals(1.5, snapshot.accumulatedDoseSed, EPSILON)
+        assertEquals(ExposureContext.UNKNOWN, snapshot.context)
+    }
+
+    @Test
+    fun `context can change while paused without adding dose`() {
+        session.start(
+            skinType = SkinType.TYPE_III,
+            uvIndex = 10.0,
+            nowElapsedMs = 0L,
+            context = ExposureContext.DIRECT_SUN,
+        )
+        session.pause(300_000L)
+
+        val snapshot = session.updateContext(ExposureContext.SHADE, 1_800_000L)
+
+        assertEquals(0.75, snapshot.accumulatedDoseSed, EPSILON)
+        assertEquals(ExposureContext.SHADE, snapshot.context)
+        assertFalse(snapshot.isRunning)
     }
 
     @Test

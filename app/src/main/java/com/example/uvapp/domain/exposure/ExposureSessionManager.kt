@@ -3,6 +3,7 @@ package com.example.uvapp.domain.exposure
 class ExposureSessionManager {
     private lateinit var skinType: SkinType
     private var currentUvIndex = 0.0
+    private var currentContext = ExposureContext.UNKNOWN
     private var accumulatedDoseSed = 0.0
     private var isRunning = false
     private var lastElapsedMs: Long? = null
@@ -11,9 +12,11 @@ class ExposureSessionManager {
         skinType: SkinType,
         uvIndex: Double,
         nowElapsedMs: Long,
+        context: ExposureContext = ExposureContext.UNKNOWN,
     ): ExposureSnapshot {
         this.skinType = skinType
         currentUvIndex = uvIndex.coerceAtLeast(0.0)
+        currentContext = context
         accumulatedDoseSed = 0.0
         isRunning = true
         lastElapsedMs = nowElapsedMs
@@ -64,6 +67,15 @@ class ExposureSessionManager {
         return snapshot()
     }
 
+    fun updateContext(
+        context: ExposureContext,
+        nowElapsedMs: Long,
+    ): ExposureSnapshot {
+        settleExposure(nowElapsedMs)
+        currentContext = context
+        return snapshot()
+    }
+
     fun snapshot(): ExposureSnapshot {
         ensureStarted()
         val doseLimitSed = skinType.exposureLimitSed
@@ -72,12 +84,17 @@ class ExposureSessionManager {
             isRunning = isRunning,
             skinType = skinType,
             uvIndex = currentUvIndex,
+            context = currentContext,
             accumulatedDoseSed = accumulatedDoseSed,
             doseLimitSed = doseLimitSed,
             remainingDoseSed = remainingDoseSed,
             exposureFraction = ExposureCalculator.calculateExposureFraction(doseLimitSed, accumulatedDoseSed),
             estimatedRemainingMinutes =
-                ExposureCalculator.calculateRemainingMinutes(remainingDoseSed, currentUvIndex),
+                ExposureCalculator.calculateRemainingMinutes(
+                    remainingDoseSed,
+                    currentUvIndex,
+                    currentContext.doseRateFactor,
+                ),
         )
     }
 
@@ -86,7 +103,12 @@ class ExposureSessionManager {
         if (!isRunning || nowElapsedMs <= previousElapsedMs) return
 
         val elapsedMinutes = (nowElapsedMs - previousElapsedMs) / MILLIS_PER_MINUTE
-        accumulatedDoseSed += ExposureCalculator.calculateDoseIncrement(currentUvIndex, elapsedMinutes)
+        accumulatedDoseSed +=
+            ExposureCalculator.calculateDoseIncrement(
+                currentUvIndex,
+                elapsedMinutes,
+                currentContext.doseRateFactor,
+            )
         lastElapsedMs = nowElapsedMs
     }
 

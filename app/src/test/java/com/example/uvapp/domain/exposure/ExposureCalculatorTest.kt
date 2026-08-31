@@ -17,6 +17,14 @@ class ExposureCalculatorTest {
         assertEquals(0.0, ExposureCalculator.calculateDoseIncrement(10.0, 0.0), 0.0)
         assertEquals(0.0, ExposureCalculator.calculateDoseIncrement(-1.0, 10.0), 0.0)
         assertEquals(0.0, ExposureCalculator.calculateDoseIncrement(10.0, -1.0), 0.0)
+        assertEquals(0.0, ExposureCalculator.calculateDoseIncrement(10.0, 10.0, -1.0), 0.0)
+    }
+
+    @Test
+    fun `context factor scales the dose rate`() {
+        assertEquals(1.5, ExposureCalculator.calculateDoseIncrement(10.0, 10.0, 1.0), EPSILON)
+        assertEquals(0.75, ExposureCalculator.calculateDoseIncrement(10.0, 10.0, 0.5), EPSILON)
+        assertEquals(0.0, ExposureCalculator.calculateDoseIncrement(10.0, 10.0, 0.0), 0.0)
     }
 
     @Test
@@ -41,9 +49,19 @@ class ExposureCalculatorTest {
     }
 
     @Test
+    fun `shade factor increases estimated remaining minutes`() {
+        assertEquals(
+            41.666666666666664,
+            ExposureCalculator.calculateRemainingMinutes(2.5, 8.0, 0.5)!!,
+            EPSILON,
+        )
+    }
+
+    @Test
     fun `remaining minutes are unavailable without positive UVI`() {
         assertNull(ExposureCalculator.calculateRemainingMinutes(2.5, 0.0))
         assertNull(ExposureCalculator.calculateRemainingMinutes(2.5, -1.0))
+        assertNull(ExposureCalculator.calculateRemainingMinutes(2.5, 8.0, 0.0))
     }
 
     @Test

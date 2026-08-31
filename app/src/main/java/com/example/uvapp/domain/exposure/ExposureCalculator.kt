@@ -6,7 +6,12 @@ object ExposureCalculator {
     fun calculateDoseIncrement(
         uvIndex: Double,
         elapsedMinutes: Double,
-    ): Double = SED_PER_UVI_MINUTE * uvIndex.coerceAtLeast(0.0) * elapsedMinutes.coerceAtLeast(0.0)
+        contextFactor: Double = 1.0,
+    ): Double =
+        SED_PER_UVI_MINUTE *
+            uvIndex.coerceAtLeast(0.0) *
+            contextFactor.coerceAtLeast(0.0) *
+            elapsedMinutes.coerceAtLeast(0.0)
 
     fun calculateRemainingDose(
         doseLimitSed: Double,
@@ -24,10 +29,11 @@ object ExposureCalculator {
     fun calculateRemainingMinutes(
         remainingDoseSed: Double,
         uvIndex: Double,
+        contextFactor: Double = 1.0,
     ): Double? =
         when {
             remainingDoseSed <= 0.0 -> 0.0
-            uvIndex <= 0.0 -> null
-            else -> remainingDoseSed / (SED_PER_UVI_MINUTE * uvIndex)
+            uvIndex <= 0.0 || contextFactor <= 0.0 -> null
+            else -> remainingDoseSed / (SED_PER_UVI_MINUTE * uvIndex * contextFactor)
         }
 }
