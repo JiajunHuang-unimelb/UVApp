@@ -248,12 +248,12 @@ fun UvChartCard(
                 }
 
                 // Day peak: MAX badge at the highest UV of the displayed day.
-                val peak = data.filter { it.uv != null }.maxByOrNull { it.uv!! }
-                if (peak != null) {
-                    val peakHours = data.filter { it.uv == peak.uv }
+                val peakUv = data.mapNotNull { it.uv }.maxOrNull()
+                if (peakUv != null) {
+                    val peakHours = data.filter { it.uv == peakUv }
                     val peakHour = (peakHours.first().hour + peakHours.last().hour) / 2.0
                     val pkx = hourX(peakHour.toFloat())
-                    val pky = uvY(peak.uv!!.toFloat())
+                    val pky = uvY(peakUv.toFloat())
                     drawLine(
                         colors.accent.copy(alpha = 0.5f),
                         Offset(pkx, 0f),
@@ -265,7 +265,7 @@ fun UvChartCard(
                     drawCircle(colors.accent, radius = 5f * sx, center = Offset(pkx, pky))
                     // MAX pill floating at the top of the chart.
                     val badgeStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.accent)
-                    val badgeLayout = textMeasurer.measure(AnnotatedString("MAX ${formatUv(peak.uv!!)}"), style = badgeStyle)
+                    val badgeLayout = textMeasurer.measure(AnnotatedString("MAX ${formatUv(peakUv)}"), style = badgeStyle)
                     val padH = 10f * sx
                     val pillW = badgeLayout.size.width + padH * 2
                     val pillH = 22f * sx

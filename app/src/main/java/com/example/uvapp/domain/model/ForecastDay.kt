@@ -28,7 +28,7 @@ data class ForecastDay(
         val above = hourly.filter { it.hour >= hourFraction }.minByOrNull { it.hour }
         val floor = below?.uv
         val ceil = above?.uv
-        return if (floor != null && ceil != null && below!!.hour != above!!.hour) {
+        return if (below != null && above != null && floor != null && ceil != null && below.hour != above.hour) {
             floor + (ceil - floor) * (hourFraction - below.hour) / (above.hour - below.hour)
         } else {
             floor ?: ceil

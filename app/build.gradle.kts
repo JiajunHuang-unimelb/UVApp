@@ -58,4 +58,5 @@ dependencies {
 
     // Testing (unit)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
