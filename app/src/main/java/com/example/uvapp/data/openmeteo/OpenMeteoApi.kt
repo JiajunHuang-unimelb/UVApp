@@ -3,7 +3,7 @@ package com.example.uvapp.data.openmeteo
 import retrofit2.http.GET
 import retrofit2.http.Query
 
-/** Network boundary for the Open-Meteo UV forecast endpoint. */
+/** Network boundary for the hourly Open-Meteo UV forecast endpoint. */
 interface OpenMeteoApi {
     @GET("v1/forecast")
     suspend fun getUvForecast(
@@ -20,4 +20,5 @@ interface OpenMeteoApi {
         @Query("forecast_days")
         forecastDays: Int = 7,
     ): OpenMeteoResponseDto
+
 }
