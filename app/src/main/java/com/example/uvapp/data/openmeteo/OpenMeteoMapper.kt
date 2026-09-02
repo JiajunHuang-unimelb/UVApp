@@ -1,17 +1,17 @@
 package com.example.uvapp.data.openmeteo
 
-import com.example.uvapp.domain.model.UvReading
+import com.example.uvapp.domain.model.UvForecastReading
 import java.time.LocalDateTime
 import java.time.ZoneId
 
 /** Converts Open-Meteo transport models into app-owned domain models. */
 interface OpenMeteoMapper {
-    fun toDomain(response: OpenMeteoResponseDto): List<UvReading>
+    fun toDomain(response: OpenMeteoResponseDto): List<UvForecastReading>
 }
 
 /** Strict mapper that rejects incomplete or misaligned hourly arrays. */
 class DefaultOpenMeteoMapper : OpenMeteoMapper {
-    override fun toDomain(response: OpenMeteoResponseDto): List<UvReading> {
+    override fun toDomain(response: OpenMeteoResponseDto): List<UvForecastReading> {
         val hourly = response.hourly
         val rowCount = hourly.time.size
 
@@ -34,7 +34,7 @@ class DefaultOpenMeteoMapper : OpenMeteoMapper {
                     .toInstant()
                     .toEpochMilli()
 
-            UvReading(
+            UvForecastReading(
                 forecastTimeMillis = forecastTimeMillis,
                 uvIndex = uvIndex,
                 clearSkyUvIndex = hourly.uvIndexClearSky[index],

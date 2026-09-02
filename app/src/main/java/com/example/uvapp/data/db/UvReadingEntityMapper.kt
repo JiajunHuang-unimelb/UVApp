@@ -1,8 +1,8 @@
 package com.example.uvapp.data.db
 
-import com.example.uvapp.domain.model.UvReading
+import com.example.uvapp.domain.model.UvForecastReading
 
-fun UvReading.toEntity(
+fun UvForecastReading.toEntity(
     locationKey: String,
     latitude: Double,
     longitude: Double,
@@ -19,8 +19,8 @@ fun UvReading.toEntity(
         fetchedAtMillis = fetchedAtMillis,
     )
 
-fun UvReadingEntity.toDomain(): UvReading =
-    UvReading(
+fun UvReadingEntity.toDomain(): UvForecastReading =
+    UvForecastReading(
         forecastTimeMillis = forecastTimeMillis,
         uvIndex = uvIndex,
         clearSkyUvIndex = clearSkyUvIndex,
