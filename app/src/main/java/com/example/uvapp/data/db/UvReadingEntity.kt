@@ -1,6 +1,12 @@
 package com.example.uvapp.data.db
 
-/** Persisted hourly UV value. Room annotations will be added with the Room dependency. */
+import androidx.room.Entity
+
+/** Persisted hourly UV value for one approximate location. */
+@Entity(
+    tableName = "uv_readings",
+    primaryKeys = ["locationKey", "forecastTimeMillis"],
+)
 data class UvReadingEntity(
     val locationKey: String,
     val forecastTimeMillis: Long,
