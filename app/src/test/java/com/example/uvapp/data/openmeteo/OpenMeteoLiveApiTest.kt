@@ -16,13 +16,12 @@ class OpenMeteoLiveApiTest {
             )
 
             val response = OpenMeteoClient.create().getUvForecast(-37.81, 144.96)
-            val readings = DefaultOpenMeteoMapper().toDomain(response)
+            val readings = response.toForecastReadings()
 
             assertTrue("Expected at least 24 hourly readings", readings.size >= 24)
             assertTrue("UV values must not be negative", readings.all { it.uvIndex >= 0.0 })
 
             println("Open-Meteo live response")
-            println("location=${response.latitude},${response.longitude}")
             println("timezone=${response.timezone}")
             println("hourlyRows=${readings.size}")
             println("time | uv_index | uv_index_clear_sky | cloud_cover")

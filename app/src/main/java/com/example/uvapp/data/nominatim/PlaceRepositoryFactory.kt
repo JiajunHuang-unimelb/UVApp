@@ -9,7 +9,6 @@ object PlaceRepositoryFactory {
         val database = AppDatabase.getInstance(context)
         return DefaultPlaceRepository(
             api = NominatimClient.create(),
-            mapper = DefaultNominatimMapper(),
             dao = database.placeNameDao(),
         )
     }

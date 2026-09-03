@@ -15,11 +15,5 @@ interface NominatimApi {
         format: String = "jsonv2",
         @Query("addressdetails")
         addressDetails: Int = 1,
-        @Query("zoom")
-        zoom: Int = 13,
-        @Query("layer")
-        layer: String = "address",
-        @Query("accept-language")
-        acceptLanguage: String = "en-AU,en",
     ): NominatimResponseDto
 }

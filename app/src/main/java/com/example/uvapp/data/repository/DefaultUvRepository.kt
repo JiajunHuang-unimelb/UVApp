@@ -4,7 +4,7 @@ import com.example.uvapp.data.db.UvReadingDao
 import com.example.uvapp.data.db.toDomain
 import com.example.uvapp.data.db.toEntity
 import com.example.uvapp.data.openmeteo.OpenMeteoApi
-import com.example.uvapp.data.openmeteo.OpenMeteoMapper
+import com.example.uvapp.data.openmeteo.toForecastReadings
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastState
 import com.example.uvapp.domain.repository.UvRepository
@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.update
 /** Offline-first repository backed by Room and refreshed from Open-Meteo. */
 class DefaultUvRepository(
     private val api: OpenMeteoApi,
-    private val mapper: OpenMeteoMapper,
     private val dao: UvReadingDao,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : UvRepository {
@@ -97,7 +96,7 @@ class DefaultUvRepository(
 
         return try {
             val response = api.getUvForecast(latitude, longitude)
-            val readings = mapper.toDomain(response)
+            val readings = response.toForecastReadings()
             val fetchedAtMillis = nowMillis()
             val entities =
                 readings.map { reading ->

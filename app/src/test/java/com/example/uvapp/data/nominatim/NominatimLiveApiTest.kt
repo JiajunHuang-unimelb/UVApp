@@ -16,7 +16,7 @@ class NominatimLiveApiTest {
             )
 
             val response = NominatimClient.create().reverseGeocode(-37.8136, 144.9631)
-            val place = DefaultNominatimMapper().toDomain(response)
+            val place = response.toPlaceName()
 
             assertTrue(place.label.isNotBlank())
             println("Nominatim live response")

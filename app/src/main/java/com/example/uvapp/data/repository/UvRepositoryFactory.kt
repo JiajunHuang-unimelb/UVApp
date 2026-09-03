@@ -2,7 +2,6 @@ package com.example.uvapp.data.repository
 
 import android.content.Context
 import com.example.uvapp.data.db.AppDatabase
-import com.example.uvapp.data.openmeteo.DefaultOpenMeteoMapper
 import com.example.uvapp.data.openmeteo.OpenMeteoClient
 import com.example.uvapp.domain.repository.UvRepository
 
@@ -12,7 +11,6 @@ object UvRepositoryFactory {
         val database = AppDatabase.getInstance(context)
         return DefaultUvRepository(
             api = OpenMeteoClient.create(),
-            mapper = DefaultOpenMeteoMapper(),
             dao = database.uvReadingDao(),
         )
     }

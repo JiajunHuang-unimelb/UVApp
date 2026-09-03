@@ -12,40 +12,33 @@ import kotlinx.coroutines.CancellationException
 /** Reverse-geocodes coordinates while caching results and respecting public API limits. */
 class DefaultPlaceRepository internal constructor(
     private val api: NominatimApi,
-    private val mapper: NominatimMapper,
     private val dao: PlaceNameDao,
     private val rateLimiter: NominatimRateLimiter = NominatimRateLimiter.shared,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : PlaceRepository {
-    override suspend fun reverseGeocode(
-        coordinates: Coordinates,
-        forceRefresh: Boolean,
-    ): Result<PlaceName> {
-        val validationError = validate(coordinates)
-        if (validationError != null) {
-            return Result.failure(validationError)
-        }
-
-        val locationKey = locationKey(coordinates)
-        val cached = readCache(locationKey)
-        if (!forceRefresh && cached != null) {
-            return Result.success(cached)
-        }
-
+    override suspend fun reverseGeocode(coordinates: Coordinates): Result<PlaceName> {
         return try {
+            require(coordinates.latitude in -90.0..90.0) { "Latitude must be between -90 and 90" }
+            require(coordinates.longitude in -180.0..180.0) { "Longitude must be between -180 and 180" }
+            val locationKey = locationKey(coordinates)
+            val cached = dao.getPlaceName(locationKey)
+            if (cached != null) {
+                return Result.success(cached.toDomain())
+            }
+
             rateLimiter.run {
-                val secondCacheCheck = readCache(locationKey)
-                if (!forceRefresh && secondCacheCheck != null) {
-                    return@run secondCacheCheck
+                // Another caller may have cached this location while we waited.
+                val cachedAfterWait = dao.getPlaceName(locationKey)
+                if (cachedAfterWait != null) {
+                    return@run cachedAfterWait.toDomain()
                 }
 
                 val place =
-                    mapper.toDomain(
-                        api.reverseGeocode(
+                    api
+                        .reverseGeocode(
                             latitude = coordinates.latitude,
                             longitude = coordinates.longitude,
-                        ),
-                    )
+                        ).toPlaceName()
                 dao.upsert(
                     place.toEntity(
                         locationKey = locationKey,
@@ -59,26 +52,9 @@ class DefaultPlaceRepository internal constructor(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            cached?.let(Result.Companion::success) ?: Result.failure(error)
+            Result.failure(error)
         }
     }
-
-    private suspend fun readCache(locationKey: String): PlaceName? =
-        try {
-            dao.getPlaceName(locationKey)?.toDomain()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            null
-        }
-
-    private fun validate(coordinates: Coordinates): IllegalArgumentException? =
-        when {
-            coordinates.latitude !in -90.0..90.0 -> IllegalArgumentException("Latitude must be between -90 and 90")
-            coordinates.longitude !in -180.0..180.0 ->
-                IllegalArgumentException("Longitude must be between -180 and 180")
-            else -> null
-        }
 
     private fun locationKey(coordinates: Coordinates): String =
         String.format(Locale.ROOT, "%.3f,%.3f", coordinates.latitude, coordinates.longitude)

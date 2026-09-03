@@ -7,8 +7,6 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class OpenMeteoMapperTest {
-    private val mapper = DefaultOpenMeteoMapper()
-
     @Test
     fun `maps aligned hourly values using the response timezone`() {
         val response =
@@ -19,7 +17,7 @@ class OpenMeteoMapperTest {
                 cloudCover = listOf(40, 35),
             )
 
-        val readings = mapper.toDomain(response)
+        val readings = response.toForecastReadings()
 
         val expectedFirstTime =
             LocalDateTime
@@ -45,7 +43,7 @@ class OpenMeteoMapperTest {
             )
 
         assertThrows(IllegalArgumentException::class.java) {
-            mapper.toDomain(response)
+            response.toForecastReadings()
         }
     }
 
@@ -60,7 +58,7 @@ class OpenMeteoMapperTest {
             )
 
         assertThrows(IllegalArgumentException::class.java) {
-            mapper.toDomain(response)
+            response.toForecastReadings()
         }
     }
 
@@ -71,8 +69,6 @@ class OpenMeteoMapperTest {
         cloudCover: List<Int?>,
     ): OpenMeteoResponseDto =
         OpenMeteoResponseDto(
-            latitude = -37.81,
-            longitude = 144.96,
             timezone = "Australia/Melbourne",
             hourly =
                 OpenMeteoHourlyDto(

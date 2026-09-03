@@ -13,7 +13,6 @@ object OpenMeteoClient {
 
     private val json = Json {
         ignoreUnknownKeys = true
-        isLenient = false
     }
 
     fun create(

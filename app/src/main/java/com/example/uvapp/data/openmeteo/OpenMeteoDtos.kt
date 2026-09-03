@@ -7,8 +7,6 @@ import kotlinx.serialization.Serializable
 /** Transport models matching the relevant fields returned by Open-Meteo. */
 @Serializable
 data class OpenMeteoResponseDto(
-    val latitude: Double,
-    val longitude: Double,
     val timezone: String,
     val hourly: OpenMeteoHourlyDto,
 )

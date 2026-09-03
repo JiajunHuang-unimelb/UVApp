@@ -2,7 +2,6 @@ package com.example.uvapp.data.repository
 
 import com.example.uvapp.data.db.UvReadingDao
 import com.example.uvapp.data.db.UvReadingEntity
-import com.example.uvapp.data.openmeteo.DefaultOpenMeteoMapper
 import com.example.uvapp.data.openmeteo.OpenMeteoApi
 import com.example.uvapp.data.openmeteo.OpenMeteoHourlyDto
 import com.example.uvapp.data.openmeteo.OpenMeteoResponseDto
@@ -96,7 +95,6 @@ class DefaultUvRepositoryTest {
     ): DefaultUvRepository =
         DefaultUvRepository(
             api = api,
-            mapper = DefaultOpenMeteoMapper(),
             dao = dao,
             nowMillis = nowMillis,
         )
@@ -172,8 +170,6 @@ class DefaultUvRepositoryTest {
 
         fun validResponse(): OpenMeteoResponseDto =
             OpenMeteoResponseDto(
-                latitude = LATITUDE,
-                longitude = LONGITUDE,
                 timezone = "Australia/Melbourne",
                 hourly =
                     OpenMeteoHourlyDto(

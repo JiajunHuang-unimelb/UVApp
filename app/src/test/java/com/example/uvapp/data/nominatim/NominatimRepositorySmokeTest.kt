@@ -3,12 +3,29 @@ package com.example.uvapp.data.nominatim
 import com.example.uvapp.data.db.PlaceNameDao
 import com.example.uvapp.data.db.PlaceNameEntity
 import com.example.uvapp.domain.model.Coordinates
+import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NominatimRepositorySmokeTest {
+    @Test
+    fun `failed request without cache returns failure for coordinate fallback`() =
+        runBlocking {
+            val repository =
+                DefaultPlaceRepository(
+                    api = FakeNominatimApi(IOException("offline")),
+                    dao = FakePlaceNameDao(),
+                    rateLimiter = NominatimRateLimiter(),
+                )
+
+            val result = repository.reverseGeocode(Coordinates(-37.8136, 144.9631))
+
+            assertTrue(result.isFailure)
+            assertEquals("offline", result.exceptionOrNull()?.message)
+        }
+
     @Test
     fun `reverse geocodes Melbourne and reuses the Room cache`() =
         runBlocking {
@@ -17,7 +34,6 @@ class NominatimRepositorySmokeTest {
             val repository =
                 DefaultPlaceRepository(
                     api = api,
-                    mapper = DefaultNominatimMapper(),
                     dao = dao,
                     rateLimiter = NominatimRateLimiter(),
                     nowMillis = { 1_234L },
@@ -34,7 +50,9 @@ class NominatimRepositorySmokeTest {
             assertTrue(dao.stored?.displayName?.contains("Victoria") == true)
         }
 
-    private class FakeNominatimApi : NominatimApi {
+    private class FakeNominatimApi(
+        private val error: Exception? = null,
+    ) : NominatimApi {
         var callCount = 0
             private set
 
@@ -43,11 +61,9 @@ class NominatimRepositorySmokeTest {
             longitude: Double,
             format: String,
             addressDetails: Int,
-            zoom: Int,
-            layer: String,
-            acceptLanguage: String,
         ): NominatimResponseDto {
             callCount += 1
+            error?.let { throw it }
             return NominatimResponseDto(
                 displayName = "Melbourne, City of Melbourne, Victoria, Australia",
                 address =
