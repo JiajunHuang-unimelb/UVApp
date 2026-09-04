@@ -1,6 +1,5 @@
 package com.example.uvapp.data.openmeteo
 
-import com.example.uvapp.domain.model.UvReading
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -21,20 +20,3 @@ data class OpenMeteoHourlyDto(
     @SerialName("cloud_cover")
     val cloudCover: List<Int?>,
 )
-
-@Serializable
-data class OpenMeteoUvResponse(
-    val current: CurrentUvDto,
-)
-
-@Serializable
-data class CurrentUvDto(
-    val time: String,
-    @SerialName("uv_index") val uvIndex: Double,
-)
-
-fun OpenMeteoUvResponse.toDomain(): UvReading =
-    UvReading(
-        index = current.uvIndex,
-        observedAt = current.time,
-    )

@@ -1,154 +1,77 @@
-# 当前位置 UV 指数开发记录
+# 当前位置与 UV 数据模块
 
-- 负责人：Zack
-- 日期：2026-08-26
-- 状态：已完成
+- 模块：Foreground Location / GPS
+- 分支：`feat/gps-integration`
+- 状态：已接入正式 App 数据流
 
----
+## 功能范围
 
-## 1. 需求说明
-
-获取真机或 Android 虚拟设备的当前位置，将经纬度传给 Open-Meteo Forecast API，并在首页显示当前位置的 UV 指数和墨尔本时区的观测时间。
-
----
-
-## 2. 技术方案
-
-### 2.1 方案概述
-
-- Compose 页面负责运行时定位权限请求和状态展示。
-- `FusedLocationProviderClient` 负责一次性获取当前坐标。
-- `MainViewModel` 先获取位置，再调用现有 `CurrentUvRepository`。
-- `OpenMeteoCurrentUvRepository` 请求 Open-Meteo，并将 DTO 转换为 `UvReading`。
-- 请求固定传入 `timezone=Australia/Melbourne`，让 API 直接返回墨尔本本地时间。
-
-没有引入 Service、Use Case、DI 框架、后台定位、缓存或持续位置监听。
-
-### 2.2 架构设计
+该模块在用户点击定位按钮后申请前台位置权限，通过 Google Fused Location 获取一次当前位置，并将坐标交给已有的 Open-Meteo + Room Repository。模块不持续监听位置，也不申请后台定位权限。
 
 ```text
-MainScreen
-  ├─ 请求 ACCESS_COARSE_LOCATION / ACCESS_FINE_LOCATION
-  └─ 展示 MainUiState
-          ↑
-MainViewModel
-  ├─ CurrentLocationProvider
-  │      └─ FusedCurrentLocationProvider
-  └─ CurrentUvRepository
-         └─ OpenMeteoCurrentUvRepository
-                └─ OpenMeteoApi
-```
-
-数据流：
-
-```text
-设备或模拟器位置
-  → Fused Location
-  → 经纬度
+Home / Forecast / Search 的定位按钮
+  → UVAppRoot 权限边界
   → MainViewModel
-  → Open-Meteo Repository
-  → UvReading
+  → CurrentLocationProvider
+  → FusedCurrentLocationProvider
+  → LocationFix
+  ├→ UvRepository.observeForecast + refresh → Room 缓存 / Open-Meteo
+  └→ PlaceRepository.reverseGeocode → Room 缓存 / Nominatim
   → MainUiState
-  → Compose UI
 ```
 
-### 2.3 涉及的技术栈/库
+## 定位策略
 
-- 语言/框架：Kotlin、Android、Jetpack Compose、MVVM、Coroutines、StateFlow
-- 关键依赖：Google Play Services Location 21.4.0、Retrofit 3.0.0、Kotlinx Serialization
+- 同时支持 Approximate 与 Precise location。
+- 首先使用 balanced-power 请求；没有结果时回退到 high-accuracy 请求。
+- 最多接受五分钟内的缓存位置。
+- 单次尝试最长六秒，整个定位流程最长十三秒。
+- 新的定位请求会取消旧请求，避免旧位置覆盖新位置。
+- 获取 UV 时使用已有的一小时缓存策略；手动 Refresh 会强制刷新当前坐标的数据。
+- 定位成功后并行查询 Nominatim；成功时显示地点名称，失败时保留 `Current location` / `Current area`。
 
-### 2.4 数据结构 / 接口设计
+`LocationFix` 保存以下质量信息：
 
-**数据库变更：**
+- 经纬度
+- 水平精度（米）
+- 采集时间
+- 是否为 approximate permission
+- 是否为模拟位置
 
-无数据库变更。
+## 权限与恢复
 
-**关键数据结构：**
+权限只在用户点击定位功能时申请，不在首次启动时自动弹窗。
 
-```kotlin
-data class Coordinates(
-    val latitude: Double,
-    val longitude: Double,
-)
+- 未授权：请求 `ACCESS_COARSE_LOCATION` 与 `ACCESS_FINE_LOCATION`。
+- 仅授权 approximate：功能继续工作，界面显示 `Current area`。
+- 普通拒绝：提示重试或手动选地点。
+- 永久拒绝：再次点击定位会打开 App Settings。
+- 从 Settings 返回：重新读取权限；授权成功后只继续一次待处理的定位请求。
+- 定位服务关闭、超时和不可用分别返回不同的领域状态。
 
-data class UvReading(
-    val index: Double,
-    val observedAt: String,
-)
-```
+## 隐私约束
 
-**API 设计：**
+- 正式 UI 不显示完整经纬度。
+- 不使用后台位置权限，不持续跟踪用户。
+- Room 数据库属于可重建缓存，已从云备份和设备迁移中排除。
+- 坐标仅用于查询当前位置的 UV 预报；后续 About/Privacy 页面应说明第三方数据传输。
+- 坐标也会发送给 Nominatim 以取得可读地点名称；UV 与地点缓存均不会进入系统备份。
 
-| 方法 | 路径 | 说明 | 请求参数 | 返回值 |
-|------|------|------|----------|--------|
-| GET | `https://api.open-meteo.com/v1/forecast` | 获取当前位置的当前 UV 指数 | `latitude`、`longitude`、`current=uv_index`、`timezone=Australia/Melbourne` | `current.uv_index`、`current.time`、`current.interval` |
+## 自动化测试
 
-**观测时间说明：**
+JVM 测试覆盖：
 
-Open-Meteo 当前 UV 数据使用 15 分钟时间片，响应中的 `current.interval` 为 `900` 秒。`current.time` 表示 UV 数据所属时间片，不是用户点击 Refresh 的请求时间，因此页面时间可能比当前时间早约 15 分钟。项目没有为该请求配置数据库或 HTTP response cache；跨过下一个 15 分钟边界后再次刷新，时间会更新到新的时间片。
+- 精确位置成功并传入 UV Repository
+- 定位成功后将坐标传入 Place Repository 并显示地点名称
+- approximate location 成功
+- 定位超时后保留原有 UV 数据并退出 Loading
+- 新定位请求取消旧请求
+- 非法经纬度和无效精度被拒绝
 
----
+设备测试仍需手动验证：首次授权、拒绝、永久拒绝、系统定位关闭、从 Settings 返回、模拟器位置注入及真机定位。
 
-## 3. 开发过程 / 踩坑记录
+## 已知边界
 
-| 问题 | 原因 | 解决方案 |
-|------|------|----------|
-| 初版只能显示 Melbourne CBD 的 UV | ViewModel 使用写死的 Melbourne 经纬度，项目没有设备定位权限或定位实现 | 加入定位权限、`CurrentLocationProvider` 和 Fused Location 实现，删除固定坐标 |
-| 模拟器网络和数据已开启，但返回 `Current location is unavailable` | `BALANCED_POWER_ACCURACY` 在该模拟器上偏向没有位置的 network provider，结果返回 `null` | 一次性定位请求改为 `PRIORITY_HIGH_ACCURACY`，使用模拟器 GPS fix |
-| 观测时间比墨尔本时间早 10 小时 | Open-Meteo 未指定 `timezone` 时默认返回 GMT 时间 | 请求增加 `timezone=Australia/Melbourne` |
-| Compose lint 报告 `NonObservableLocale` | Composable 中直接调用 `Locale.getDefault()` 不会响应 locale 状态变化 | 坐标固定使用 `Locale.US` 格式化小数点 |
-| Refresh 后观测时间仍比当前时间早十几分钟 | Open-Meteo 的当前 UV 以 15 分钟为一个时间片，`current.time` 不是请求发出时间 | 保留 API 原始数据时间；将其视为正常数据粒度，不增加 App cache 或额外刷新逻辑 |
-
-**关键代码片段：**
-
-```kotlin
-val location = locationProvider.getCurrentLocation()
-
-val reading = repository.getCurrentUv(
-    latitude = location.latitude,
-    longitude = location.longitude,
-)
-```
-
-Open-Meteo 请求参数：
-
-```kotlin
-api.getCurrentUv(
-    latitude = latitude,
-    longitude = longitude,
-    current = "uv_index",
-    timezone = "Australia/Melbourne",
-)
-```
-
----
-
-## 4. 测试记录
-
-### 4.1 测试用例
-
-| 用例编号 | 测试场景 | 输入 | 预期输出 | 实际结果 | 状态 |
-|----------|----------|------|----------|----------|------|
-| TC01 | Open-Meteo JSON 解析 | UV fixture JSON | 转换为正确的 `UvReading` | UV 和观测时间映射正确 | ✅ |
-| TC02 | Repository 请求参数 | Melbourne 经纬度 | 传递坐标、`uv_index` 和 Melbourne 时区 | 参数断言通过 | ✅ |
-| TC03 | ViewModel 使用设备坐标 | Fake Sydney 坐标 | 用当前位置请求 UV 并更新 UI state | 坐标、UV、时间断言通过 | ✅ |
-| TC04 | 模拟器端到端流程 | 模拟 GPS 坐标、粗略定位权限、网络连接 | 页面显示坐标、UV 和 Melbourne 时间 | 显示坐标 `-37.8919, 144.7522`、UV `0.25`、时间 `2026-08-26T17:30` | ✅ |
-| TC05 | 项目构建和静态检查 | Debug variant | 测试、lint、APK 构建成功 | `testDebugUnitTest`、`lintDebug`、`assembleDebug` 通过 | ✅ |
-| TC06 | 验证 UV 数据时间片 | Pixel 7 / API 36，系统时间 `20:00` | Refresh 后显示最新 Open-Meteo 时间片 | 页面从 `19:45` 更新为 `20:00`，API 返回 `interval=900` | ✅ |
-
-### 4.2 Bug 记录
-
-| Bug编号 | 描述 | 严重程度 | 状态 | 修复方式 |
-|---------|------|----------|------|----------|
-| BUG-01 | 模拟器已有 GPS 坐标但 App 获取位置为 `null` | 高 | 已修复 | 定位优先级改为 `PRIORITY_HIGH_ACCURACY` |
-| BUG-02 | API 观测时间显示为 GMT | 中 | 已修复 | Open-Meteo 请求增加 `timezone=Australia/Melbourne` |
-
----
-
-## 5. 备注
-
-- 当前只显示经纬度，没有 suburb/city 反向地理编码。
-- App 每次进入页面或点击 Refresh 时获取一次位置，不进行持续后台定位。
-- 用户只授权 approximate location 时，Android 会对坐标做模糊处理；需要更准确坐标时应授权 Precise location。
-- 虚拟设备手测推荐使用 **Pixel 7 / API 36**（Google APIs 或 Google Play system image），该组合已验证可以正常注入位置并完成定位 → Open-Meteo → UI 流程。
-- 当前环境中的 Android 37.1 AVD 曾出现位置注入不进入 Android location service 的问题，因此不作为本功能的推荐手测版本。
+- Nominatim 查询失败时使用 `Current location` / `Current area`，不会影响 UV 查询。
+- Forecast 页的日期卡片仍由现有前端 Repository 提供；当前位置 UV 数值和缓存来自真实数据层。
+- Fused Location 依赖 Google Play services；不可用时会退化为 `Unavailable`，用户仍可手动选择地点。

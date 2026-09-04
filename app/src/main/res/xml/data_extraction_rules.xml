@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Do not upload cached coordinates or UV rows to cloud backup. -->
+        <exclude
+            domain="database"
+            path="." />
+    </cloud-backup>
+    <device-transfer>
+        <!-- The cache is recreated for the new device and location. -->
+        <exclude
+            domain="database"
+            path="." />
+    </device-transfer>
+</data-extraction-rules>
