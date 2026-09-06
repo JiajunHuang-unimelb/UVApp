@@ -153,7 +153,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `approximate location is accepted and labelled as an area`() {
+    fun `failed place lookup falls back to raw coordinates`() {
         val approximateFix = PRECISE_FIX.copy(isApproximate = true, accuracyMeters = 2_000f)
         val vm =
             MainViewModel(
@@ -169,7 +169,7 @@ class MainViewModelTest {
         vm.onUseCurrentLocation()
         mainDispatcher.scheduler.runCurrent()
 
-        assertEquals("Current area", vm.state.value.placeName)
+        assertEquals("-37.81360, 144.96310", vm.state.value.placeName)
         assertEquals(approximateFix, vm.state.value.locationFix)
     }
 

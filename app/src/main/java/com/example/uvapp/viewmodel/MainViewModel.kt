@@ -16,6 +16,7 @@ import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import java.util.Locale
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -274,7 +275,7 @@ class MainViewModel(
                         _state.update {
                             it.copy(
                                 locationFix = fix,
-                                placeName = fix.displayName(),
+                                placeName = fix.coordinateLabel(),
                             )
                         }
                         observeForecast(fix, repository)
@@ -460,12 +461,8 @@ class MainViewModel(
         }
     }
 
-    private fun LocationFix.displayName(): String =
-        when {
-            isMock -> "Current location (simulated)"
-            isApproximate -> "Current area"
-            else -> "Current location"
-        }
+    private fun LocationFix.coordinateLabel(): String =
+        String.format(Locale.ROOT, "%.5f, %.5f", latitude, longitude)
 
     private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
         minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
