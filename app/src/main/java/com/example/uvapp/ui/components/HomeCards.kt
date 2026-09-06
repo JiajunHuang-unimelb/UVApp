@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.uvapp.domain.advisor.BurnCalculator
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.SkinType
@@ -54,9 +55,13 @@ import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.ui.icons.UvIcons
 import com.example.uvapp.ui.theme.BandPalettes
 import com.example.uvapp.ui.theme.UvTheme
+import com.example.uvapp.viewmodel.MainViewModel
+import com.example.uvapp.viewmodel.Tab
 import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.pow
+
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 fun formatUv(uv: Double): String = String.format(Locale.US, "%.1f", uv)
 
@@ -142,9 +147,9 @@ fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier) {
 
 /** Skin / SPF summary card. */
 @Composable
-fun SkinSpfCard(skinType: SkinType, spf: Int, modifier: Modifier = Modifier) {
+fun SkinSpfCard(skinType: SkinType, spf: Int, modifier: Modifier = Modifier, viewModel: MainViewModel = viewModel()) {
     val colors = UvTheme
-    SunCard(modifier, containerColor = colors.surface, borderColor = colors.outline, shape = RoundedCornerShape(12.dp)) {
+    SunCard(modifier.clickable{viewModel.onTabSelected(Tab.SETTINGS)}, containerColor = colors.surface, borderColor = colors.outline, shape = RoundedCornerShape(12.dp)) {
         Column(
             Modifier.fillMaxSize().padding(vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
