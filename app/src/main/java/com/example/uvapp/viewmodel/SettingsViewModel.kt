@@ -1,11 +1,15 @@
 ﻿package com.example.uvapp.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.model.SkinType
+import com.example.uvapp.domain.repository.UserPreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /** UI theme preference. */
 enum class ThemeMode(val label: String) {
@@ -26,6 +30,7 @@ enum class AccentColor(val label: String) {
 
 /** Immutable snapshot of the Settings screen. */
 data class SettingsUiState(
+    val onboardingCompleted: Boolean = false,
     val skinType: SkinType = SkinType.II,
     val spf: Int = 15,
     val notificationsEnabled: Boolean = true,
@@ -34,18 +39,55 @@ data class SettingsUiState(
     val devModeEnabled: Boolean = false,
 )
 
-/** Settings screen state + user actions. In-memory mock persistence for now. */
-class SettingsViewModel : ViewModel() {
+/** Settings screen state + user actions. */
+class SettingsViewModel(
+    private val preferencesRepository: UserPreferencesRepository? = null,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
+    init {
+        preferencesRepository?.let { repository ->
+            viewModelScope.launch {
+                repository.preferences.collectLatest { preferences ->
+                    _state.update {
+                        it.copy(
+                            onboardingCompleted = preferences.onboardingCompleted,
+                            skinType = preferences.skinType,
+                            spf = preferences.spf,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun selectSkinType(type: SkinType) {
         _state.update { it.copy(skinType = type) }
+        preferencesRepository?.let { repository ->
+            viewModelScope.launch { repository.setSkinType(type) }
+        }
     }
 
     fun setSpf(spf: Int) {
         _state.update { it.copy(spf = spf) }
+        preferencesRepository?.let { repository ->
+            viewModelScope.launch { repository.setSpf(spf) }
+        }
+    }
+
+    fun completeOnboarding(skinType: SkinType, spf: Int) {
+        _state.update {
+            it.copy(
+                onboardingCompleted = true,
+                skinType = skinType,
+                spf = spf,
+            )
+        }
+        preferencesRepository?.let { repository ->
+            viewModelScope.launch { repository.completeOnboarding(skinType, spf) }
+        }
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {

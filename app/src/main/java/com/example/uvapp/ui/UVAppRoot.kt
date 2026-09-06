@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.uvapp.data.UvRepositoryProvider
 import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
+import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
 import com.example.uvapp.data.repository.UvRepositoryFactory
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
@@ -49,7 +50,11 @@ fun UVAppRoot() {
         remember(applicationContext) { UvRepositoryFactory.create(applicationContext) }
     val placeRepository =
         remember(applicationContext) { PlaceRepositoryFactory.create(applicationContext) }
-    val settingsViewModel: SettingsViewModel = viewModel()
+    val preferencesRepository =
+        remember(applicationContext) { DataStoreUserPreferencesRepository(applicationContext) }
+    val settingsViewModel: SettingsViewModel = viewModel {
+        SettingsViewModel(preferencesRepository)
+    }
     val mainViewModel: MainViewModel = viewModel {
         MainViewModel(
             auxiliaryRepository = UvRepositoryProvider.instance,
