@@ -386,7 +386,7 @@ fun SafeTimerCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
-    val finite = totalBurnSeconds in 1 until Long.MAX_VALUE
+    val finite = totalBurnSeconds < Long.MAX_VALUE
     val borderColor = if (isWarning) colors.error else colors.outline
     val borderWidth = if (isWarning) 1.4.dp else 1.2.dp
     SunCard(
@@ -398,7 +398,7 @@ fun SafeTimerCard(
     ) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(12.dp))
-            Text("SAFE TIMER", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("TIMER", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             Box(contentAlignment = Alignment.Center) {
                 val ringSize = 188.dp
@@ -407,7 +407,12 @@ fun SafeTimerCard(
                     val radius = size.minDimension / 2 - stroke / 2
                     val center = Offset(size.width / 2, size.height / 2)
                     drawCircle(color = colors.outline, radius = radius, center = center, style = Stroke(width = stroke))
-                    val fraction = if (finite) (remainingSeconds.toFloat() / totalBurnSeconds.toFloat()).coerceIn(0f, 1f) else 0f
+                    val fraction =
+                        if (finite && totalBurnSeconds > 0) {
+                            (remainingSeconds.toFloat() / totalBurnSeconds.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
                     if (fraction > 0f) {
                         drawArc(
                             color = if (isWarning) colors.error else colors.accent,
@@ -451,6 +456,57 @@ fun SafeTimerCard(
             } else {
                 Spacer(Modifier.height(10.dp))
             }
+        }
+    }
+}
+
+/** Quick controls for extending or starting the countdown manually. */
+@Composable
+fun AddTimerControls(
+    onAddMinutes: (Int) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UvTheme
+    Row(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(1, 5, 10).forEach { minutes ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.surface)
+                    .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
+                    .clickable { onAddMinutes(minutes) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "+$minutes min",
+                    color = colors.accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        Box(
+            Modifier
+                .weight(1f)
+                .height(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
+                .clickable(onClick = onClear),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Clear",
+                color = colors.textSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }

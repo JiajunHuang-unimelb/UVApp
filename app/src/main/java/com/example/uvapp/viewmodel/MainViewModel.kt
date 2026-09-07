@@ -57,6 +57,7 @@ data class MainUiState(
     val lightContext: LightContext = LightContext.DIRECT_SUN,
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
+    val manuallyAddedSeconds: Long = 0L,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isCached: Boolean = false,
@@ -85,7 +86,7 @@ data class MainUiState(
         else -> lightContext
     }
 
-    val isTimerFinite: Boolean get() = totalBurnSeconds in 1 until Long.MAX_VALUE
+    val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() = isTimerFinite && remainingSeconds < 15 * 60L
 }
 
@@ -199,6 +200,34 @@ class MainViewModel(
     }
 
     fun onResetTimer() = _state.update { it.copy(remainingSeconds = it.totalBurnSeconds) }
+
+    fun onAddTimerMinutes(minutes: Int) {
+        val addedSeconds = minutes * 60L
+        _state.update { state ->
+            if (state.isTimerFinite) {
+                state.copy(
+                    remainingSeconds = state.remainingSeconds + addedSeconds,
+                    totalBurnSeconds = state.totalBurnSeconds + addedSeconds,
+                    manuallyAddedSeconds = state.manuallyAddedSeconds + addedSeconds,
+                )
+            } else {
+                state.copy(
+                    remainingSeconds = addedSeconds,
+                    totalBurnSeconds = addedSeconds,
+                    manuallyAddedSeconds = state.manuallyAddedSeconds + addedSeconds,
+                )
+            }
+        }
+    }
+
+    fun onClearTimer() =
+        _state.update {
+            it.copy(
+                remainingSeconds = 0L,
+                totalBurnSeconds = 0L,
+                manuallyAddedSeconds = 0L,
+            )
+        }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
 
@@ -465,8 +494,14 @@ class MainViewModel(
     private fun recomputeBurn() {
         val st = _state.value
         val totalMinutes = BurnCalculator.burnMinutes(st.skinType, st.spf, st.displayUv, st.displayContext)
-        val totalSeconds = if (totalMinutes == Int.MAX_VALUE) Long.MAX_VALUE else totalMinutes.toLong() * 60L
+        val estimatedSeconds = if (totalMinutes == Int.MAX_VALUE) Long.MAX_VALUE else totalMinutes.toLong() * 60L
         _state.update {
+            val totalSeconds =
+                if (estimatedSeconds == Long.MAX_VALUE) {
+                    it.manuallyAddedSeconds.takeIf { seconds -> seconds > 0 } ?: Long.MAX_VALUE
+                } else {
+                    estimatedSeconds + it.manuallyAddedSeconds
+                }
             it.copy(
                 totalBurnSeconds = totalSeconds,
                 remainingSeconds = if (totalSeconds == Long.MAX_VALUE) Long.MAX_VALUE
