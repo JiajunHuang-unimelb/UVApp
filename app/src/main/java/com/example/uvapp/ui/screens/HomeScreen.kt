@@ -26,6 +26,7 @@ import com.example.uvapp.viewmodel.MainViewModel
 fun HomeScreen(
     viewModel: MainViewModel,
     state: MainUiState,
+    onLocate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize()) {
@@ -46,7 +47,7 @@ fun HomeScreen(
                 spf = state.spf,
                 placeName = state.placeName,
                 onSearchClick = viewModel::onSearchClick,
-                onLocate = viewModel::onLocate,
+                onLocate = onLocate,
             )
             Spacer(Modifier.height(10.dp))
             SafeTimerCard(

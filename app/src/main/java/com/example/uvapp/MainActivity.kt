@@ -9,11 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.uvapp.ui.UVAppRoot
 
-/**
- * UVApp front-end (MVVM + Jetpack Compose).
- * This build ships the full UI with mock data only — the backend team plugs
- * the real APIs into `data.UvRepository` behind the same interface.
- */
+/** Hosts the Compose app; production location, UV forecast, and place-name data are wired in [UVAppRoot]. */
 class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(

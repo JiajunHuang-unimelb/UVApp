@@ -3,11 +3,23 @@
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.data.ApiStatus
-import com.example.uvapp.data.UvRepository
+import com.example.uvapp.data.UvRepository as AuxiliaryUvRepository
 import com.example.uvapp.domain.advisor.BurnCalculator
+import com.example.uvapp.domain.location.CurrentLocationProvider
+import com.example.uvapp.domain.location.LocationResult
+import com.example.uvapp.domain.model.Coordinates
 import com.example.uvapp.domain.model.LightContext
+import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvBand
+import com.example.uvapp.domain.model.UvDataSource
+import com.example.uvapp.domain.model.UvForecastReading
+import com.example.uvapp.domain.repository.PlaceRepository
+import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import java.util.Locale
+import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +58,7 @@ data class MainUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isCached: Boolean = false,
+    val locationFix: LocationFix? = null,
     val lux: Int = 38_200,
     /** Manual lux override from the slidable exposure indicator (testing). */
     val luxOverride: Int? = null,
@@ -79,8 +92,12 @@ data class MainUiState(
  * search dialog visibility and all developer-mode overrides.
  */
 class MainViewModel(
-    private val repository: UvRepository,
+    private val auxiliaryRepository: AuxiliaryUvRepository,
     settingsViewModel: SettingsViewModel,
+    private val locationProvider: CurrentLocationProvider? = null,
+    private val forecastRepository: ForecastUvRepository? = null,
+    private val placeRepository: PlaceRepository? = null,
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
@@ -88,6 +105,11 @@ class MainViewModel(
 
     private var lastSkinType: SkinType = SkinType.II
     private var lastSpf: Int = 15
+    private var auxiliaryRefreshJob: Job? = null
+    private var locationJob: Job? = null
+    private var forecastObservationJob: Job? = null
+    private var forecastRefreshJob: Job? = null
+    private var placeLookupJob: Job? = null
 
     init {
         // Mirror settings changes (skin type / SPF / dev mode) into the UI state.
@@ -112,7 +134,7 @@ class MainViewModel(
             }
         }
 
-        refresh()
+        refreshAuxiliaryData()
     }
 
     // ---- User actions -------------------------------------------------------
@@ -125,18 +147,47 @@ class MainViewModel(
 
     fun onQueryChange(query: String) = _state.update { it.copy(searchQuery = query) }
 
-    fun onPlaceSelected(suburb: String) = _state.update {
-        it.copy(placeName = "$suburb, Melbourne", showSearchDialog = false, searchQuery = "")
+    fun onPlaceSelected(suburb: String) {
+        cancelLocationWork()
+        _state.update {
+            it.copy(
+                placeName = "$suburb, Melbourne",
+                showSearchDialog = false,
+                searchQuery = "",
+                locationFix = null,
+                errorMessage = null,
+                isCached = false,
+            )
+        }
     }
 
-    fun onUseCurrentLocation() {
-        _state.update { it.copy(placeName = "Southbank, Melbourne", showSearchDialog = false, searchQuery = "") }
-        refresh()
+    /** Called only after the UI has granted a foreground location permission. */
+    fun onUseCurrentLocation() = locate()
+
+    fun onLocationPermissionDenied(permanentlyDenied: Boolean) {
+        locationJob?.cancel()
+        _state.update {
+            it.copy(
+                isLoading = false,
+                showSearchDialog = false,
+                errorMessage =
+                    if (permanentlyDenied) {
+                        "Location permission is disabled. Tap the locate button to open Settings."
+                    } else {
+                        "Location permission was denied. You can retry or choose a place manually."
+                    },
+            )
+        }
     }
 
-    fun onLocate() = refresh()
-
-    fun onRefresh() = refresh()
+    fun onRefresh() {
+        val fix = _state.value.locationFix
+        if (fix != null && forecastRepository != null) {
+            refreshForecast(fix, force = true)
+        } else {
+            refreshAuxiliaryData()
+        }
+    }
 
     fun onResetTimer() = _state.update { it.copy(remainingSeconds = it.totalBurnSeconds) }
 
@@ -183,8 +234,185 @@ class MainViewModel(
 
     // ---- Internals -----------------------------------------------------------
 
-    private fun refresh() {
-        viewModelScope.launch {
+    private fun locate() {
+        val provider = locationProvider
+        val repository = forecastRepository
+        if (provider == null || repository == null) {
+            _state.update {
+                it.copy(errorMessage = "Current-location data is not configured in this build.")
+            }
+            return
+        }
+
+        auxiliaryRefreshJob?.cancel()
+        locationJob?.cancel()
+        forecastObservationJob?.cancel()
+        forecastRefreshJob?.cancel()
+        placeLookupJob?.cancel()
+        locationJob =
+            viewModelScope.launch {
+                _state.update {
+                    it.copy(
+                        isLoading = true,
+                        showSearchDialog = false,
+                        errorMessage = null,
+                    )
+                }
+
+                val result =
+                    try {
+                        provider.getCurrentLocation()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        finishLocationFailure("Current location is unavailable. Try again or choose a place manually.")
+                        return@launch
+                    }
+
+                when (result) {
+                    is LocationResult.Success -> {
+                        val fix = result.fix
+                        _state.update {
+                            it.copy(
+                                locationFix = fix,
+                                placeName = fix.coordinateLabel(),
+                            )
+                        }
+                        observeForecast(fix, repository)
+                        refreshForecast(fix, force = false)
+                        loadPlaceName(fix)
+                    }
+
+                    LocationResult.PermissionDenied -> finishLocationFailure(
+                        "Location permission is required. Tap the locate button to grant it.",
+                    )
+
+                    LocationResult.LocationDisabled -> finishLocationFailure(
+                        "Location is turned off. Enable it in system settings and try again.",
+                    )
+
+                    LocationResult.Timeout -> finishLocationFailure(
+                        "Location request timed out. Move near a window or try again.",
+                    )
+
+                    LocationResult.Unavailable -> finishLocationFailure(
+                        "Current location is unavailable. Try again or choose a place manually.",
+                    )
+                }
+            }
+    }
+
+    private fun observeForecast(
+        fix: LocationFix,
+        repository: ForecastUvRepository,
+    ) {
+        forecastObservationJob?.cancel()
+        forecastObservationJob =
+            viewModelScope.launch {
+                repository
+                    .observeForecast(fix.latitude, fix.longitude)
+                    .collect { forecast ->
+                        val currentReading = forecast.readings.nearestTo(nowMillis())
+                        _state.update { current ->
+                            current.copy(
+                                uvIndex = currentReading?.uvIndex ?: current.uvIndex,
+                                isLoading =
+                                    when {
+                                        forecast.isRefreshing -> true
+                                        currentReading != null -> false
+                                        forecast.errorMessage != null -> false
+                                        else -> current.isLoading
+                                    },
+                                errorMessage = forecast.errorMessage,
+                                isCached = forecast.source == UvDataSource.CACHE,
+                            )
+                        }
+                        if (currentReading != null) recomputeBurn()
+                    }
+            }
+    }
+
+    private fun refreshForecast(
+        fix: LocationFix,
+        force: Boolean,
+    ) {
+        val repository = forecastRepository ?: return
+        forecastRefreshJob?.cancel()
+        forecastRefreshJob =
+            viewModelScope.launch {
+                _state.update { it.copy(isLoading = true, errorMessage = null) }
+                try {
+                    val result = repository.refresh(fix.latitude, fix.longitude, force)
+                    result.exceptionOrNull()?.let { error ->
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = error.message ?: "Unable to update UV data.",
+                                isCached = true,
+                            )
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = error.message ?: "Unable to update UV data.",
+                            isCached = true,
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun finishLocationFailure(message: String) {
+        _state.update {
+            it.copy(
+                isLoading = false,
+                errorMessage = message,
+                isCached = it.locationFix != null,
+            )
+        }
+    }
+
+    private fun cancelLocationWork() {
+        locationJob?.cancel()
+        forecastObservationJob?.cancel()
+        forecastRefreshJob?.cancel()
+        placeLookupJob?.cancel()
+    }
+
+    private fun loadPlaceName(fix: LocationFix) {
+        val repository = placeRepository ?: return
+        placeLookupJob?.cancel()
+        placeLookupJob =
+            viewModelScope.launch {
+                val result =
+                    try {
+                        repository.reverseGeocode(
+                            Coordinates(
+                                latitude = fix.latitude,
+                                longitude = fix.longitude,
+                            ),
+                        )
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        return@launch
+                    }
+
+                result.getOrNull()?.label?.takeIf(String::isNotBlank)?.let { label ->
+                    if (_state.value.locationFix == fix) {
+                        _state.update { it.copy(placeName = label) }
+                    }
+                }
+            }
+    }
+
+    private fun refreshAuxiliaryData() {
+        auxiliaryRefreshJob?.cancel()
+        auxiliaryRefreshJob = viewModelScope.launch {
             val offline = _state.value.dev.forceOffline
             _state.update { it.copy(isLoading = true) }
             delay(700) // simulated network latency
@@ -198,10 +426,10 @@ class MainViewModel(
                     )
                 }
             } else {
-                val uv = repository.getCurrentUv()
-                val place = repository.getPlaceName()
-                val sensor = repository.getSensorContext()
-                val statuses = repository.getApiStatuses()
+                val uv = auxiliaryRepository.getCurrentUv()
+                val place = auxiliaryRepository.getPlaceName()
+                val sensor = auxiliaryRepository.getSensorContext()
+                val statuses = auxiliaryRepository.getApiStatuses()
                 _state.update {
                     it.copy(
                         isLoading = false,
@@ -232,4 +460,10 @@ class MainViewModel(
             )
         }
     }
+
+    private fun LocationFix.coordinateLabel(): String =
+        String.format(Locale.ROOT, "%.5f, %.5f", latitude, longitude)
+
+    private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
+        minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
 }

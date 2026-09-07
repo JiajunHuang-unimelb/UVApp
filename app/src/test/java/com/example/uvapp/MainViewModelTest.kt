@@ -1,10 +1,23 @@
 package com.example.uvapp
 
 import com.example.uvapp.domain.model.LightContext
+import com.example.uvapp.domain.location.CurrentLocationProvider
+import com.example.uvapp.domain.location.LocationResult
+import com.example.uvapp.domain.model.Coordinates
+import com.example.uvapp.domain.model.LocationFix
+import com.example.uvapp.domain.model.PlaceName
+import com.example.uvapp.domain.model.UvDataSource
+import com.example.uvapp.domain.model.UvForecastReading
+import com.example.uvapp.domain.model.UvForecastState
+import com.example.uvapp.domain.repository.PlaceRepository
+import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -45,7 +58,7 @@ class MainViewModelTest {
     @Test
     fun `initial refresh populates state from the repository`() {
         val repo = FakeUvRepository(currentUv = 6.2, placeName = "Docklands, Melbourne")
-        val vm = MainViewModel(repo, SettingsViewModel())
+        val vm = MainViewModel(repo, SettingsViewModel(FakeUserPreferencesRepository()))
 
         settle()
 
@@ -59,7 +72,7 @@ class MainViewModelTest {
 
     @Test
     fun `forceOffline keeps cached values and surfaces an error`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
 
         vm.onOfflineToggle()
@@ -73,7 +86,7 @@ class MainViewModelTest {
 
     @Test
     fun `dev UV override recomputes the burn countdown`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
 
         vm.onOverrideUvToggle()
@@ -87,7 +100,7 @@ class MainViewModelTest {
 
     @Test
     fun `countdown ticks down one second per real second`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
         val before = vm.state.value.remainingSeconds
 
@@ -99,7 +112,7 @@ class MainViewModelTest {
 
     @Test
     fun `speed60x makes the countdown tick 60 seconds per tick`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
         vm.onSpeedToggle()
         val before = vm.state.value.remainingSeconds
@@ -108,5 +121,216 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
 
         assertEquals((before - 60).coerceAtLeast(0), vm.state.value.remainingSeconds)
+    }
+
+    @Test
+    fun `current location refreshes UV through the cached forecast repository`() {
+        val locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX))
+        val forecastRepository = FakeForecastRepository()
+        val placeRepository = FakePlaceRepository()
+        val vm =
+            MainViewModel(
+                auxiliaryRepository = FakeUvRepository(currentUv = 2.0),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+                locationProvider = locationProvider,
+                forecastRepository = forecastRepository,
+                placeRepository = placeRepository,
+                nowMillis = { NOW_MILLIS },
+            )
+        settle()
+
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+
+        assertEquals(1, locationProvider.callCount)
+        assertEquals(PRECISE_FIX.latitude, forecastRepository.latitude, 0.0)
+        assertEquals(PRECISE_FIX.longitude, forecastRepository.longitude, 0.0)
+        assertEquals(7.1, vm.state.value.uvIndex, 0.0)
+        assertEquals("Melbourne, City of Melbourne", vm.state.value.placeName)
+        assertEquals(Coordinates(PRECISE_FIX.latitude, PRECISE_FIX.longitude), placeRepository.coordinates)
+        assertEquals(PRECISE_FIX, vm.state.value.locationFix)
+        assertFalse(vm.state.value.isLoading)
+    }
+
+    @Test
+    fun `failed place lookup falls back to raw coordinates`() {
+        val approximateFix = PRECISE_FIX.copy(isApproximate = true, accuracyMeters = 2_000f)
+        val vm =
+            MainViewModel(
+                auxiliaryRepository = FakeUvRepository(),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+                locationProvider = FakeLocationProvider(LocationResult.Success(approximateFix)),
+                forecastRepository = FakeForecastRepository(),
+                placeRepository = FailingPlaceRepository(),
+                nowMillis = { NOW_MILLIS },
+            )
+        settle()
+
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+
+        assertEquals("-37.81360, 144.96310", vm.state.value.placeName)
+        assertEquals(approximateFix, vm.state.value.locationFix)
+    }
+
+    @Test
+    fun `location timeout keeps the previous UV and exits loading`() {
+        val forecastRepository = FakeForecastRepository()
+        val vm =
+            MainViewModel(
+                auxiliaryRepository = FakeUvRepository(currentUv = 6.2),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+                locationProvider = FakeLocationProvider(LocationResult.Timeout),
+                forecastRepository = forecastRepository,
+                nowMillis = { NOW_MILLIS },
+            )
+        settle()
+
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+
+        assertEquals(6.2, vm.state.value.uvIndex, 0.0)
+        assertTrue(checkNotNull(vm.state.value.errorMessage).contains("timed out"))
+        assertFalse(vm.state.value.isLoading)
+        assertEquals(0, forecastRepository.refreshCallCount)
+    }
+
+    @Test
+    fun `new location request cancels an older request`() {
+        val locationProvider = SlowThenFastLocationProvider()
+        val forecastRepository = FakeForecastRepository()
+        val vm =
+            MainViewModel(
+                auxiliaryRepository = FakeUvRepository(),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+                locationProvider = locationProvider,
+                forecastRepository = forecastRepository,
+                nowMillis = { NOW_MILLIS },
+            )
+        settle()
+
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(1_001)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertEquals(2, locationProvider.callCount)
+        assertEquals(FAST_FIX, vm.state.value.locationFix)
+        assertEquals(FAST_FIX.latitude, forecastRepository.latitude, 0.0)
+    }
+
+    private class FakeLocationProvider(
+        private val result: LocationResult,
+    ) : CurrentLocationProvider {
+        var callCount = 0
+            private set
+
+        override suspend fun getCurrentLocation(): LocationResult {
+            callCount++
+            return result
+        }
+    }
+
+    private class SlowThenFastLocationProvider : CurrentLocationProvider {
+        var callCount = 0
+            private set
+
+        override suspend fun getCurrentLocation(): LocationResult {
+            callCount++
+            return if (callCount == 1) {
+                delay(1_000)
+                LocationResult.Success(PRECISE_FIX)
+            } else {
+                LocationResult.Success(FAST_FIX)
+            }
+        }
+    }
+
+    private class FakeForecastRepository : ForecastUvRepository {
+        private val forecastState = MutableStateFlow(UvForecastState())
+        var latitude = 0.0
+            private set
+        var longitude = 0.0
+            private set
+        var refreshCallCount = 0
+            private set
+
+        override fun observeForecast(
+            latitude: Double,
+            longitude: Double,
+        ): Flow<UvForecastState> = forecastState
+
+        override suspend fun refresh(
+            latitude: Double,
+            longitude: Double,
+            force: Boolean,
+        ): Result<Unit> {
+            this.latitude = latitude
+            this.longitude = longitude
+            refreshCallCount++
+            forecastState.value =
+                UvForecastState(
+                    readings =
+                        listOf(
+                            UvForecastReading(
+                                forecastTimeMillis = NOW_MILLIS,
+                                uvIndex = 7.1,
+                                clearSkyUvIndex = 7.5,
+                                cloudCoverPercent = 20,
+                            ),
+                        ),
+                    source = UvDataSource.NETWORK,
+                    lastUpdatedMillis = NOW_MILLIS,
+                )
+            return Result.success(Unit)
+        }
+    }
+
+    private class FakePlaceRepository : PlaceRepository {
+        var coordinates: Coordinates? = null
+            private set
+
+        override suspend fun reverseGeocode(coordinates: Coordinates): Result<PlaceName> {
+            this.coordinates = coordinates
+            return Result.success(
+                PlaceName(
+                    label = "Melbourne, City of Melbourne",
+                    locality = "Melbourne",
+                    city = "City of Melbourne",
+                    state = "Victoria",
+                    country = "Australia",
+                    displayName = "Melbourne, City of Melbourne, Victoria, Australia",
+                ),
+            )
+        }
+    }
+
+    private class FailingPlaceRepository : PlaceRepository {
+        override suspend fun reverseGeocode(coordinates: Coordinates): Result<PlaceName> =
+            Result.failure(IllegalStateException("offline"))
+    }
+
+    private companion object {
+        const val NOW_MILLIS = 1_800_000L
+        val PRECISE_FIX =
+            LocationFix(
+                latitude = -37.8136,
+                longitude = 144.9631,
+                accuracyMeters = 20f,
+                capturedAtMillis = NOW_MILLIS,
+                isApproximate = false,
+                isMock = false,
+            )
+        val FAST_FIX =
+            LocationFix(
+                latitude = -33.8688,
+                longitude = 151.2093,
+                accuracyMeters = 12f,
+                capturedAtMillis = NOW_MILLIS,
+                isApproximate = false,
+                isMock = false,
+            )
     }
 }

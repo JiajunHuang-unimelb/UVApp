@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- UV forecasts are reproducible network cache and may contain location data. -->
+    <exclude
+        domain="database"
+        path="." />
+</full-backup-content>

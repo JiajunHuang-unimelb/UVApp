@@ -9,16 +9,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.uvapp.data.UvRepositoryProvider
+import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
+import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
+import com.example.uvapp.data.repository.UvRepositoryFactory
+import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
 import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
+import com.example.uvapp.ui.location.rememberLocationPermissionRequester
 import com.example.uvapp.ui.screens.ForecastScreen
 import com.example.uvapp.ui.screens.HomeScreen
 import com.example.uvapp.ui.screens.SettingsScreen
@@ -36,9 +43,26 @@ import com.example.uvapp.viewmodel.Tab
  */
 @Composable
 fun UVAppRoot() {
-    val settingsViewModel: SettingsViewModel = viewModel()
+    val applicationContext = LocalContext.current.applicationContext
+    val locationProvider =
+        remember(applicationContext) { FusedCurrentLocationProvider(applicationContext) }
+    val forecastRepository =
+        remember(applicationContext) { UvRepositoryFactory.create(applicationContext) }
+    val placeRepository =
+        remember(applicationContext) { PlaceRepositoryFactory.create(applicationContext) }
+    val preferencesRepository =
+        remember(applicationContext) { DataStoreUserPreferencesRepository(applicationContext) }
+    val settingsViewModel: SettingsViewModel = viewModel {
+        SettingsViewModel(preferencesRepository)
+    }
     val mainViewModel: MainViewModel = viewModel {
-        MainViewModel(UvRepositoryProvider.instance, settingsViewModel)
+        MainViewModel(
+            auxiliaryRepository = UvRepositoryProvider.instance,
+            settingsViewModel = settingsViewModel,
+            locationProvider = locationProvider,
+            forecastRepository = forecastRepository,
+            placeRepository = placeRepository,
+        )
     }
     val forecastViewModel: ForecastViewModel = viewModel {
         ForecastViewModel(UvRepositoryProvider.instance, settingsViewModel, mainViewModel)
@@ -47,6 +71,11 @@ fun UVAppRoot() {
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
+    val requestCurrentLocation =
+        rememberLocationPermissionRequester(
+            onPermissionGranted = mainViewModel::onUseCurrentLocation,
+            onPermissionDenied = mainViewModel::onLocationPermissionDenied,
+        )
 
     UvAppTheme(themeMode = settingsState.themeMode, accent = settingsState.accent) {
         Box(
@@ -61,11 +90,15 @@ fun UVAppRoot() {
                     .navigationBarsPadding(),
             ) {
                 when (mainState.selectedTab) {
-                    Tab.HOME -> HomeScreen(mainViewModel, mainState)
+                    Tab.HOME -> HomeScreen(
+                        viewModel = mainViewModel,
+                        state = mainState,
+                        onLocate = requestCurrentLocation,
+                    )
                     Tab.FORECAST -> ForecastScreen(
                         state = forecastState,
                         onSearchClick = mainViewModel::onSearchClick,
-                        onLocate = mainViewModel::onLocate,
+                        onLocate = requestCurrentLocation,
                         onSelectDay = forecastViewModel::selectDay,
                         onSelectTime = forecastViewModel::selectTime,
                     )
@@ -95,7 +128,7 @@ fun UVAppRoot() {
                         onQueryChange = mainViewModel::onQueryChange,
                         onDismiss = mainViewModel::onSearchDismiss,
                         onSelectPlace = mainViewModel::onPlaceSelected,
-                        onUseCurrentLocation = mainViewModel::onUseCurrentLocation,
+                        onUseCurrentLocation = requestCurrentLocation,
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .fillMaxSize()

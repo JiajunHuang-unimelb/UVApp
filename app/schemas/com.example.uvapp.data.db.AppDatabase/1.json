@@ -1,0 +1,72 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "8285e5b51766b33c737e047fde5a7e3a",
+    "entities": [
+      {
+        "tableName": "uv_readings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`locationKey` TEXT NOT NULL, `forecastTimeMillis` INTEGER NOT NULL, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `uvIndex` REAL NOT NULL, `clearSkyUvIndex` REAL, `cloudCoverPercent` INTEGER, `fetchedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`locationKey`, `forecastTimeMillis`))",
+        "fields": [
+          {
+            "fieldPath": "locationKey",
+            "columnName": "locationKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forecastTimeMillis",
+            "columnName": "forecastTimeMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uvIndex",
+            "columnName": "uvIndex",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clearSkyUvIndex",
+            "columnName": "clearSkyUvIndex",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "cloudCoverPercent",
+            "columnName": "cloudCoverPercent",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fetchedAtMillis",
+            "columnName": "fetchedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "locationKey",
+            "forecastTimeMillis"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8285e5b51766b33c737e047fde5a7e3a')"
+    ]
+  }
+}
