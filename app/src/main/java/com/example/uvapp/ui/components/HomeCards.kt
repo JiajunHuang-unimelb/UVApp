@@ -101,7 +101,7 @@ fun Hairline(modifier: Modifier = Modifier, color: Color = UvTheme.outline) {
 
 /** Hero UV card: band tint, label, big number with white halo, band label. */
 @Composable
-fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier) {
+fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier, uvAvailable: Boolean = true, uvLabel: String = "UV INDEX NOW") {
     val colors = UvTheme
     val palette = if (colors.isDark) BandPalettes.dark(band) else BandPalettes.light(band)
     SunCard(modifier, containerColor = palette.tint, shape = RoundedCornerShape(12.dp)) {
@@ -110,7 +110,7 @@ fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                "UV INDEX NOW",
+                uvLabel,
                 color = palette.text.copy(alpha = if (colors.isDark) 0.75f else 0.8f),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
@@ -119,7 +119,7 @@ fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier) {
             Box(contentAlignment = Alignment.Center) {
                 if (!colors.isDark) {
                     Text(
-                        formatUv(uv),
+                        if (uvAvailable) formatUv(uv) else "--",
                         color = Color.White,
                         fontSize = 62.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -127,7 +127,7 @@ fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier) {
                     )
                 }
                 Text(
-                    formatUv(uv),
+                    if (uvAvailable) formatUv(uv) else "--",
                     color = palette.text,
                     fontSize = 62.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -136,7 +136,7 @@ fun UvHeroCard(uv: Double, band: UvBand, modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.weight(1f))
             Text(
-                band.label,
+                if (uvAvailable) band.label else "Awaiting UV data",
                 color = palette.text,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
@@ -179,9 +179,9 @@ fun SkinSpfCard(skinType: SkinType, spf: Int, modifier: Modifier = Modifier, vie
 
 /** Hero row: UV card (smaller frame) + skin card (wider, same height = aligned). */
 @Composable
-fun HeroRow(uv: Double, band: UvBand, skinType: SkinType, spf: Int, modifier: Modifier = Modifier) {
+fun HeroRow(uv: Double, band: UvBand, skinType: SkinType, spf: Int, modifier: Modifier = Modifier, uvAvailable: Boolean = true, uvLabel: String = "UV INDEX NOW") {
     Row(modifier.fillMaxWidth().height(132.dp), verticalAlignment = Alignment.Top) {
-        UvHeroCard(uv, band, Modifier.width(224.dp).fillMaxHeight())
+        UvHeroCard(uv, band, Modifier.width(224.dp).fillMaxHeight(), uvAvailable, uvLabel)
         Spacer(Modifier.width(8.dp))
         SkinSpfCard(skinType, spf, Modifier.weight(1f).fillMaxHeight())
     }
@@ -251,6 +251,9 @@ fun ContextCard(context: LightContext, lux: Int, onLuxChange: (Int) -> Unit, mod
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Text("Light exposure - manual simulation", color = colors.textSecondary, fontSize = 12.sp)
+            Text("Drag to adjust brightness (lux) and timer estimate", color = colors.textSecondary, fontSize = 10.sp)
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LightContext.entries.forEach { ctx ->
                     val active = ctx == context
@@ -421,7 +424,7 @@ fun SafeTimerCard(
                     Text(
                         if (finite) BurnCalculator.formatRemaining(remainingSeconds) else "--:--",
                         color = if (isWarning) colors.error else colors.onBackground,
-                        fontSize = 68.sp,
+                        fontSize = 42.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
