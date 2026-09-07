@@ -53,7 +53,7 @@ class DataStoreUserPreferencesRepository(context: Context) : UserPreferencesRepo
     }
 
     private fun String?.toSkinType(): SkinType =
-        runCatching { SkinType.valueOf(requireNotNull(this)) }.getOrDefault(SkinType.II)
+        SkinType.entries.firstOrNull { it.name == this } ?: SkinType.II
 
     private object Keys {
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")

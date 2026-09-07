@@ -58,7 +58,7 @@ class MainViewModelTest {
     @Test
     fun `initial refresh populates state from the repository`() {
         val repo = FakeUvRepository(currentUv = 6.2, placeName = "Docklands, Melbourne")
-        val vm = MainViewModel(repo, SettingsViewModel())
+        val vm = MainViewModel(repo, SettingsViewModel(FakeUserPreferencesRepository()))
 
         settle()
 
@@ -72,7 +72,7 @@ class MainViewModelTest {
 
     @Test
     fun `forceOffline keeps cached values and surfaces an error`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
 
         vm.onOfflineToggle()
@@ -86,7 +86,7 @@ class MainViewModelTest {
 
     @Test
     fun `dev UV override recomputes the burn countdown`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
 
         vm.onOverrideUvToggle()
@@ -100,7 +100,7 @@ class MainViewModelTest {
 
     @Test
     fun `countdown ticks down one second per real second`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
         val before = vm.state.value.remainingSeconds
 
@@ -112,7 +112,7 @@ class MainViewModelTest {
 
     @Test
     fun `speed60x makes the countdown tick 60 seconds per tick`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel())
+        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
         settle()
         vm.onSpeedToggle()
         val before = vm.state.value.remainingSeconds
@@ -131,7 +131,7 @@ class MainViewModelTest {
         val vm =
             MainViewModel(
                 auxiliaryRepository = FakeUvRepository(currentUv = 2.0),
-                settingsViewModel = SettingsViewModel(),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = locationProvider,
                 forecastRepository = forecastRepository,
                 placeRepository = placeRepository,
@@ -158,7 +158,7 @@ class MainViewModelTest {
         val vm =
             MainViewModel(
                 auxiliaryRepository = FakeUvRepository(),
-                settingsViewModel = SettingsViewModel(),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = FakeLocationProvider(LocationResult.Success(approximateFix)),
                 forecastRepository = FakeForecastRepository(),
                 placeRepository = FailingPlaceRepository(),
@@ -179,7 +179,7 @@ class MainViewModelTest {
         val vm =
             MainViewModel(
                 auxiliaryRepository = FakeUvRepository(currentUv = 6.2),
-                settingsViewModel = SettingsViewModel(),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = FakeLocationProvider(LocationResult.Timeout),
                 forecastRepository = forecastRepository,
                 nowMillis = { NOW_MILLIS },
@@ -202,7 +202,7 @@ class MainViewModelTest {
         val vm =
             MainViewModel(
                 auxiliaryRepository = FakeUvRepository(),
-                settingsViewModel = SettingsViewModel(),
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = locationProvider,
                 forecastRepository = forecastRepository,
                 nowMillis = { NOW_MILLIS },

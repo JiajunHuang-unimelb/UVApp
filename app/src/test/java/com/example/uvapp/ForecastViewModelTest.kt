@@ -47,7 +47,7 @@ class ForecastViewModelTest {
     }
 
     private fun buildViewModel(repo: FakeUvRepository): ForecastViewModel {
-        val settings = SettingsViewModel()
+        val settings = SettingsViewModel(FakeUserPreferencesRepository())
         val main = MainViewModel(repo, settings)
         return ForecastViewModel(repo, settings, main)
     }

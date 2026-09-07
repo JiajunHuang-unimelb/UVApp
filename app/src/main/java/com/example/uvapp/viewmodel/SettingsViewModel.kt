@@ -7,7 +7,7 @@ import com.example.uvapp.domain.repository.UserPreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -41,23 +41,21 @@ data class SettingsUiState(
 
 /** Settings screen state + user actions. */
 class SettingsViewModel(
-    private val preferencesRepository: UserPreferencesRepository? = null,
+    private val preferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     init {
-        preferencesRepository?.let { repository ->
-            viewModelScope.launch {
-                repository.preferences.collectLatest { preferences ->
-                    _state.update {
-                        it.copy(
-                            onboardingCompleted = preferences.onboardingCompleted,
-                            skinType = preferences.skinType,
-                            spf = preferences.spf,
-                        )
-                    }
+        viewModelScope.launch {
+            preferencesRepository.preferences.collect { preferences ->
+                _state.update {
+                    it.copy(
+                        onboardingCompleted = preferences.onboardingCompleted,
+                        skinType = preferences.skinType,
+                        spf = preferences.spf,
+                    )
                 }
             }
         }
@@ -65,16 +63,12 @@ class SettingsViewModel(
 
     fun selectSkinType(type: SkinType) {
         _state.update { it.copy(skinType = type) }
-        preferencesRepository?.let { repository ->
-            viewModelScope.launch { repository.setSkinType(type) }
-        }
+        viewModelScope.launch { preferencesRepository.setSkinType(type) }
     }
 
     fun setSpf(spf: Int) {
         _state.update { it.copy(spf = spf) }
-        preferencesRepository?.let { repository ->
-            viewModelScope.launch { repository.setSpf(spf) }
-        }
+        viewModelScope.launch { preferencesRepository.setSpf(spf) }
     }
 
     fun completeOnboarding(skinType: SkinType, spf: Int) {
@@ -85,9 +79,7 @@ class SettingsViewModel(
                 spf = spf,
             )
         }
-        preferencesRepository?.let { repository ->
-            viewModelScope.launch { repository.completeOnboarding(skinType, spf) }
-        }
+        viewModelScope.launch { preferencesRepository.completeOnboarding(skinType, spf) }
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {
