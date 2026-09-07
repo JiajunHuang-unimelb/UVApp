@@ -103,19 +103,33 @@ fun DayChipsRow(
     }
 }
 
-/** "Time" caption + selected hour value. */
+/** Time controls above the chart. */
 @Composable
-fun TimeRow(selectedTimeMinutes: Int, modifier: Modifier = Modifier) {
+fun TimeRow(
+    onCurrentTime: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = UvTheme
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Time", color = colors.textSecondary, fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
-        Text(
-            minutesToHhMm(selectedTimeMinutes),
-            color = colors.onBackground,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Box(
+            Modifier
+                .height(32.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.accent, RoundedCornerShape(16.dp))
+                .clickable(onClick = onCurrentTime)
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Current",
+                color = colors.accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 

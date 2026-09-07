@@ -130,4 +130,10 @@ class ForecastViewModel(
         followsClock = false
         _state.update { it.copy(selectedTimeMinutes = minutes.coerceIn(SEEK_START_MINUTES, SEEK_END_MINUTES)) }
     }
+
+    fun selectCurrentTime() {
+        followsClock = true
+        val current = now()
+        _state.update { it.copy(selectedTimeMinutes = current.hour * 60 + current.minute) }
+    }
 }

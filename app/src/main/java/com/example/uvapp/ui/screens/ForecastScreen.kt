@@ -33,6 +33,7 @@ fun ForecastScreen(
     onLocate: () -> Unit,
     onSelectDay: (Int) -> Unit,
     onSelectTime: (Int) -> Unit,
+    onCurrentTime: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
@@ -63,7 +64,7 @@ fun ForecastScreen(
             DayChipsRow(state.days, state.selectedDayIndex, onSelectDay)
 
             Spacer(Modifier.height(18.dp))
-            TimeRow(state.selectedTimeMinutes)
+            TimeRow(onCurrentTime = onCurrentTime)
 
             Spacer(Modifier.height(10.dp))
             UvChartCard(

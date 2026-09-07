@@ -106,6 +106,7 @@ fun UVAppRoot() {
                         onLocate = requestCurrentLocation,
                         onSelectDay = forecastViewModel::selectDay,
                         onSelectTime = forecastViewModel::selectTime,
+                        onCurrentTime = forecastViewModel::selectCurrentTime,
                     )
                     Tab.SETTINGS -> SettingsScreen(settingsViewModel, settingsState)
                 }
