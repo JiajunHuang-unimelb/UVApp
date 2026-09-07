@@ -247,11 +247,10 @@ fun UvChartCard(
                     drawPath(line, color = colors.accent, style = Stroke(width = 3f * sx, join = StrokeJoin.Round, cap = StrokeCap.Round))
                 }
 
-                // Day peak: MAX badge at the highest UV of the displayed day.
-                val peakUv = data.mapNotNull { it.uv }.maxOrNull()
+                // A single marker for the selected time.
+                val peakUv = day.uvAt(selectedHour.toDouble())
                 if (peakUv != null) {
-                    val peakHours = data.filter { it.uv == peakUv }
-                    val peakHour = (peakHours.first().hour + peakHours.last().hour) / 2.0
+                    val peakHour = selectedHour.toDouble()
                     val pkx = hourX(peakHour.toFloat())
                     val pky = uvY(peakUv.toFloat())
                     drawLine(
@@ -263,9 +262,9 @@ fun UvChartCard(
                     )
                     drawCircle(Color.White, radius = 7f * sx, center = Offset(pkx, pky))
                     drawCircle(colors.accent, radius = 5f * sx, center = Offset(pkx, pky))
-                    // MAX pill floating at the top of the chart.
+                    // Selected-time pill.
                     val badgeStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.accent)
-                    val badgeLayout = textMeasurer.measure(AnnotatedString("MAX ${formatUv(peakUv)}"), style = badgeStyle)
+                    val badgeLayout = textMeasurer.measure(AnnotatedString("${minutesToHhMm(selectedTimeMinutes)} - ${formatUv(peakUv)}"), style = badgeStyle)
                     val padH = 10f * sx
                     val pillW = badgeLayout.size.width + padH * 2
                     val pillH = 22f * sx
@@ -287,28 +286,10 @@ fun UvChartCard(
                     )
                 }
 
-                // Selected-time cursor: vertical dashed line + dot on the curve.
-                // The dot uses the same interpolation as the line, so its centre
-                // sits exactly on the curve (thin halo, no floating ring).
-                day.uvAt(selectedHour.toDouble())?.let { uv ->
-                    val mx = hourX(selectedHour)
-                    val my = uvY(uv.toFloat())
-                    val cursorDash = PathEffect.dashPathEffect(floatArrayOf(6f * sx, 4f * sx))
-                    drawLine(
-                        colors.accent.copy(alpha = 0.45f),
-                        Offset(mx, 0f),
-                        Offset(mx, chartBottom),
-                        strokeWidth = 1.5f * sx,
-                        pathEffect = cursorDash,
-                    )
-                    drawCircle(Color.White, radius = 7f * sx, center = Offset(mx, my))
-                    drawCircle(colors.accent, radius = 5f * sx, center = Offset(mx, my))
-                }
-
                 // X-axis time labels across the slider window.
                 val axisStyle = TextStyle(fontSize = 10.sp, color = colors.textSecondary)
                 listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { fraction ->
-                    val minutes = SEEK_START_MINUTES + ((SEEK_END_MINUTES - SEEK_START_MINUTES) * fraction).toInt()
+                    val minutes = SEEK_START_MINUTES + kotlin.math.round((SEEK_END_MINUTES - SEEK_START_MINUTES) * fraction).toInt()
                     val layout = textMeasurer.measure(AnnotatedString(minutesToHhMm(minutes)), style = axisStyle)
                     val lx = chartLeft + chartWidth * fraction
                     val labelX = when (fraction) {

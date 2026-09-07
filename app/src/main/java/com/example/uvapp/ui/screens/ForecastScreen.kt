@@ -44,6 +44,8 @@ fun ForecastScreen(
     ) {
         TopChrome(
             uv = state.selectedUv,
+            uvAvailable = state.uvAvailable,
+            uvLabel = "UV AT ${minutesToHhMm(state.selectedTimeMinutes)}",
             skinType = state.skinType,
             spf = state.spf,
             placeName = state.placeName,
@@ -52,6 +54,10 @@ fun ForecastScreen(
         )
 
         val day = state.selectedDay
+        if (day == null) {
+            Spacer(Modifier.height(16.dp))
+            Text("Forecast unavailable. Use the locate button to load current data.", color = colors.textSecondary)
+        }
         if (day != null) {
             Spacer(Modifier.height(16.dp))
             DayChipsRow(state.days, state.selectedDayIndex, onSelectDay)
@@ -74,11 +80,13 @@ fun ForecastScreen(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Text("Sunrise ${minutesToHhMm(day.sunriseMinutes)}", color = colors.textSecondary, fontSize = 10.sp)
-                Spacer(Modifier.weight(1f))
-                Text("Sunset ${minutesToHhMm(day.sunsetMinutes)}", color = colors.textSecondary, fontSize = 10.sp)
+            if (day.sunriseMinutes != null && day.sunsetMinutes != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Sunrise ${minutesToHhMm(day.sunriseMinutes)}", color = colors.textSecondary, fontSize = 10.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("Sunset ${minutesToHhMm(day.sunsetMinutes)}", color = colors.textSecondary, fontSize = 10.sp)
+                }
             }
         }
     }

@@ -43,6 +43,7 @@ fun HomeScreen(
 
             TopChrome(
                 uv = state.displayUv,
+                uvAvailable = state.uvAvailable,
                 skinType = state.skinType,
                 spf = state.spf,
                 placeName = state.placeName,

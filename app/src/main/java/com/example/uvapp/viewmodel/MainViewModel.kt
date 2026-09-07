@@ -50,11 +50,13 @@ data class MainUiState(
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
-    val uvIndex: Double = 8.4,
+    val uvIndex: Double = 0.0,
+    val uvAvailable: Boolean = false,
+    val forecastReadings: List<UvForecastReading> = emptyList(),
     val placeName: String = "Southbank, Melbourne",
     val lightContext: LightContext = LightContext.DIRECT_SUN,
-    val remainingSeconds: Long = 152 * 60L,
-    val totalBurnSeconds: Long = 178 * 60L,
+    val remainingSeconds: Long = Long.MAX_VALUE,
+    val totalBurnSeconds: Long = Long.MAX_VALUE,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isCached: Boolean = false,
@@ -88,7 +90,7 @@ data class MainUiState(
 }
 
 /**
- * Home + shared chrome state. Owns the countdown ticker, mock refresh flow,
+ * Home + shared chrome state. Owns the countdown ticker, current forecast data,
  * search dialog visibility and all developer-mode overrides.
  */
 class MainViewModel(
@@ -127,14 +129,19 @@ class MainViewModel(
         viewModelScope.launch {
             while (isActive) {
                 delay(1_000)
+                val previousUv = _state.value.displayUv
                 _state.update { st ->
                     val step = if (st.dev.speed60x) 60L else 1L
-                    st.copy(remainingSeconds = (st.remainingSeconds - step).coerceAtLeast(0L))
+                    st.copy(
+                        uvIndex = st.forecastReadings.nearestTo(nowMillis())?.uvIndex ?: st.uvIndex,
+                        remainingSeconds = if (st.isTimerFinite) (st.remainingSeconds - step).coerceAtLeast(0L) else st.remainingSeconds,
+                    )
                 }
+                if (_state.value.displayUv != previousUv) recomputeBurn()
             }
         }
 
-        refreshAuxiliaryData()
+        if (forecastRepository == null) refreshAuxiliaryData()
     }
 
     // ---- User actions -------------------------------------------------------
@@ -184,6 +191,8 @@ class MainViewModel(
         val fix = _state.value.locationFix
         if (fix != null && forecastRepository != null) {
             refreshForecast(fix, force = true)
+        } else if (forecastRepository != null) {
+            locate()
         } else {
             refreshAuxiliaryData()
         }
@@ -316,6 +325,8 @@ class MainViewModel(
                         _state.update { current ->
                             current.copy(
                                 uvIndex = currentReading?.uvIndex ?: current.uvIndex,
+                                forecastReadings = forecast.readings,
+                                uvAvailable = currentReading != null,
                                 isLoading =
                                     when {
                                         forecast.isRefreshing -> true
@@ -434,6 +445,7 @@ class MainViewModel(
                     it.copy(
                         isLoading = false,
                         uvIndex = uv.index,
+                        uvAvailable = true,
                         placeName = place,
                         lightContext = sensor.lightContext,
                         lux = sensor.lux,
@@ -444,11 +456,12 @@ class MainViewModel(
                         isCached = false,
                     )
                 }
+                recomputeBurn()
             }
         }
     }
 
-    /** Re-derive burn time from the current profile and restart the countdown. */
+    /** Recalculate the estimate while preserving elapsed time. */
     private fun recomputeBurn() {
         val st = _state.value
         val totalMinutes = BurnCalculator.burnMinutes(st.skinType, st.spf, st.displayUv, st.displayContext)
@@ -456,7 +469,8 @@ class MainViewModel(
         _state.update {
             it.copy(
                 totalBurnSeconds = totalSeconds,
-                remainingSeconds = totalSeconds,
+                remainingSeconds = if (totalSeconds == Long.MAX_VALUE) Long.MAX_VALUE
+                    else (totalSeconds - if (it.isTimerFinite) it.totalBurnSeconds - it.remainingSeconds else 0L).coerceAtLeast(0L),
             )
         }
     }
