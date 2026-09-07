@@ -1,10 +1,15 @@
 ﻿package com.example.uvapp.viewmodel
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.data.ApiStatus
 import com.example.uvapp.data.UvRepository as AuxiliaryUvRepository
 import com.example.uvapp.domain.advisor.BurnCalculator
+import com.example.uvapp.domain.exposure.ExposureContext
+import com.example.uvapp.domain.exposure.ExposureSessionManager
+import com.example.uvapp.domain.exposure.ExposureSnapshot
+import com.example.uvapp.domain.exposure.SkinType as ExposureSkinType
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.Coordinates
@@ -58,6 +63,12 @@ data class MainUiState(
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
     val manuallyAddedSeconds: Long = 0L,
+    val exposureRunning: Boolean = true,
+    val accumulatedDoseSed: Double = 0.0,
+    val doseLimitSed: Double = 2.5,
+    val remainingDoseSed: Double = 2.5,
+    val exposureFraction: Double = 0.0,
+    val estimatedExposureMinutes: Double? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isCached: Boolean = false,
@@ -101,10 +112,14 @@ class MainViewModel(
     private val forecastRepository: ForecastUvRepository? = null,
     private val placeRepository: PlaceRepository? = null,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
     val state: StateFlow<MainUiState> = _state.asStateFlow()
+
+    private val exposureSession = ExposureSessionManager()
+    private var exposureClockMillis = elapsedRealtimeMillis()
 
     private var lastSkinType: SkinType = SkinType.II
     private var lastSpf: Int = 15
@@ -115,6 +130,16 @@ class MainViewModel(
     private var placeLookupJob: Job? = null
 
     init {
+        val initialState = _state.value
+        publishExposure(
+            exposureSession.start(
+                skinType = initialState.skinType.toExposureSkinType(),
+                uvIndex = initialState.displayUv,
+                nowElapsedMs = exposureClockMillis,
+                context = initialState.displayContext.toExposureContext(),
+            ),
+        )
+
         // Mirror settings changes (skin type / SPF / dev mode) into the UI state.
         viewModelScope.launch {
             settingsViewModel.state.collect { s ->
@@ -138,6 +163,8 @@ class MainViewModel(
                         remainingSeconds = if (st.isTimerFinite) (st.remainingSeconds - step).coerceAtLeast(0L) else st.remainingSeconds,
                     )
                 }
+                val step = if (_state.value.dev.speed60x) 60L else 1L
+                syncExposure(step * 1_000L)
                 if (_state.value.displayUv != previousUv) recomputeBurn()
             }
         }
@@ -492,6 +519,7 @@ class MainViewModel(
 
     /** Recalculate the estimate while preserving elapsed time. */
     private fun recomputeBurn() {
+        syncExposure()
         val st = _state.value
         val totalMinutes = BurnCalculator.burnMinutes(st.skinType, st.spf, st.displayUv, st.displayContext)
         val estimatedSeconds = if (totalMinutes == Int.MAX_VALUE) Long.MAX_VALUE else totalMinutes.toLong() * 60L
@@ -509,6 +537,62 @@ class MainViewModel(
             )
         }
     }
+
+    private fun syncExposure(minimumAdvanceMillis: Long = 0L) {
+        val observedElapsedMillis = elapsedRealtimeMillis()
+        exposureClockMillis =
+            if (observedElapsedMillis > exposureClockMillis) {
+                observedElapsedMillis
+            } else {
+                exposureClockMillis + minimumAdvanceMillis
+            }
+        val state = _state.value
+        var snapshot = exposureSession.snapshot()
+        val exposureSkinType = state.skinType.toExposureSkinType()
+        val exposureContext = state.displayContext.toExposureContext()
+
+        if (snapshot.skinType != exposureSkinType) {
+            snapshot = exposureSession.updateSkinType(exposureSkinType, exposureClockMillis)
+        }
+        if (snapshot.uvIndex != state.displayUv) {
+            snapshot = exposureSession.updateUvIndex(state.displayUv, exposureClockMillis)
+        }
+        if (snapshot.context != exposureContext) {
+            exposureSession.updateContext(exposureContext, exposureClockMillis)
+        }
+
+        publishExposure(exposureSession.refresh(exposureClockMillis))
+    }
+
+    private fun publishExposure(snapshot: ExposureSnapshot) {
+        _state.update {
+            it.copy(
+                exposureRunning = snapshot.isRunning,
+                accumulatedDoseSed = snapshot.accumulatedDoseSed,
+                doseLimitSed = snapshot.doseLimitSed,
+                remainingDoseSed = snapshot.remainingDoseSed,
+                exposureFraction = snapshot.exposureFraction,
+                estimatedExposureMinutes = snapshot.estimatedRemainingMinutes,
+            )
+        }
+    }
+
+    private fun SkinType.toExposureSkinType(): ExposureSkinType =
+        when (this) {
+            SkinType.I -> ExposureSkinType.TYPE_I
+            SkinType.II -> ExposureSkinType.TYPE_II
+            SkinType.III -> ExposureSkinType.TYPE_III
+            SkinType.IV -> ExposureSkinType.TYPE_IV
+            SkinType.V -> ExposureSkinType.TYPE_V
+            SkinType.VI -> ExposureSkinType.TYPE_VI
+        }
+
+    private fun LightContext.toExposureContext(): ExposureContext =
+        when (this) {
+            LightContext.INDOOR -> ExposureContext.INDOOR
+            LightContext.SHADE -> ExposureContext.SHADE
+            LightContext.DIRECT_SUN -> ExposureContext.DIRECT_SUN
+        }
 
     private fun LocationFix.coordinateLabel(): String =
         String.format(Locale.ROOT, "%.5f, %.5f", latitude, longitude)
