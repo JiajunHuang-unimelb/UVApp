@@ -12,6 +12,16 @@ import kotlinx.coroutines.flow.Flow
 interface UvReadingDao {
     @Query(
         """
+        SELECT locationKey, latitude, longitude, MAX(fetchedAtMillis) AS fetchedAtMillis
+        FROM uv_readings
+        GROUP BY locationKey, latitude, longitude
+        ORDER BY fetchedAtMillis DESC
+        """,
+    )
+    suspend fun getForecastLocations(): List<CachedForecastLocation>
+
+    @Query(
+        """
         SELECT * FROM uv_readings
         WHERE locationKey = :locationKey
         ORDER BY forecastTimeMillis ASC
@@ -49,3 +59,10 @@ interface UvReadingDao {
         insertReadings(readings)
     }
 }
+
+data class CachedForecastLocation(
+    val locationKey: String,
+    val latitude: Double,
+    val longitude: Double,
+    val fetchedAtMillis: Long,
+)
