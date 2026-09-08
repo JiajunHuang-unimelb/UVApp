@@ -186,7 +186,8 @@ class MainViewModelTest {
         // init() goes straight to locate() when both repositories are configured, so
         // the auxiliary repository (and its 6.2 reading) is never consulted here —
         // the UV index stays at its untouched default.
-        assertEquals(2.0, vm.state.value.uvIndex, 0.0)
+        assertEquals(0.0, vm.state.value.uvIndex, 0.0)
+        assertFalse(vm.state.value.uvAvailable)
         assertTrue(checkNotNull(vm.state.value.errorMessage).contains("timed out"))
         assertFalse(vm.state.value.isLoading)
         assertEquals(0, forecastRepository.refreshCallCount)

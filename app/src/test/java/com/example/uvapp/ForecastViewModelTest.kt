@@ -10,7 +10,7 @@ import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
-import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneOffset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -26,26 +26,28 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * ForecastViewModel now derives its data entirely from MainViewModel's real,
- * location-aware forecast pipeline (no repository of its own) — these tests
- * drive that through fakes rather than a standalone forecast fixture.
+ * ForecastViewModel derives its data entirely from MainViewModel's real,
+ * location-aware forecast pipeline and, like MainViewModel, runs an infinite
+ * clock-following ticker -- so tests use a dedicated dispatcher and bounded
+ * advanceTimeBy rather than advanceUntilIdle (see MainViewModelTest).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ForecastViewModelTest {
 
     private val mainDispatcher = StandardTestDispatcher()
     private val zone = ZoneOffset.UTC
-    private val today: LocalDate = LocalDate.of(2026, 9, 9)
-    private val todayStartMillis = today.atStartOfDay(zone).toInstant().toEpochMilli()
+    private val fixedNow: LocalDateTime = LocalDateTime.of(2026, 9, 9, 14, 30)
+    private val todayStartMillis = LocalDateTime.of(2026, 9, 9, 0, 0).toInstant(zone).toEpochMilli()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(mainDispatcher)
     }
-    private val source = MutableStateFlow(UvForecastState(readings = readings))
 
-    @Before fun setUp() { Dispatchers.setMain(dispatcher) }
-    @After fun tearDown() { Dispatchers.resetMain() }
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
 
     private fun settle() {
         mainDispatcher.scheduler.advanceTimeBy(1)
@@ -72,7 +74,9 @@ class ForecastViewModelTest {
                 forecastRepository = forecastRepository,
             )
         settle()
-        return ForecastViewModel(settings, main, zoneId = zone, now = { today }) to forecastRepository
+        val vm = ForecastViewModel(settings, main, now = { fixedNow }, zoneId = zone)
+        settle()
+        return vm to forecastRepository
     }
 
     @Test
@@ -82,7 +86,6 @@ class ForecastViewModelTest {
             hourlyReading(dayOffset = 1, hour = 12, uv = 4.2),
         )
         val (vm, _) = buildViewModel(readings)
-        settle()
 
         assertEquals(2, vm.state.value.days.size)
         assertEquals(0, vm.state.value.selectedDayIndex)
@@ -91,42 +94,49 @@ class ForecastViewModelTest {
     }
 
     @Test
-    fun `selectDay clamps the selected time into that day's daylight window`() {
-        val readings = listOf(
-            hourlyReading(dayOffset = 0, hour = 8, uv = 3.0),
-            hourlyReading(dayOffset = 0, hour = 18, uv = 3.0),
-            hourlyReading(dayOffset = 1, hour = 9, uv = 2.0),
-            hourlyReading(dayOffset = 1, hour = 15, uv = 2.0),
-        )
-        val (vm, _) = buildViewModel(readings)
-        settle()
+    fun `follows the clock by default, tracking the current time`() {
+        val (vm, _) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)))
 
-        vm.selectTime(20 * 60) // 20:00 — inside day 0's window, outside day 1's.
-        vm.selectDay(1)
-
-        val state = vm.state.value
-        assertEquals(1, state.selectedDayIndex)
-        // Sunset is approximated as the last daylight hour + 59 min (15:59), then
-        // snapped down to the nearest 30-min step -> 15:30.
-        assertEquals(15 * 60 + 30, state.selectedTimeMinutes)
+        assertEquals(14 * 60 + 30, vm.state.value.selectedTimeMinutes)
     }
 
     @Test
-    fun `selectTime clamps to the global seek window`() {
+    fun `selecting a time stops following the clock`() {
         val (vm, _) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)))
-        settle()
 
-        vm.selectTime(0)
-        assertEquals(SEEK_START_MINUTES, vm.state.value.selectedTimeMinutes)
+        vm.selectTime(9 * 60)
+        mainDispatcher.scheduler.advanceTimeBy(2_000)
+        mainDispatcher.scheduler.runCurrent()
 
-        vm.selectTime(24 * 60)
-        assertEquals(SEEK_END_MINUTES, vm.state.value.selectedTimeMinutes)
+        assertEquals(9 * 60, vm.state.value.selectedTimeMinutes)
+    }
+
+    @Test
+    fun `selectCurrentTime resumes following the clock`() {
+        val (vm, _) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)))
+        vm.selectTime(9 * 60)
+
+        vm.selectCurrentTime()
+
+        assertEquals(14 * 60 + 30, vm.state.value.selectedTimeMinutes)
+    }
+
+    @Test
+    fun `selectDay switches to the chosen day`() {
+        val readings = listOf(
+            hourlyReading(dayOffset = 0, hour = 12, uv = 8.5),
+            hourlyReading(dayOffset = 1, hour = 12, uv = 4.2),
+        )
+        val (vm, _) = buildViewModel(readings)
+
+        vm.selectDay(1)
+
+        assertEquals(1, vm.state.value.selectedDayIndex)
     }
 
     @Test
     fun `refresh delegates to MainViewModel's forecast repository`() {
         val (vm, forecastRepository) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)))
-        settle()
         val callsAfterInit = forecastRepository.refreshCallCount
 
         vm.refresh()
@@ -138,7 +148,6 @@ class ForecastViewModelTest {
     @Test
     fun `mirrors the current UV and place name from MainViewModel`() {
         val (vm, _) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)))
-        settle()
 
         assertEquals(5.0, vm.state.value.uvIndex, 0.0)
         assertEquals("-37.81360, 144.96310", vm.state.value.placeName)

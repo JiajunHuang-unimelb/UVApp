@@ -73,7 +73,6 @@ data class MainUiState(
     val errorMessage: String? = null,
     val isCached: Boolean = false,
     val locationFix: LocationFix? = null,
-    val forecastReadings: List<UvForecastReading> = emptyList(),
     val lux: Int = 38_200,
     /** Manual lux override from the slidable exposure indicator (testing). */
     val luxOverride: Int? = null,
@@ -388,6 +387,7 @@ class MainViewModel(
                         _state.update { current ->
                             current.copy(
                                 uvIndex = currentReading?.uvIndex ?: current.uvIndex,
+                                uvAvailable = currentReading != null,
                                 forecastReadings = forecast.readings,
                                 isLoading =
                                     when {
