@@ -1,4 +1,4 @@
-﻿package com.example.uvapp
+package com.example.uvapp
 
 import android.Manifest
 import android.os.Build
@@ -28,7 +28,6 @@ class MainActivity : ComponentActivity() {
     private fun requestPermissions() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.RECORD_AUDIO,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)

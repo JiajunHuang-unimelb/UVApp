@@ -1,11 +1,17 @@
-﻿package com.example.uvapp.viewmodel
+package com.example.uvapp.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.uvapp.data.UvRepository
 import com.example.uvapp.domain.model.ForecastDay
+import com.example.uvapp.domain.model.HourlyUv
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.SkinType
+import com.example.uvapp.domain.model.UvForecastReading
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,26 +45,25 @@ data class ForecastUiState(
 /**
  * Forecast page state: 7 day chips, hour selection and the hero copy that must
  * stay in sync with Home (same values, same source of truth).
+ *
+ * Forecast data comes from [MainViewModel]'s real, Room-cached Open-Meteo
+ * readings (the same pipeline the Home hero number uses) — there is no
+ * separate repository call here.
  */
 class ForecastViewModel(
-    private val repository: UvRepository,
     settingsViewModel: SettingsViewModel,
-    mainViewModel: MainViewModel,
+    private val mainViewModel: MainViewModel,
+    private val zoneId: ZoneId = ZoneId.systemDefault(),
+    now: () -> LocalDate = { LocalDate.now(zoneId) },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ForecastUiState())
     val state: StateFlow<ForecastUiState> = _state.asStateFlow()
 
+    private var selectedDate: LocalDate = now()
+    private var groupedDates: List<LocalDate> = emptyList()
+
     init {
-        viewModelScope.launch {
-            val days = repository.getForecastDays()
-            _state.update {
-                it.copy(
-                    days = days,
-                    selectedDayIndex = days.indexOfFirst { d -> d.weekday == "Wed" }.coerceAtLeast(0),
-                )
-            }
-        }
         viewModelScope.launch {
             settingsViewModel.state.collect { s ->
                 _state.update { it.copy(skinType = s.skinType, spf = s.spf) }
@@ -66,8 +71,13 @@ class ForecastViewModel(
         }
         viewModelScope.launch {
             mainViewModel.state.collect { m ->
-                _state.update {
-                    it.copy(
+                val byDate = groupByDate(m.forecastReadings)
+                groupedDates = byDate.keys.toList()
+                val days = byDate.map { (date, readings) -> date.toForecastDay(readings) }
+                _state.update { st ->
+                    st.copy(
+                        days = days,
+                        selectedDayIndex = groupedDates.indexOf(selectedDate).coerceAtLeast(0),
                         uvIndex = m.displayUv,
                         placeName = m.placeName,
                         lightContext = m.displayContext,
@@ -79,8 +89,10 @@ class ForecastViewModel(
     }
 
     fun selectDay(index: Int) {
+        val date = groupedDates.getOrNull(index) ?: return
+        selectedDate = date
         _state.update { st ->
-            val day = st.days.getOrNull(index) ?: return@update st
+            val day = st.days.getOrNull(index) ?: return@update st.copy(selectedDayIndex = index)
             st.copy(
                 selectedDayIndex = index,
                 selectedTimeMinutes = clampToDayWindow(day, st.selectedTimeMinutes),
@@ -88,21 +100,37 @@ class ForecastViewModel(
         }
     }
 
-    /** Reloads the forecast from the repository (keeps the current selection). */
-    fun refresh() {
-        viewModelScope.launch {
-            val days = repository.getForecastDays()
-            _state.update { st ->
-                st.copy(
-                    days = days,
-                    selectedDayIndex = st.selectedDayIndex.coerceIn(days.indices),
-                )
-            }
-        }
-    }
+    /** Reloads the forecast through the same location-aware repository Home uses. */
+    fun refresh() = mainViewModel.onRefresh()
 
     fun selectTime(minutes: Int) {
         _state.update { st -> st.copy(selectedTimeMinutes = minutes.coerceIn(SEEK_START_MINUTES, SEEK_END_MINUTES)) }
+    }
+
+    private fun groupByDate(readings: List<UvForecastReading>): Map<LocalDate, List<UvForecastReading>> =
+        readings.groupBy { Instant.ofEpochMilli(it.forecastTimeMillis).atZone(zoneId).toLocalDate() }.toSortedMap()
+
+    /**
+     * Sunrise/sunset aren't in the hourly API response, so they're
+     * approximated from the first/last hour with a non-zero UV reading.
+     */
+    private fun LocalDate.toForecastDay(readings: List<UvForecastReading>): ForecastDay {
+        val sorted = readings.sortedBy { it.forecastTimeMillis }
+        val daylightHours =
+            sorted
+                .filter { it.uvIndex > 0.0 }
+                .map { Instant.ofEpochMilli(it.forecastTimeMillis).atZone(zoneId).hour }
+        return ForecastDay(
+            weekday = dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
+            dayOfMonth = dayOfMonth,
+            maxUv = sorted.maxOfOrNull { it.uvIndex } ?: 0.0,
+            sunriseMinutes = (daylightHours.minOrNull() ?: 6) * 60,
+            sunsetMinutes = (daylightHours.maxOrNull() ?: 20) * 60 + 59,
+            hourly = sorted.map { reading ->
+                val hour = Instant.ofEpochMilli(reading.forecastTimeMillis).atZone(zoneId).hour
+                HourlyUv(hour.toDouble(), reading.uvIndex)
+            },
+        )
     }
 
     /** Snaps a time into the selected day's sunrise..sunset window (30-min grid). */

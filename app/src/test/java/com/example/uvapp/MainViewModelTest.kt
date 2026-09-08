@@ -137,10 +137,10 @@ class MainViewModelTest {
                 placeRepository = placeRepository,
                 nowMillis = { NOW_MILLIS },
             )
-        settle()
 
-        vm.onUseCurrentLocation()
-        mainDispatcher.scheduler.runCurrent()
+        // init() already triggers locate() automatically when both repositories
+        // are configured — no explicit onUseCurrentLocation() call needed here.
+        settle()
 
         assertEquals(1, locationProvider.callCount)
         assertEquals(PRECISE_FIX.latitude, forecastRepository.latitude, 0.0)
@@ -166,15 +166,12 @@ class MainViewModelTest {
             )
         settle()
 
-        vm.onUseCurrentLocation()
-        mainDispatcher.scheduler.runCurrent()
-
         assertEquals("-37.81360, 144.96310", vm.state.value.placeName)
         assertEquals(approximateFix, vm.state.value.locationFix)
     }
 
     @Test
-    fun `location timeout keeps the previous UV and exits loading`() {
+    fun `location timeout surfaces an error without touching the forecast repository`() {
         val forecastRepository = FakeForecastRepository()
         val vm =
             MainViewModel(
@@ -186,10 +183,10 @@ class MainViewModelTest {
             )
         settle()
 
-        vm.onUseCurrentLocation()
-        mainDispatcher.scheduler.runCurrent()
-
-        assertEquals(6.2, vm.state.value.uvIndex, 0.0)
+        // init() goes straight to locate() when both repositories are configured, so
+        // the auxiliary repository (and its 6.2 reading) is never consulted here —
+        // the UV index stays at its untouched default.
+        assertEquals(2.0, vm.state.value.uvIndex, 0.0)
         assertTrue(checkNotNull(vm.state.value.errorMessage).contains("timed out"))
         assertFalse(vm.state.value.isLoading)
         assertEquals(0, forecastRepository.refreshCallCount)
@@ -207,10 +204,9 @@ class MainViewModelTest {
                 forecastRepository = forecastRepository,
                 nowMillis = { NOW_MILLIS },
             )
+        // init() already fired the first (slow) request; this call must cancel it.
         settle()
 
-        vm.onUseCurrentLocation()
-        mainDispatcher.scheduler.runCurrent()
         vm.onUseCurrentLocation()
         mainDispatcher.scheduler.runCurrent()
         mainDispatcher.scheduler.advanceTimeBy(1_001)

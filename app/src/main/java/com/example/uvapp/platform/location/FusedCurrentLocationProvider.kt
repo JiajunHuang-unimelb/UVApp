@@ -37,10 +37,13 @@ class FusedCurrentLocationProvider(
         if (!LocationManagerCompat.isLocationEnabled(locationManager)) return LocationResult.LocationDisabled
 
         return try {
+            // A recent cached fix returns almost instantly and is accurate enough for
+            // a UV forecast — only fall back to a fresh GPS request, which can take
+            // several seconds, when there is nothing usable cached yet. Both branches
+            // share one timeout so a stuck Play Services call can't hang forever.
             val location =
                 withTimeout(REQUEST_TIMEOUT_MILLIS) {
-                    requestLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
-                        ?: requestLocation(Priority.PRIORITY_HIGH_ACCURACY)
+                    recentCachedLocation() ?: requestLocation(Priority.PRIORITY_HIGH_ACCURACY)
                 }
 
             if (location == null) {
@@ -66,6 +69,18 @@ class FusedCurrentLocationProvider(
         } catch (_: Exception) {
             LocationResult.Unavailable
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun recentCachedLocation(): Location? {
+        val cached =
+            try {
+                client.lastLocation.await()
+            } catch (_: Exception) {
+                null
+            }
+        val ageMillis = cached?.time?.let { System.currentTimeMillis() - it }
+        return cached.takeIf { ageMillis != null && ageMillis in 0 until MAX_LOCATION_AGE_MILLIS }
     }
 
     @SuppressLint("MissingPermission")
@@ -96,7 +111,7 @@ class FusedCurrentLocationProvider(
     private companion object {
         const val MAX_LOCATION_AGE_MILLIS = 5L * 60L * 1000L
         const val SINGLE_ATTEMPT_DURATION_MILLIS = 6_000L
-        const val REQUEST_TIMEOUT_MILLIS = 13_000L
+        const val REQUEST_TIMEOUT_MILLIS = 7_000L
         const val UNKNOWN_ACCURACY_METERS = 100_000f
     }
 }
