@@ -36,9 +36,10 @@ class BurnCalculatorTest {
     }
 
     @Test
-    fun `format remaining shows H_MM above an hour and n min below`() {
-        assertEquals("2:32", BurnCalculator.formatRemaining(152 * 60L))
-        assertEquals("12 min", BurnCalculator.formatRemaining(12 * 60L))
-        assertEquals("0 min", BurnCalculator.formatRemaining(0L))
+    fun `format remaining always shows seconds`() {
+        assertEquals("2:32:00", BurnCalculator.formatRemaining(152 * 60L))
+        assertEquals("12:00", BurnCalculator.formatRemaining(12 * 60L))
+        assertEquals("2:31:59", BurnCalculator.formatRemaining(152 * 60L - 1))
+        assertEquals("00:00", BurnCalculator.formatRemaining(0L))
     }
 }

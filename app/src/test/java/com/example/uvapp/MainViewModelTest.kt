@@ -174,7 +174,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `location timeout keeps the previous UV and exits loading`() {
+    fun `location timeout shows unavailable data instead of mock UV`() {
         val forecastRepository = FakeForecastRepository()
         val vm =
             MainViewModel(
@@ -189,7 +189,7 @@ class MainViewModelTest {
         vm.onUseCurrentLocation()
         mainDispatcher.scheduler.runCurrent()
 
-        assertEquals(6.2, vm.state.value.uvIndex, 0.0)
+        assertFalse(vm.state.value.uvAvailable)
         assertTrue(checkNotNull(vm.state.value.errorMessage).contains("timed out"))
         assertFalse(vm.state.value.isLoading)
         assertEquals(0, forecastRepository.refreshCallCount)
@@ -219,6 +219,24 @@ class MainViewModelTest {
         assertEquals(2, locationProvider.callCount)
         assertEquals(FAST_FIX, vm.state.value.locationFix)
         assertEquals(FAST_FIX.latitude, forecastRepository.latitude, 0.0)
+    }
+
+    @Test
+    fun `refreshing unchanged UV preserves the elapsed countdown`() {
+        val vm = MainViewModel(
+            FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()),
+            FakeLocationProvider(LocationResult.Success(PRECISE_FIX)), FakeForecastRepository(),
+            nowMillis = { NOW_MILLIS },
+        )
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(3000)
+        mainDispatcher.scheduler.runCurrent()
+        val remaining = vm.state.value.remainingSeconds
+        vm.onRefresh()
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(remaining, vm.state.value.remainingSeconds)
+        assertEquals(vm.state.value.totalBurnSeconds - 3, remaining)
     }
 
     private class FakeLocationProvider(

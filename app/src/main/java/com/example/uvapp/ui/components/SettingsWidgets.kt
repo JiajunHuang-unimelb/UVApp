@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.ui.theme.UvTheme
@@ -108,20 +108,21 @@ fun SpfSlider(spf: Int, onChange: (Int) -> Unit, modifier: Modifier = Modifier) 
             thumbInnerRadius = 3.5.dp,
         )
         Spacer(Modifier.height(4.dp))
-        Row(Modifier.fillMaxWidth()) {
-            steps.forEachIndexed { index, value ->
-                val label = if (value == 0) "None" else value.toString()
-                Text(
-                    label,
-                    color = colors.textSecondary,
-                    fontSize = 10.sp,
-                    modifier = Modifier.weight(1f),
-                    textAlign = when (index) {
-                        0 -> TextAlign.Start
-                        steps.lastIndex -> TextAlign.End
-                        else -> TextAlign.Center
-                    },
-                )
+        Layout(
+            modifier = Modifier.fillMaxWidth(),
+            content = {
+                steps.forEach { value ->
+                    Text(if (value == 0) "None" else value.toString(), color = colors.textSecondary, fontSize = 10.sp)
+                }
+            },
+        ) { measurables, constraints ->
+            val labels = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+            layout(constraints.maxWidth, labels.maxOf { it.height }) {
+                labels.forEachIndexed { index, label ->
+                    val x = (constraints.maxWidth * fractions[index] - label.width / 2).toInt()
+                        .coerceIn(0, constraints.maxWidth - label.width)
+                    label.placeRelative(x, 0)
+                }
             }
         }
     }
