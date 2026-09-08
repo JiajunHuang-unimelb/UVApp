@@ -55,6 +55,19 @@ class DefaultUvRepositoryTest {
         }
 
     @Test
+    fun `forced refresh still respects the one hour service limit`() =
+        runBlocking {
+            val api = FakeOpenMeteoApi { validResponse() }
+            val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
+            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
+
+            val result = repository.refresh(LATITUDE, LONGITUDE, force = true)
+
+            assertTrue(result.isSuccess)
+            assertEquals(0, api.callCount)
+        }
+
+    @Test
     fun `failed refresh keeps stale Room data as cache`() =
         runBlocking {
             val api = FakeOpenMeteoApi { throw IOException("network unavailable") }

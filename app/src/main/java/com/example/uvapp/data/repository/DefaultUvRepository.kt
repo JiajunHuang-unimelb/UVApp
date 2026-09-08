@@ -69,7 +69,8 @@ class DefaultUvRepository(
 
         try {
             val latestFetchTime = dao.latestFetchTime(locationKey)
-            if (!force && latestFetchTime != null && isFresh(latestFetchTime, currentTime)) {
+            // User-initiated refreshes must not bypass the public service limit.
+            if (latestFetchTime != null && isFresh(latestFetchTime, currentTime)) {
                 updateRefreshStatus(locationKey) { status ->
                     status.copy(
                         isRefreshing = false,

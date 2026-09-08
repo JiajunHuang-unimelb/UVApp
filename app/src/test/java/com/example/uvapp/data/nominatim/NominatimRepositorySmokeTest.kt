@@ -50,6 +50,42 @@ class NominatimRepositorySmokeTest {
             assertTrue(dao.stored?.displayName?.contains("Victoria") == true)
         }
 
+    @Test
+    fun `movement within one kilometre reuses the nearest cached place`() =
+        runBlocking {
+            val api = FakeNominatimApi()
+            val dao = FakePlaceNameDao()
+            val repository =
+                DefaultPlaceRepository(
+                    api = api,
+                    dao = dao,
+                    rateLimiter = NominatimRateLimiter(),
+                )
+
+            repository.reverseGeocode(Coordinates(-37.8136, 144.9631)).getOrThrow()
+            repository.reverseGeocode(Coordinates(-37.8176, 144.9631)).getOrThrow()
+
+            assertEquals(1, api.callCount)
+        }
+
+    @Test
+    fun `movement beyond one kilometre requests a new place`() =
+        runBlocking {
+            val api = FakeNominatimApi()
+            val dao = FakePlaceNameDao()
+            val repository =
+                DefaultPlaceRepository(
+                    api = api,
+                    dao = dao,
+                    rateLimiter = NominatimRateLimiter(),
+                )
+
+            repository.reverseGeocode(Coordinates(-37.8136, 144.9631)).getOrThrow()
+            repository.reverseGeocode(Coordinates(-37.8336, 144.9631)).getOrThrow()
+
+            assertEquals(2, api.callCount)
+        }
+
     private class FakeNominatimApi(
         private val error: Exception? = null,
     ) : NominatimApi {
@@ -78,13 +114,17 @@ class NominatimRepositorySmokeTest {
     }
 
     private class FakePlaceNameDao : PlaceNameDao {
-        var stored: PlaceNameEntity? = null
+        private val storedPlaces = mutableListOf<PlaceNameEntity>()
+        val stored: PlaceNameEntity? get() = storedPlaces.lastOrNull()
 
         override suspend fun getPlaceName(locationKey: String): PlaceNameEntity? =
-            stored?.takeIf { entity -> entity.locationKey == locationKey }
+            storedPlaces.firstOrNull { entity -> entity.locationKey == locationKey }
+
+        override suspend fun getPlaceNames(): List<PlaceNameEntity> = storedPlaces.toList()
 
         override suspend fun upsert(placeName: PlaceNameEntity) {
-            stored = placeName
+            storedPlaces.removeAll { it.locationKey == placeName.locationKey }
+            storedPlaces += placeName
         }
     }
 }
