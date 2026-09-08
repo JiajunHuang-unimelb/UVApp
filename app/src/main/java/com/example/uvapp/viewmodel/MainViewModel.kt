@@ -35,7 +35,7 @@ enum class Tab { HOME, FORECAST, SETTINGS }
 data class DevUiState(
     val speed60x: Boolean = false,
     val overrideUv: Boolean = false,
-    val uvOverride: Double = 8.4,
+    val uvOverride: Double = 0.0, //still 8.4 with this turned to 0.0
     val overrideLight: Boolean = false,
     val lightOverride: LightContext = LightContext.DIRECT_SUN,
     val overrideAudio: Boolean = false,
@@ -50,7 +50,7 @@ data class MainUiState(
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
-    val uvIndex: Double = 8.4,
+    val uvIndex: Double = 2.0,
     val placeName: String = "Southbank, Melbourne",
     val lightContext: LightContext = LightContext.DIRECT_SUN,
     val remainingSeconds: Long = 152 * 60L,

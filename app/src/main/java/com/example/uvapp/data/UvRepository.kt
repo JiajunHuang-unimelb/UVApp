@@ -4,6 +4,7 @@ import com.example.uvapp.domain.model.ForecastDay
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvReading
+import com.example.uvapp.data.repository.DefaultUvRepository
 
 /**
  * Data contract for everything the UI needs.
@@ -55,5 +56,5 @@ data class ApiStatus(
  *     val instance: UvRepository by lazy { YourRealUvRepository() }
  */
 object UvRepositoryProvider {
-    val instance: UvRepository by lazy { MockUvRepository() }
+    val instance: UvRepository by lazy { RealUvRepository() }
 }
