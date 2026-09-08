@@ -1,6 +1,7 @@
 package com.example.uvapp.data.repository
 
 import com.example.uvapp.data.db.UvReadingDao
+import com.example.uvapp.data.db.CachedForecastLocation
 import com.example.uvapp.data.db.toDomain
 import com.example.uvapp.data.db.toEntity
 import com.example.uvapp.data.openmeteo.OpenMeteoApi
@@ -9,11 +10,17 @@ import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastState
 import com.example.uvapp.domain.repository.UvRepository
 import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
@@ -28,8 +35,13 @@ class DefaultUvRepository(
     override fun observeForecast(
         latitude: Double,
         longitude: Double,
-    ): Flow<UvForecastState> {
-        val locationKey = locationKey(latitude, longitude)
+    ): Flow<UvForecastState> =
+        flow {
+            val locationKey = resolveLocationKey(latitude, longitude)
+            emitAll(observeForecast(locationKey))
+        }
+
+    private fun observeForecast(locationKey: String): Flow<UvForecastState> {
         val refreshStatus =
             refreshStatuses
                 .map { statuses -> statuses[locationKey] ?: RefreshStatus() }
@@ -64,7 +76,7 @@ class DefaultUvRepository(
         longitude: Double,
         force: Boolean,
     ): Result<Unit> {
-        val locationKey = locationKey(latitude, longitude)
+        val locationKey = resolveLocationKey(latitude, longitude)
         val currentTime = nowMillis()
 
         try {
@@ -150,7 +162,38 @@ class DefaultUvRepository(
     private fun locationKey(
         latitude: Double,
         longitude: Double,
-    ): String = String.format(Locale.ROOT, "%.2f,%.2f", latitude, longitude)
+    ): String = String.format(Locale.ROOT, "%.5f,%.5f", latitude, longitude)
+
+    private suspend fun resolveLocationKey(
+        latitude: Double,
+        longitude: Double,
+    ): String =
+        dao
+            .getForecastLocations()
+            .map { cached ->
+                cached to distanceMeters(latitude, longitude, cached)
+            }.minByOrNull { (_, distance) -> distance }
+            ?.takeIf { (_, distance) -> distance <= CACHE_REUSE_DISTANCE_METERS }
+            ?.first
+            ?.locationKey
+            ?: locationKey(latitude, longitude)
+
+    private fun distanceMeters(
+        latitude: Double,
+        longitude: Double,
+        cached: CachedForecastLocation,
+    ): Double {
+        val firstLatitudeRadians = Math.toRadians(latitude)
+        val secondLatitudeRadians = Math.toRadians(cached.latitude)
+        val latitudeDelta = Math.toRadians(cached.latitude - latitude)
+        val longitudeDelta = Math.toRadians(cached.longitude - longitude)
+        val haversine = (
+            sin(latitudeDelta / 2) * sin(latitudeDelta / 2) +
+                cos(firstLatitudeRadians) * cos(secondLatitudeRadians) *
+                sin(longitudeDelta / 2) * sin(longitudeDelta / 2)
+        ).coerceIn(0.0, 1.0)
+        return EARTH_RADIUS_METERS * 2 * atan2(sqrt(haversine), sqrt(1 - haversine))
+    }
 
     private data class RefreshStatus(
         val isRefreshing: Boolean = false,
@@ -160,5 +203,7 @@ class DefaultUvRepository(
 
     private companion object {
         const val CACHE_MAX_AGE_MILLIS = 60L * 60L * 1000L
+        const val CACHE_REUSE_DISTANCE_METERS = 1_000.0
+        const val EARTH_RADIUS_METERS = 6_371_000.0
     }
 }
