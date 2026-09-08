@@ -1,5 +1,6 @@
 ﻿package com.example.uvapp.data
 
+import com.example.uvapp.data.openmeteo.OpenMeteoClient
 import com.example.uvapp.domain.advisor.BurnCalculator
 import com.example.uvapp.domain.model.ForecastDay
 import com.example.uvapp.domain.model.HourlyUv
@@ -10,38 +11,38 @@ import kotlinx.coroutines.delay
 import kotlin.math.ceil
 import kotlin.math.floor
 
+import java.time.LocalTime
+
 /**
- * Mock implementation used until the backend team ships the real API layer.
- *
- * Values are hand-picked to reproduce the high-fidelity mockups exactly:
- *  - current UV 8.4 "Very High" (Southbank, Melbourne)
- *  - 7-day forecast Mon 11 .. Sun 17, selected day Wed 13
- *  - Wed curve: hourly 04:00..21:00, peak 8.5 around noon
- *  - sunrise 06:43 / sunset 20:11
- *  - direct sun, 38 200 lux, 84 steps/min
+ * There is no non-mock uv repository
  */
 class RealUvRepository : UvRepository {
 
+
+
     override suspend fun getCurrentUv(): UvReading {
         delay(300)
-        return UvReading(index = 8.4)
+        //need to feed in correct lat long
+        val rating = OpenMeteoClient.create().getUvForecast(-37.81, 144.96).hourly.uvIndex[LocalTime.now().hour]
+        val safeRating:Double = rating ?: 0.1
+        return UvReading(index = safeRating)
     }
 
     override suspend fun getPlaceName(): String {
         delay(300)
-        return "Southbank, Melbourne"
+        return "Placeholder, Placeholder"
     }
 
     override suspend fun getForecastDays(): List<ForecastDay> {
         delay(300)
         val days = listOf(
-            tripleOf("Mon", 11, 2.4),
-            tripleOf("Tue", 12, 6.8),
-            tripleOf("Wed", 13, 8.5),
-            tripleOf("Thu", 14, 7.4),
-            tripleOf("Fri", 15, 4.2),
-            tripleOf("Sat", 16, 1.8),
-            tripleOf("Sun", 17, 2.2),
+            tripleOf("Mon", 11, 2.0),
+            tripleOf("Tue", 12, 2.0),
+            tripleOf("Wed", 13, 2.0),
+            tripleOf("Thu", 14, 2.0),
+            tripleOf("Fri", 15, 2.0),
+            tripleOf("Sat", 16, 2.0),
+            tripleOf("Sun", 17, 2.0),
         )
         return days.map { (weekday, dayOfMonth, maxUv) ->
             ForecastDay(
@@ -74,8 +75,8 @@ class RealUvRepository : UvRepository {
     override suspend fun getApiStatuses(): List<ApiStatus> {
         delay(150)
         return listOf(
-            ApiStatus(name = "Open-Meteo", ok = true, detail = "200 OK · 24 h"),
-            ApiStatus(name = "Nominatim", ok = true, detail = "200 OK · Southbank"),
+            ApiStatus(name = "Open-Meteo", ok = false, detail = "placeholder"),
+            ApiStatus(name = "Nominatim", ok = false, detail = "placeholder"),
         )
     }
 
