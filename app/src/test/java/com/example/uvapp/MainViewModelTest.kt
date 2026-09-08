@@ -217,6 +217,24 @@ class MainViewModelTest {
         assertEquals(FAST_FIX.latitude, forecastRepository.latitude, 0.0)
     }
 
+    @Test
+    fun `refreshing unchanged UV preserves the elapsed countdown`() {
+        val vm = MainViewModel(
+            FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()),
+            FakeLocationProvider(LocationResult.Success(PRECISE_FIX)), FakeForecastRepository(),
+            nowMillis = { NOW_MILLIS },
+        )
+        vm.onUseCurrentLocation()
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(3000)
+        mainDispatcher.scheduler.runCurrent()
+        val remaining = vm.state.value.remainingSeconds
+        vm.onRefresh()
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(remaining, vm.state.value.remainingSeconds)
+        assertEquals(vm.state.value.totalBurnSeconds - 3, remaining)
+    }
+
     private class FakeLocationProvider(
         private val result: LocationResult,
     ) : CurrentLocationProvider {

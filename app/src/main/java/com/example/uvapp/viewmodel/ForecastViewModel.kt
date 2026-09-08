@@ -13,32 +13,29 @@ import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** Seekbar window: 06:30 .. 20:30 in 30-minute steps (29 steps). */
-const val SEEK_START_MINUTES = 6 * 60 + 30
-const val SEEK_END_MINUTES = 20 * 60 + 30
-const val SEEK_STEP_MINUTES = 30
-const val SEEK_STEPS = (SEEK_END_MINUTES - SEEK_START_MINUTES) / SEEK_STEP_MINUTES
+const val SEEK_START_MINUTES = 0
+const val SEEK_END_MINUTES = 23 * 60 + 59
+const val SEEK_STEP_MINUTES = 1
+const val SEEK_STEPS = SEEK_END_MINUTES - SEEK_START_MINUTES
 
-/** Immutable snapshot of the Forecast page. */
 data class ForecastUiState(
     val days: List<ForecastDay> = emptyList(),
     val selectedDayIndex: Int = 0,
-    val selectedTimeMinutes: Int = 14 * 60 + 30,
+    val selectedTimeMinutes: Int = 0,
     val skinType: SkinType = SkinType.II,
     val spf: Int = 15,
-    val uvIndex: Double = 8.4,
-    val placeName: String = "Southbank, Melbourne",
+    val uvIndex: Double = 0.0,
+    val uvAvailable: Boolean = false,
+    val placeName: String = "",
     val lightContext: LightContext = LightContext.DIRECT_SUN,
     val isCached: Boolean = false,
 ) {
     val selectedDay: ForecastDay? get() = days.getOrNull(selectedDayIndex)
-
-    /** Forecast UV at the selected day + hour (falls back to the current UV). */
     val selectedUv: Double get() = selectedDay?.uvAt(selectedTimeMinutes / 60.0) ?: uvIndex
 }
 
@@ -56,9 +53,11 @@ class ForecastViewModel(
     private val zoneId: ZoneId = ZoneId.systemDefault(),
     now: () -> LocalDate = { LocalDate.now(zoneId) },
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(ForecastUiState())
-    val state: StateFlow<ForecastUiState> = _state.asStateFlow()
+    val state = _state.asStateFlow()
+    private var followsClock = true
+    private var followsToday = true
+    private var selectedDate = now().toLocalDate()
 
     private var selectedDate: LocalDate = now()
     private var groupedDates: List<LocalDate> = emptyList()
@@ -104,7 +103,8 @@ class ForecastViewModel(
     fun refresh() = mainViewModel.onRefresh()
 
     fun selectTime(minutes: Int) {
-        _state.update { st -> st.copy(selectedTimeMinutes = minutes.coerceIn(SEEK_START_MINUTES, SEEK_END_MINUTES)) }
+        followsClock = false
+        _state.update { it.copy(selectedTimeMinutes = minutes.coerceIn(SEEK_START_MINUTES, SEEK_END_MINUTES)) }
     }
 
     private fun groupByDate(readings: List<UvForecastReading>): Map<LocalDate, List<UvForecastReading>> =

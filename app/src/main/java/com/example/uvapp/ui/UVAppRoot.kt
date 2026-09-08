@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -77,6 +78,10 @@ fun UVAppRoot() {
             onPermissionDenied = mainViewModel::onLocationPermissionDenied,
         )
 
+    LaunchedEffect(mainViewModel) {
+        if (mainViewModel.state.value.locationFix == null) requestCurrentLocation()
+    }
+
     UvAppTheme(themeMode = settingsState.themeMode, accent = settingsState.accent) {
         Box(
             Modifier
@@ -101,6 +106,7 @@ fun UVAppRoot() {
                         onLocate = requestCurrentLocation,
                         onSelectDay = forecastViewModel::selectDay,
                         onSelectTime = forecastViewModel::selectTime,
+                        onCurrentTime = forecastViewModel::selectCurrentTime,
                     )
                     Tab.SETTINGS -> SettingsScreen(settingsViewModel, settingsState)
                 }

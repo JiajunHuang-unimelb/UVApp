@@ -9,9 +9,9 @@ data class ForecastDay(
     val dayOfMonth: Int,
     val maxUv: Double,
     /** minutes since midnight, e.g. 06:43 -> 403 */
-    val sunriseMinutes: Int,
+    val sunriseMinutes: Int?,
     /** minutes since midnight, e.g. 20:11 -> 1211 */
-    val sunsetMinutes: Int,
+    val sunsetMinutes: Int?,
     val hourly: List<HourlyUv>,
 ) {
     val band: UvBand get() = UvBand.fromIndex(maxUv)

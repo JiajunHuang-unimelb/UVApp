@@ -55,9 +55,11 @@ fun TopChrome(
     onSearchClick: () -> Unit,
     onLocate: () -> Unit,
     modifier: Modifier = Modifier,
+    uvAvailable: Boolean = true,
+    uvLabel: String = "UV INDEX NOW",
 ) {
     Column(modifier.fillMaxWidth()) {
-        HeroRow(uv, UvBand.fromIndex(uv), skinType, spf)
+        HeroRow(uv, UvBand.fromIndex(uv), skinType, spf, uvAvailable = uvAvailable, uvLabel = uvLabel)
         Spacer(Modifier.height(12.dp))
         AddressBar(
             placeName = placeName,

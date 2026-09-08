@@ -18,11 +18,13 @@ object BurnCalculator {
         return minutes.toInt()
     }
 
-    /** Formats a minute count as "H:MM" when >= 60 minutes, otherwise "n min". */
+    /** Shows seconds on every countdown tick. */
     fun formatRemaining(totalSeconds: Long): String {
         val minutes = totalSeconds / 60
         val hours = minutes / 60
         val mins = minutes % 60
-        return if (hours > 0) "$hours:${mins.toString().padStart(2, '0')}" else "${mins} min"
+        val seconds = (totalSeconds % 60).toString().padStart(2, '0')
+        val mm = mins.toString().padStart(2, '0')
+        return if (hours > 0) "$hours:$mm:$seconds" else "$mm:$seconds"
     }
 }
