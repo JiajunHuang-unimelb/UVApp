@@ -33,6 +33,10 @@ abstract class AppDatabase : RoomDatabase() {
                             AppDatabase::class.java,
                             DATABASE_NAME,
                         ).addMigrations(MIGRATION_1_2)
+                        // uv_readings/place_names are a re-fetchable network cache, not
+                        // user data — safe to recreate rather than crash on a schema
+                        // mismatch that has no explicit migration.
+                        .fallbackToDestructiveMigration(dropAllTables = true)
                         .build()
                         .also { database -> instance = database }
             }

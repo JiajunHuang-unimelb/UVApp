@@ -1,4 +1,4 @@
-﻿package com.example.uvapp.ui
+package com.example.uvapp.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -114,9 +114,9 @@ fun UVAppRoot() {
                 TopLoadingBar(mainState.isLoading, Modifier.align(Alignment.TopCenter))
                 RefreshButton(
                     isLoading = mainState.isLoading,
-                    onClick = {
-                        forecastViewModel.refresh()
-                    },
+                    // ForecastViewModel.refresh() delegates to mainViewModel.onRefresh() —
+                    // calling both here would fire the same refresh twice.
+                    onClick = forecastViewModel::refresh,
                     modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 16.dp),
                 )
 

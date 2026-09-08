@@ -1,4 +1,4 @@
-﻿package com.example.uvapp.viewmodel
+package com.example.uvapp.viewmodel
 
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
@@ -73,6 +73,7 @@ data class MainUiState(
     val errorMessage: String? = null,
     val isCached: Boolean = false,
     val locationFix: LocationFix? = null,
+    val forecastReadings: List<UvForecastReading> = emptyList(),
     val lux: Int = 38_200,
     /** Manual lux override from the slidable exposure indicator (testing). */
     val luxOverride: Int? = null,
@@ -169,7 +170,13 @@ class MainViewModel(
             }
         }
 
-        if (forecastRepository == null) refreshAuxiliaryData()
+        // Prefer the real, location-aware pipeline when it's configured; the
+        // auxiliary repository only backs builds/tests that don't wire one in.
+        if (locationProvider != null && forecastRepository != null) {
+            locate()
+        } else {
+            refreshAuxiliaryData()
+        }
     }
 
     // ---- User actions -------------------------------------------------------
@@ -382,7 +389,6 @@ class MainViewModel(
                             current.copy(
                                 uvIndex = currentReading?.uvIndex ?: current.uvIndex,
                                 forecastReadings = forecast.readings,
-                                uvAvailable = currentReading != null,
                                 isLoading =
                                     when {
                                         forecast.isRefreshing -> true
@@ -410,13 +416,16 @@ class MainViewModel(
                 _state.update { it.copy(isLoading = true, errorMessage = null) }
                 try {
                     val result = repository.refresh(fix.latitude, fix.longitude, force)
-                    result.exceptionOrNull()?.let { error ->
-                        _state.update {
+                    val error = result.exceptionOrNull()
+                    _state.update {
+                        if (error != null) {
                             it.copy(
                                 isLoading = false,
                                 errorMessage = error.message ?: "Unable to update UV data.",
                                 isCached = true,
                             )
+                        } else {
+                            it.copy(isLoading = false)
                         }
                     }
                 } catch (error: CancellationException) {
