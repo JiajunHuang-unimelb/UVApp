@@ -40,7 +40,7 @@ enum class Tab { HOME, FORECAST, SETTINGS }
 data class DevUiState(
     val speed60x: Boolean = false,
     val overrideUv: Boolean = false,
-    val uvOverride: Double = 8.4,
+    val uvOverride: Double = 0.0, //still 8.4 with this turned to 0.0
     val overrideLight: Boolean = false,
     val lightOverride: LightContext = LightContext.DIRECT_SUN,
     val overrideAudio: Boolean = false,

@@ -2,6 +2,7 @@ package com.example.uvapp.data.repository
 
 import com.example.uvapp.data.db.UvReadingDao
 import com.example.uvapp.data.db.UvReadingEntity
+import com.example.uvapp.data.db.CachedForecastLocation
 import com.example.uvapp.data.openmeteo.OpenMeteoApi
 import com.example.uvapp.data.openmeteo.OpenMeteoHourlyDto
 import com.example.uvapp.data.openmeteo.OpenMeteoResponseDto
@@ -52,6 +53,47 @@ class DefaultUvRepositoryTest {
             assertEquals(0, api.callCount)
             assertEquals(UvDataSource.CACHE, state.source)
             assertEquals(1, state.readings.size)
+        }
+
+    @Test
+    fun `forced refresh still respects the one hour service limit`() =
+        runBlocking {
+            val api = FakeOpenMeteoApi { validResponse() }
+            val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
+            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
+
+            val result = repository.refresh(LATITUDE, LONGITUDE, force = true)
+
+            assertTrue(result.isSuccess)
+            assertEquals(0, api.callCount)
+        }
+
+    @Test
+    fun `movement within one kilometre reuses the fresh forecast cache`() =
+        runBlocking {
+            val api = FakeOpenMeteoApi { validResponse() }
+            val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
+            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
+
+            val result = repository.refresh(LATITUDE + 0.004, LONGITUDE, force = false)
+            val state = repository.observeForecast(LATITUDE + 0.004, LONGITUDE).first()
+
+            assertTrue(result.isSuccess)
+            assertEquals(0, api.callCount)
+            assertEquals(1, state.readings.size)
+        }
+
+    @Test
+    fun `movement beyond one kilometre requests a separate forecast`() =
+        runBlocking {
+            val api = FakeOpenMeteoApi { validResponse() }
+            val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
+            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
+
+            val result = repository.refresh(LATITUDE + 0.02, LONGITUDE, force = false)
+
+            assertTrue(result.isSuccess)
+            assertEquals(1, api.callCount)
         }
 
     @Test
@@ -130,6 +172,19 @@ class DefaultUvRepositoryTest {
                     .sortedBy { entity -> entity.forecastTimeMillis }
             }
 
+        override suspend fun getForecastLocations(): List<CachedForecastLocation> =
+            readings.value
+                .groupBy { entity -> entity.locationKey }
+                .map { (locationKey, entities) ->
+                    val latest = entities.maxBy { entity -> entity.fetchedAtMillis }
+                    CachedForecastLocation(
+                        locationKey = locationKey,
+                        latitude = latest.latitude,
+                        longitude = latest.longitude,
+                        fetchedAtMillis = latest.fetchedAtMillis,
+                    )
+                }
+
         override suspend fun getForecast(locationKey: String): List<UvReadingEntity> =
             readings.value
                 .filter { entity -> entity.locationKey == locationKey }
@@ -166,7 +221,7 @@ class DefaultUvRepositoryTest {
     private companion object {
         const val LATITUDE = -37.81
         const val LONGITUDE = 144.96
-        const val LOCATION_KEY = "-37.81,144.96"
+        const val LOCATION_KEY = "-37.81000,144.96000"
 
         fun validResponse(): OpenMeteoResponseDto =
             OpenMeteoResponseDto(
