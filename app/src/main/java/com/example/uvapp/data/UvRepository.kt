@@ -1,4 +1,4 @@
-﻿package com.example.uvapp.data
+package com.example.uvapp.data
 
 import com.example.uvapp.domain.model.ForecastDay
 import com.example.uvapp.domain.model.LightContext
@@ -10,8 +10,8 @@ import com.example.uvapp.data.repository.DefaultUvRepository
  * Data contract for everything the UI needs.
  *
  * This is the seam the backend team implements later (Retrofit + Open-Meteo +
- * Nominatim + Room). The front end only ever sees this interface and the
- * [MockUvRepository] fake, so swapping in the real backend is a drop-in change.
+ * Nominatim + Room). The front end only ever sees this interface, so swapping
+ * in the real backend is a drop-in change.
  */
 interface UvRepository {
     /** Current UV index at the active location. */

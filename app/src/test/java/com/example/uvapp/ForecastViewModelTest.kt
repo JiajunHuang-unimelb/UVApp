@@ -1,5 +1,9 @@
 package com.example.uvapp
 
+import com.example.uvapp.data.openmeteo.OpenMeteoApi
+import com.example.uvapp.data.openmeteo.OpenMeteoDailySunDto
+import com.example.uvapp.data.openmeteo.OpenMeteoResponseDto
+import com.example.uvapp.data.openmeteo.OpenMeteoSunResponseDto
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.LocationFix
@@ -11,6 +15,7 @@ import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -64,6 +69,8 @@ class ForecastViewModelTest {
     private fun buildViewModel(
         readings: List<UvForecastReading>,
         forecastRepository: FakeForecastRepository = FakeForecastRepository(readings),
+        zoneId: ZoneId = zone,
+        sunApi: OpenMeteoApi = FakeOpenMeteoApi(),
     ): Pair<ForecastViewModel, FakeForecastRepository> {
         val settings = SettingsViewModel(FakeUserPreferencesRepository())
         val main =
@@ -74,7 +81,7 @@ class ForecastViewModelTest {
                 forecastRepository = forecastRepository,
             )
         settle()
-        val vm = ForecastViewModel(settings, main, now = { fixedNow }, zoneId = zone)
+        val vm = ForecastViewModel(settings, main, now = { fixedNow }, zoneId = zoneId, sunApi = sunApi)
         settle()
         return vm to forecastRepository
     }
@@ -135,6 +142,23 @@ class ForecastViewModelTest {
     }
 
     @Test
+    fun `selectTime clamps to the sunrise-sunset window when it is known`() {
+        // Melbourne's coordinates (from FakeLocationProvider) paired with a
+        // matching civil offset yield a real, ordered sunrise-sunset window.
+        val (vm, _) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)), zoneId = ZoneOffset.ofHours(10))
+        val day = vm.state.value.selectedDay!!
+        val sunrise = day.sunriseMinutes
+        val sunset = day.sunsetMinutes
+        assertTrue(sunrise != null && sunset != null && sunrise < sunset)
+
+        vm.selectTime(0)
+        assertEquals(sunrise, vm.state.value.selectedTimeMinutes)
+
+        vm.selectTime(23 * 60)
+        assertEquals(sunset, vm.state.value.selectedTimeMinutes)
+    }
+
+    @Test
     fun `refresh delegates to MainViewModel's forecast repository`() {
         val (vm, forecastRepository) = buildViewModel(listOf(hourlyReading(0, 12, 5.0)))
         val callsAfterInit = forecastRepository.refreshCallCount
@@ -151,6 +175,32 @@ class ForecastViewModelTest {
 
         assertEquals(5.0, vm.state.value.uvIndex, 0.0)
         assertEquals("-37.81360, 144.96310", vm.state.value.placeName)
+    }
+
+    /** Stubs the online sunrise/sunset lookup so tests never hit the real network. */
+    private class FakeOpenMeteoApi : OpenMeteoApi {
+        override suspend fun getUvForecast(
+            latitude: Double,
+            longitude: Double,
+            hourly: String,
+            daily: String,
+            timezone: String,
+            forecastDays: Int,
+        ): OpenMeteoResponseDto = throw UnsupportedOperationException("not used by ForecastViewModel")
+
+        override suspend fun getSunTimes(
+            latitude: Double,
+            longitude: Double,
+            daily: String,
+            timezone: String,
+            forecastDays: Int,
+        ): OpenMeteoSunResponseDto = OpenMeteoSunResponseDto(
+            daily = OpenMeteoDailySunDto(
+                time = listOf("2026-09-09", "2026-09-10"),
+                sunrise = listOf("2026-09-09T06:31", "2026-09-10T06:30"),
+                sunset = listOf("2026-09-09T18:04", "2026-09-10T18:05"),
+            ),
+        )
     }
 
     private class FakeLocationProvider : CurrentLocationProvider {

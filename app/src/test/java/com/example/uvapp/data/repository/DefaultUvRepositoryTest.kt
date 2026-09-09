@@ -6,6 +6,7 @@ import com.example.uvapp.data.db.CachedForecastLocation
 import com.example.uvapp.data.openmeteo.OpenMeteoApi
 import com.example.uvapp.data.openmeteo.OpenMeteoHourlyDto
 import com.example.uvapp.data.openmeteo.OpenMeteoResponseDto
+import com.example.uvapp.data.openmeteo.OpenMeteoSunResponseDto
 import com.example.uvapp.domain.model.UvDataSource
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -158,6 +159,14 @@ class DefaultUvRepositoryTest {
             callCount += 1
             return response()
         }
+
+        override suspend fun getSunTimes(
+            latitude: Double,
+            longitude: Double,
+            daily: String,
+            timezone: String,
+            forecastDays: Int,
+        ): OpenMeteoSunResponseDto = throw UnsupportedOperationException("not used by DefaultUvRepository")
     }
 
     private class FakeUvReadingDao(
