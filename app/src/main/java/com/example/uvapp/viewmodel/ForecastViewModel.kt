@@ -9,9 +9,11 @@ import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvForecastReading
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -51,18 +53,22 @@ class ForecastViewModel(
     settingsViewModel: SettingsViewModel,
     private val mainViewModel: MainViewModel,
     private val zoneId: ZoneId = ZoneId.systemDefault(),
-    now: () -> LocalDate = { LocalDate.now(zoneId) },
+    private val now: () -> LocalDateTime = { LocalDateTime.now(zoneId) },
 ) : ViewModel() {
     private val _state = MutableStateFlow(ForecastUiState())
     val state = _state.asStateFlow()
     private var followsClock = true
     private var followsToday = true
-    private var selectedDate = now().toLocalDate()
-
-    private var selectedDate: LocalDate = now()
+    private var selectedDate: LocalDate = now().toLocalDate()
     private var groupedDates: List<LocalDate> = emptyList()
 
     init {
+        viewModelScope.launch {
+            while (isActive) {
+                if (followsClock) selectCurrentTime()
+                delay(1_000)
+            }
+        }
         viewModelScope.launch {
             settingsViewModel.state.collect { s ->
                 _state.update { it.copy(skinType = s.skinType, spf = s.spf) }
@@ -78,6 +84,7 @@ class ForecastViewModel(
                         days = days,
                         selectedDayIndex = groupedDates.indexOf(selectedDate).coerceAtLeast(0),
                         uvIndex = m.displayUv,
+                        uvAvailable = m.uvAvailable,
                         placeName = m.placeName,
                         lightContext = m.displayContext,
                         isCached = m.isCached,
@@ -90,6 +97,7 @@ class ForecastViewModel(
     fun selectDay(index: Int) {
         val date = groupedDates.getOrNull(index) ?: return
         selectedDate = date
+        followsToday = date == now().toLocalDate()
         _state.update { st ->
             val day = st.days.getOrNull(index) ?: return@update st.copy(selectedDayIndex = index)
             st.copy(
@@ -100,11 +108,31 @@ class ForecastViewModel(
     }
 
     /** Reloads the forecast through the same location-aware repository Home uses. */
-    fun refresh() = mainViewModel.onRefresh()
+    fun refresh() {
+        followsClock = true
+        followsToday = true
+        selectedDate = now().toLocalDate()
+        selectCurrentTime()
+        mainViewModel.onRefresh()
+    }
 
     fun selectTime(minutes: Int) {
         followsClock = false
         _state.update { it.copy(selectedTimeMinutes = minutes.coerceIn(SEEK_START_MINUTES, SEEK_END_MINUTES)) }
+    }
+
+    fun selectCurrentTime() {
+        followsClock = true
+        val current = now()
+        if (followsToday) selectedDate = current.toLocalDate()
+        _state.update { state ->
+            state.copy(
+                selectedTimeMinutes = current.hour * 60 + current.minute,
+                selectedDayIndex =
+                    if (followsToday) groupedDates.indexOf(selectedDate).coerceAtLeast(0)
+                    else state.selectedDayIndex,
+            )
+        }
     }
 
     private fun groupByDate(readings: List<UvForecastReading>): Map<LocalDate, List<UvForecastReading>> =
@@ -133,10 +161,12 @@ class ForecastViewModel(
         )
     }
 
-    /** Snaps a time into the selected day's sunrise..sunset window (30-min grid). */
+    /** Snaps a time into the selected day's sunrise..sunset window. */
     private fun clampToDayWindow(day: ForecastDay, timeMinutes: Int): Int {
-        val start = ((day.sunriseMinutes + SEEK_STEP_MINUTES - 1) / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
-        val end = (day.sunsetMinutes / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
+        val sunriseMinutes = day.sunriseMinutes ?: SEEK_START_MINUTES
+        val sunsetMinutes = day.sunsetMinutes ?: SEEK_END_MINUTES
+        val start = ((sunriseMinutes + SEEK_STEP_MINUTES - 1) / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
+        val end = (sunsetMinutes / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
         return timeMinutes.coerceIn(start, end)
     }
 }

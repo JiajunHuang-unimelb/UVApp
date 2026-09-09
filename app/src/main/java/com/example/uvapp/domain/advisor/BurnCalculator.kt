@@ -2,20 +2,23 @@
 
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.SkinType
+import com.example.uvapp.domain.exposure.ExposureCalculator
+import com.example.uvapp.domain.exposure.SkinType as ExposureSkinType
 
 /**
- * Personal burn-time math (front-end mirror of the backend team's formula).
- *
- * burnMinutes = baseMinutesAtUv1(skin) x SPF / (uvIndex x contextFactor)
- * Infinite (Int.MAX_VALUE) when uv or context factor is 0 (no burn risk).
+ * Compatibility adapter for callers that still consume a whole-minute estimate.
+ * The exposure package owns the dose calculation used by the countdown.
  */
 object BurnCalculator {
 
     fun burnMinutes(skinType: SkinType, spf: Int, uvIndex: Double, context: LightContext): Int {
-        val doseRate = uvIndex * context.factor
-        if (doseRate <= 0.0) return Int.MAX_VALUE
-        val minutes = skinType.baseMinutesAtUv1 * spf / doseRate
-        return minutes.toInt()
+        val exposureLimitSed = skinType.toExposureSkinType().exposureLimitSed
+        return ExposureCalculator.calculateRemainingMinutes(
+            remainingDoseSed = exposureLimitSed,
+            uvIndex = uvIndex,
+            contextFactor = context.factor,
+            sunscreenSpf = spf,
+        )?.toInt() ?: Int.MAX_VALUE
     }
 
     /** Shows seconds on every countdown tick. */
@@ -27,4 +30,14 @@ object BurnCalculator {
         val mm = mins.toString().padStart(2, '0')
         return if (hours > 0) "$hours:$mm:$seconds" else "$mm:$seconds"
     }
+
+    private fun SkinType.toExposureSkinType(): ExposureSkinType =
+        when (this) {
+            SkinType.I -> ExposureSkinType.TYPE_I
+            SkinType.II -> ExposureSkinType.TYPE_II
+            SkinType.III -> ExposureSkinType.TYPE_III
+            SkinType.IV -> ExposureSkinType.TYPE_IV
+            SkinType.V -> ExposureSkinType.TYPE_V
+            SkinType.VI -> ExposureSkinType.TYPE_VI
+        }
 }
