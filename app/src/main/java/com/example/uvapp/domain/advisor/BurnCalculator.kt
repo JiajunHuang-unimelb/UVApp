@@ -7,17 +7,16 @@ import com.example.uvapp.domain.exposure.SkinType as ExposureSkinType
 
 /**
  * Compatibility adapter for callers that still consume a whole-minute estimate.
- * The exposure package owns the dose calculation used by the countdown.
+ * SPF remains in the legacy signature but does not extend the action timer.
  */
 object BurnCalculator {
 
+    @Suppress("UNUSED_PARAMETER")
     fun burnMinutes(skinType: SkinType, spf: Int, uvIndex: Double, context: LightContext): Int {
-        val exposureLimitSed = skinType.toExposureSkinType().exposureLimitSed
         return ExposureCalculator.calculateRemainingMinutes(
-            remainingDoseSed = exposureLimitSed,
+            remainingDoseSed = ExposureCalculator.calculatePersonalDoseLimit(skinType.toExposureSkinType()),
             uvIndex = uvIndex,
             contextFactor = context.factor,
-            sunscreenSpf = spf,
         )?.toInt() ?: Int.MAX_VALUE
     }
 

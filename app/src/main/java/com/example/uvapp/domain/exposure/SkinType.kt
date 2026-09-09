@@ -1,8 +1,8 @@
 package com.example.uvapp.domain.exposure
 
-/** Approximate minimum erythemal dose threshold for each Fitzpatrick skin type. */
+/** Approximate minimum erythemal dose reference for each Fitzpatrick skin type; not a safety limit. */
 enum class SkinType(
-    val exposureLimitSed: Double,
+    val minimumErythemaDoseSed: Double,
 ) {
     TYPE_I(2.0),
     TYPE_II(2.5),

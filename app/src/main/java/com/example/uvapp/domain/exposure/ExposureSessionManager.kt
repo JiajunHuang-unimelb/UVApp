@@ -97,14 +97,13 @@ class ExposureSessionManager {
     }
 
     fun snapshot(): ExposureSnapshot {
-        val doseLimitSed = skinType.exposureLimitSed
+        val doseLimitSed = ExposureCalculator.calculatePersonalDoseLimit(skinType)
         val remainingDoseSed = ExposureCalculator.calculateRemainingDose(doseLimitSed, accumulatedDoseSed)
         val estimatedRemainingMinutes =
             ExposureCalculator.calculateRemainingMinutes(
                 remainingDoseSed = remainingDoseSed,
                 uvIndex = currentUvIndex,
                 contextFactor = currentContext.doseRateFactor,
-                sunscreenSpf = sunscreenSpf,
             )
         return ExposureSnapshot(
             status = status,
@@ -122,14 +121,12 @@ class ExposureSessionManager {
                     remainingDoseSed = remainingDoseSed,
                     uvIndex = currentUvIndex,
                     contextFactor = currentContext.doseRateFactor,
-                    sunscreenSpf = sunscreenSpf,
                 ),
             estimatedTotalSeconds =
                 ExposureCalculator.calculateRemainingSeconds(
                     remainingDoseSed = doseLimitSed,
                     uvIndex = currentUvIndex,
                     contextFactor = currentContext.doseRateFactor,
-                    sunscreenSpf = sunscreenSpf,
                 ),
         )
     }
@@ -144,7 +141,6 @@ class ExposureSessionManager {
                 currentUvIndex,
                 elapsedMinutes,
                 currentContext.doseRateFactor,
-                sunscreenSpf,
             )
         lastElapsedMs = nowElapsedMs
         if (remainingDoseSed() == 0.0) {
@@ -153,7 +149,10 @@ class ExposureSessionManager {
     }
 
     private fun remainingDoseSed(): Double =
-        ExposureCalculator.calculateRemainingDose(skinType.exposureLimitSed, accumulatedDoseSed)
+        ExposureCalculator.calculateRemainingDose(
+            ExposureCalculator.calculatePersonalDoseLimit(skinType),
+            accumulatedDoseSed,
+        )
 
     private companion object {
         const val MILLIS_PER_MINUTE = 60_000.0
