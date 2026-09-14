@@ -379,6 +379,7 @@ class MainViewModel(
                         _state.update { current ->
                             current.copy(
                                 uvIndex = currentReading?.uvIndex ?: current.uvIndex,
+                                uvAvailable = currentReading != null,
                                 forecastReadings = forecast.readings,
                                 isLoading =
                                     when {

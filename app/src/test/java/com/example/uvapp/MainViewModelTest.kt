@@ -123,6 +123,7 @@ class MainViewModelTest {
         assertEquals(PRECISE_FIX.latitude, forecastRepository.latitude, 0.0)
         assertEquals(PRECISE_FIX.longitude, forecastRepository.longitude, 0.0)
         assertEquals(7.1, vm.state.value.uvIndex, 0.0)
+        assertTrue(vm.state.value.uvAvailable)
         assertEquals("Melbourne, City of Melbourne", vm.state.value.placeName)
         assertEquals(Coordinates(PRECISE_FIX.latitude, PRECISE_FIX.longitude), placeRepository.coordinates)
         assertEquals(PRECISE_FIX, vm.state.value.locationFix)
