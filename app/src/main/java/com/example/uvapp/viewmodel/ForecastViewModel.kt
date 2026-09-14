@@ -9,6 +9,7 @@ import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvForecastReading
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
@@ -20,7 +21,7 @@ import kotlinx.coroutines.launch
 
 const val SEEK_START_MINUTES = 0
 const val SEEK_END_MINUTES = 23 * 60 + 59
-const val SEEK_STEP_MINUTES = 1
+const val SEEK_STEP_MINUTES = 30
 const val SEEK_STEPS = SEEK_END_MINUTES - SEEK_START_MINUTES
 
 data class ForecastUiState(
@@ -51,14 +52,12 @@ class ForecastViewModel(
     settingsViewModel: SettingsViewModel,
     private val mainViewModel: MainViewModel,
     private val zoneId: ZoneId = ZoneId.systemDefault(),
-    now: () -> LocalDate = { LocalDate.now(zoneId) },
+    private val now: () -> LocalDate = { LocalDate.now(zoneId) },
 ) : ViewModel() {
     private val _state = MutableStateFlow(ForecastUiState())
     val state = _state.asStateFlow()
     private var followsClock = true
     private var followsToday = true
-    private var selectedDate = now().toLocalDate()
-
     private var selectedDate: LocalDate = now()
     private var groupedDates: List<LocalDate> = emptyList()
 
@@ -78,6 +77,7 @@ class ForecastViewModel(
                         days = days,
                         selectedDayIndex = groupedDates.indexOf(selectedDate).coerceAtLeast(0),
                         uvIndex = m.displayUv,
+                        uvAvailable = m.uvAvailable,
                         placeName = m.placeName,
                         lightContext = m.displayContext,
                         isCached = m.isCached,
@@ -105,6 +105,20 @@ class ForecastViewModel(
     fun selectTime(minutes: Int) {
         followsClock = false
         _state.update { it.copy(selectedTimeMinutes = minutes.coerceIn(SEEK_START_MINUTES, SEEK_END_MINUTES)) }
+    }
+
+    fun selectCurrentTime() {
+        followsClock = true
+        followsToday = true
+        selectedDate = now()
+        val currentTime = LocalTime.now(zoneId)
+        val currentMinutes = currentTime.hour * 60 + currentTime.minute
+        _state.update {
+            it.copy(
+                selectedDayIndex = groupedDates.indexOf(selectedDate).coerceAtLeast(0),
+                selectedTimeMinutes = currentMinutes,
+            )
+        }
     }
 
     private fun groupByDate(readings: List<UvForecastReading>): Map<LocalDate, List<UvForecastReading>> =
@@ -135,8 +149,10 @@ class ForecastViewModel(
 
     /** Snaps a time into the selected day's sunrise..sunset window (30-min grid). */
     private fun clampToDayWindow(day: ForecastDay, timeMinutes: Int): Int {
-        val start = ((day.sunriseMinutes + SEEK_STEP_MINUTES - 1) / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
-        val end = (day.sunsetMinutes / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
+        val sunriseMinutes = day.sunriseMinutes ?: SEEK_START_MINUTES
+        val sunsetMinutes = day.sunsetMinutes ?: SEEK_END_MINUTES
+        val start = ((sunriseMinutes + SEEK_STEP_MINUTES - 1) / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
+        val end = (sunsetMinutes / SEEK_STEP_MINUTES) * SEEK_STEP_MINUTES
         return timeMinutes.coerceIn(start, end)
     }
 }

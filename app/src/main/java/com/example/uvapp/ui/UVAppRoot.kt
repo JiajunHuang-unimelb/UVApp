@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.uvapp.data.UvRepositoryProvider
 import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
 import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
 import com.example.uvapp.data.repository.UvRepositoryFactory
@@ -58,7 +57,6 @@ fun UVAppRoot() {
     }
     val mainViewModel: MainViewModel = viewModel {
         MainViewModel(
-            auxiliaryRepository = UvRepositoryProvider.instance,
             settingsViewModel = settingsViewModel,
             locationProvider = locationProvider,
             forecastRepository = forecastRepository,

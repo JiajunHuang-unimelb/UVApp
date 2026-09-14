@@ -9,6 +9,8 @@ import com.example.uvapp.domain.model.UvForecastState
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
+import com.example.uvapp.viewmodel.SEEK_END_MINUTES
+import com.example.uvapp.viewmodel.SEEK_START_MINUTES
 import com.example.uvapp.viewmodel.SettingsViewModel
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -42,9 +44,6 @@ class ForecastViewModelTest {
     fun setUp() {
         Dispatchers.setMain(mainDispatcher)
     }
-    private val source = MutableStateFlow(UvForecastState(readings = readings))
-
-    @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
     private fun settle() {
@@ -66,7 +65,6 @@ class ForecastViewModelTest {
         val settings = SettingsViewModel(FakeUserPreferencesRepository())
         val main =
             MainViewModel(
-                auxiliaryRepository = FakeUvRepository(),
                 settingsViewModel = settings,
                 locationProvider = FakeLocationProvider(),
                 forecastRepository = forecastRepository,
