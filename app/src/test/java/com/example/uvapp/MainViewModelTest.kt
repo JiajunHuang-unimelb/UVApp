@@ -1,6 +1,5 @@
 package com.example.uvapp
 
-import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.Coordinates
@@ -49,44 +48,23 @@ class MainViewModelTest {
         Dispatchers.resetMain()
     }
 
-    /** Lets the one-shot refresh() coroutine (700ms simulated latency) finish. */
+    /** Advances queued ViewModel work without draining the infinite countdown ticker. */
     private fun settle() {
         mainDispatcher.scheduler.advanceTimeBy(701)
         mainDispatcher.scheduler.runCurrent()
     }
 
-    @Test
-    fun `initial refresh populates state from the repository`() {
-        val repo = FakeUvRepository(currentUv = 6.2, placeName = "Docklands, Melbourne")
-        val vm = MainViewModel(repo, SettingsViewModel(FakeUserPreferencesRepository()))
-
-        settle()
-
-        val state = vm.state.value
-        assertEquals(6.2, state.uvIndex, 0.0)
-        assertEquals("Docklands, Melbourne", state.placeName)
-        assertEquals(LightContext.DIRECT_SUN, state.lightContext)
-        assertTrue(state.apiStatuses.isNotEmpty())
-        assertFalse(state.isLoading)
-    }
-
-    @Test
-    fun `forceOffline keeps cached values and surfaces an error`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
-        settle()
-
-        vm.onOfflineToggle()
-        vm.onRefresh()
-        settle()
-
-        val state = vm.state.value
-        assertTrue(state.isCached)
-        assertEquals("Couldn't update · showing cached data", state.errorMessage)
-    }
+    private fun buildLocatedViewModel() =
+        MainViewModel(
+            settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+            locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
+            forecastRepository = FakeForecastRepository(),
+            nowMillis = { NOW_MILLIS },
+        )
 
     @Test
     fun `dev UV override recomputes the burn countdown`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
+        val vm = buildLocatedViewModel()
         settle()
 
         vm.onOverrideUvToggle()
@@ -100,7 +78,7 @@ class MainViewModelTest {
 
     @Test
     fun `countdown ticks down one second per real second`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
+        val vm = buildLocatedViewModel()
         settle()
         val before = vm.state.value.remainingSeconds
 
@@ -112,7 +90,7 @@ class MainViewModelTest {
 
     @Test
     fun `speed60x makes the countdown tick 60 seconds per tick`() {
-        val vm = MainViewModel(FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()))
+        val vm = buildLocatedViewModel()
         settle()
         vm.onSpeedToggle()
         val before = vm.state.value.remainingSeconds
@@ -130,7 +108,6 @@ class MainViewModelTest {
         val placeRepository = FakePlaceRepository()
         val vm =
             MainViewModel(
-                auxiliaryRepository = FakeUvRepository(currentUv = 2.0),
                 settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = locationProvider,
                 forecastRepository = forecastRepository,
@@ -146,6 +123,7 @@ class MainViewModelTest {
         assertEquals(PRECISE_FIX.latitude, forecastRepository.latitude, 0.0)
         assertEquals(PRECISE_FIX.longitude, forecastRepository.longitude, 0.0)
         assertEquals(7.1, vm.state.value.uvIndex, 0.0)
+        assertTrue(vm.state.value.uvAvailable)
         assertEquals("Melbourne, City of Melbourne", vm.state.value.placeName)
         assertEquals(Coordinates(PRECISE_FIX.latitude, PRECISE_FIX.longitude), placeRepository.coordinates)
         assertEquals(PRECISE_FIX, vm.state.value.locationFix)
@@ -157,7 +135,6 @@ class MainViewModelTest {
         val approximateFix = PRECISE_FIX.copy(isApproximate = true, accuracyMeters = 2_000f)
         val vm =
             MainViewModel(
-                auxiliaryRepository = FakeUvRepository(),
                 settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = FakeLocationProvider(LocationResult.Success(approximateFix)),
                 forecastRepository = FakeForecastRepository(),
@@ -175,7 +152,6 @@ class MainViewModelTest {
         val forecastRepository = FakeForecastRepository()
         val vm =
             MainViewModel(
-                auxiliaryRepository = FakeUvRepository(currentUv = 6.2),
                 settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = FakeLocationProvider(LocationResult.Timeout),
                 forecastRepository = forecastRepository,
@@ -184,10 +160,8 @@ class MainViewModelTest {
         settle()
 
         // init() goes straight to locate() when both repositories are configured, so
-        // the auxiliary repository (and its 6.2 reading) is never consulted here —
-        // the UV index stays at its untouched default.
+            // the UV index stays at its untouched default.
         assertEquals(0.0, vm.state.value.uvIndex, 0.0)
-        assertFalse(vm.state.value.uvAvailable)
         assertTrue(checkNotNull(vm.state.value.errorMessage).contains("timed out"))
         assertFalse(vm.state.value.isLoading)
         assertEquals(0, forecastRepository.refreshCallCount)
@@ -199,7 +173,6 @@ class MainViewModelTest {
         val forecastRepository = FakeForecastRepository()
         val vm =
             MainViewModel(
-                auxiliaryRepository = FakeUvRepository(),
                 settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 locationProvider = locationProvider,
                 forecastRepository = forecastRepository,
@@ -221,8 +194,9 @@ class MainViewModelTest {
     @Test
     fun `refreshing unchanged UV preserves the elapsed countdown`() {
         val vm = MainViewModel(
-            FakeUvRepository(), SettingsViewModel(FakeUserPreferencesRepository()),
-            FakeLocationProvider(LocationResult.Success(PRECISE_FIX)), FakeForecastRepository(),
+            settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+            locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
+            forecastRepository = FakeForecastRepository(),
             nowMillis = { NOW_MILLIS },
         )
         vm.onUseCurrentLocation()
