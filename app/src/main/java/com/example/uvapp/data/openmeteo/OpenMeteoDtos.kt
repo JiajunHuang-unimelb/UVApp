@@ -20,3 +20,16 @@ data class OpenMeteoHourlyDto(
     @SerialName("cloud_cover")
     val cloudCover: List<Int?>,
 )
+
+/** Transport model for the sunrise/sunset endpoint used by the forecast graph. */
+@Serializable
+data class OpenMeteoSunResponseDto(
+    val daily: OpenMeteoDailySunDto,
+)
+
+@Serializable
+data class OpenMeteoDailySunDto(
+    val time: List<String>,
+    val sunrise: List<String>,
+    val sunset: List<String>,
+)
