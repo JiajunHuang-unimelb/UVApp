@@ -60,7 +60,6 @@ data class MainUiState(
     val lightContext: LightContext = LightContext.DIRECT_SUN,
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
-    val manuallyAddedSeconds: Long = 0L,
     val exposureStatus: ExposureStatus = ExposureStatus.NOT_STARTED,
     val exposureStarted: Boolean = false,
     val exposureRunning: Boolean = false,
@@ -234,21 +233,6 @@ class MainViewModel(
     }
 
     fun onResetTimer() = restartExposureSession()
-
-    fun onAddTimerMinutes(minutes: Int) {
-        require(minutes > 0) { "Timer adjustment must be positive" }
-        if (!_state.value.exposureStarted) restartExposureSession()
-        syncExposure()
-        val addedSeconds = minutes * 60L
-        _state.update { state -> state.copy(manuallyAddedSeconds = state.manuallyAddedSeconds + addedSeconds) }
-        publishExposure(exposureSession.snapshot())
-    }
-
-    fun onClearTimer() {
-        advanceExposureClock()
-        _state.update { it.copy(manuallyAddedSeconds = 0L) }
-        publishExposure(exposureSession.clear(exposureClockMillis))
-    }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
 
@@ -476,7 +460,6 @@ class MainViewModel(
     private fun restartExposureSession() {
         advanceExposureClock()
         val state = _state.value
-        _state.update { it.copy(manuallyAddedSeconds = 0L) }
         publishExposure(
             exposureSession.start(
                 skinType = state.skinType,
@@ -526,7 +509,6 @@ class MainViewModel(
     private fun publishExposure(snapshot: ExposureSnapshot) {
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
-            val manualAdjustment = state.manuallyAddedSeconds.takeUnless { doseComplete } ?: 0L
             state.copy(
                 exposureStatus = snapshot.status,
                 exposureStarted = snapshot.isStarted,
@@ -541,13 +523,13 @@ class MainViewModel(
                         !snapshot.isStarted -> 0L
                         doseComplete -> 0L
                         snapshot.estimatedRemainingSeconds == null -> Long.MAX_VALUE
-                        else -> snapshot.estimatedRemainingSeconds + manualAdjustment
+                        else -> snapshot.estimatedRemainingSeconds
                     },
                 totalBurnSeconds =
                     when {
                         !snapshot.isStarted -> 0L
                         snapshot.estimatedTotalSeconds == null -> Long.MAX_VALUE
-                        else -> snapshot.estimatedTotalSeconds + manualAdjustment
+                        else -> snapshot.estimatedTotalSeconds
                     },
             )
         }

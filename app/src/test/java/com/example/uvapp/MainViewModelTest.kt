@@ -102,9 +102,10 @@ class MainViewModelTest {
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(runningRemaining - 1L, vm.state.value.remainingSeconds)
 
-        vm.onClearTimer()
-        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
-        assertEquals(0L, vm.state.value.remainingSeconds)
+        vm.onResetTimer()
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
+        assertEquals(vm.state.value.totalBurnSeconds, vm.state.value.remainingSeconds)
     }
 
     @Test
@@ -132,25 +133,6 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
 
         assertEquals((before - 60).coerceAtLeast(0), vm.state.value.remainingSeconds)
-    }
-
-    @Test
-    fun `manual time remains separate from accumulated dose`() {
-        val vm = buildLocatedViewModel()
-        settle()
-        vm.onStartExposure()
-        val initial = vm.state.value
-
-        vm.onAddTimerMinutes(5)
-        val adjusted = vm.state.value
-
-        assertEquals(initial.accumulatedDoseSed, adjusted.accumulatedDoseSed, 0.0)
-        assertEquals(initial.totalBurnSeconds + 300L, adjusted.totalBurnSeconds)
-        assertEquals(initial.remainingSeconds + 300L, adjusted.remainingSeconds)
-
-        mainDispatcher.scheduler.advanceTimeBy(1_000)
-        mainDispatcher.scheduler.runCurrent()
-        assertEquals(adjusted.remainingSeconds - 1L, vm.state.value.remainingSeconds)
     }
 
     @Test

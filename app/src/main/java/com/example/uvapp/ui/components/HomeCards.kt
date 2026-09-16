@@ -477,57 +477,6 @@ fun SafeTimerCard(
     }
 }
 
-/** Quick controls for extending or starting the countdown manually. */
-@Composable
-fun AddTimerControls(
-    onAddMinutes: (Int) -> Unit,
-    onClear: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = UvTheme
-    Row(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        listOf(1, 5, 10).forEach { minutes ->
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surface)
-                    .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
-                    .clickable { onAddMinutes(minutes) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "+$minutes min",
-                    color = colors.accent,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-        Box(
-            Modifier
-                .weight(1f)
-                .height(38.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.surface)
-                .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
-                .clickable(onClick = onClear),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "Clear",
-                color = colors.textSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
 /** Inline error banner (load failed). */
 @Composable
 fun ErrorBanner(message: String, modifier: Modifier = Modifier) {

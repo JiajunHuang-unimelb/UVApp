@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.uvapp.domain.exposure.ExposureStatus
-import com.example.uvapp.ui.components.AddTimerControls
 import com.example.uvapp.ui.components.CachedIndicator
 import com.example.uvapp.ui.components.ContextCard
 import com.example.uvapp.ui.components.DevCard
@@ -67,12 +66,6 @@ fun HomeScreen(
                 isWarning = state.isWarning,
                 exposureStatus = state.exposureStatus,
                 onPrimaryAction = onTimerAction,
-            )
-
-            Spacer(Modifier.height(8.dp))
-            AddTimerControls(
-                onAddMinutes = viewModel::onAddTimerMinutes,
-                onClear = viewModel::onClearTimer,
             )
 
             Spacer(Modifier.height(12.dp))
