@@ -3,8 +3,6 @@ package com.example.uvapp.viewmodel
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.uvapp.data.ApiStatus
-import com.example.uvapp.data.UvRepository as AuxiliaryUvRepository
 import com.example.uvapp.domain.advisor.BurnCalculator
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -12,6 +10,7 @@ import com.example.uvapp.domain.exposure.ExposureSnapshot
 import com.example.uvapp.domain.exposure.SkinType as ExposureSkinType
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
+import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.Coordinates
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
@@ -58,7 +57,7 @@ data class MainUiState(
     val uvIndex: Double = 0.0,
     val uvAvailable: Boolean = false,
     val forecastReadings: List<UvForecastReading> = emptyList(),
-    val placeName: String = "Southbank, Melbourne",
+    val placeName: String = "Locating…",
     val lightContext: LightContext = LightContext.DIRECT_SUN,
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
@@ -106,7 +105,6 @@ data class MainUiState(
  * search dialog visibility and all developer-mode overrides.
  */
 class MainViewModel(
-    private val auxiliaryRepository: AuxiliaryUvRepository,
     settingsViewModel: SettingsViewModel,
     private val locationProvider: CurrentLocationProvider? = null,
     private val forecastRepository: ForecastUvRepository? = null,
@@ -123,7 +121,6 @@ class MainViewModel(
 
     private var lastSkinType: SkinType = SkinType.II
     private var lastSpf: Int = 15
-    private var auxiliaryRefreshJob: Job? = null
     private var locationJob: Job? = null
     private var forecastObservationJob: Job? = null
     private var forecastRefreshJob: Job? = null
@@ -169,12 +166,10 @@ class MainViewModel(
             }
         }
 
-        // Prefer the real, location-aware pipeline when it's configured; the
-        // auxiliary repository only backs builds/tests that don't wire one in.
+        // Production builds use the location-aware forecast pipeline. Tests that
+        // exercise unrelated state may omit these dependencies.
         if (locationProvider != null && forecastRepository != null) {
             locate()
-        } else {
-            refreshAuxiliaryData()
         }
     }
 
@@ -225,10 +220,8 @@ class MainViewModel(
         val fix = _state.value.locationFix
         if (fix != null && forecastRepository != null) {
             refreshForecast(fix, force = true)
-        } else if (forecastRepository != null) {
-            locate()
         } else {
-            refreshAuxiliaryData()
+            locate()
         }
     }
 
@@ -315,7 +308,6 @@ class MainViewModel(
             return
         }
 
-        auxiliaryRefreshJob?.cancel()
         locationJob?.cancel()
         forecastObservationJob?.cancel()
         forecastRefreshJob?.cancel()
@@ -484,46 +476,6 @@ class MainViewModel(
                     }
                 }
             }
-    }
-
-    private fun refreshAuxiliaryData() {
-        auxiliaryRefreshJob?.cancel()
-        auxiliaryRefreshJob = viewModelScope.launch {
-            val offline = _state.value.dev.forceOffline
-            _state.update { it.copy(isLoading = true) }
-            delay(700) // simulated network latency
-            if (offline) {
-                // Backend unreachable -> keep cached values, surface an error.
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = "Couldn't update · showing cached data",
-                        isCached = true,
-                    )
-                }
-            } else {
-                val uv = auxiliaryRepository.getCurrentUv()
-                val place = auxiliaryRepository.getPlaceName()
-                val sensor = auxiliaryRepository.getSensorContext()
-                val statuses = auxiliaryRepository.getApiStatuses()
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        uvIndex = uv.index,
-                        uvAvailable = true,
-                        placeName = place,
-                        lightContext = sensor.lightContext,
-                        lux = sensor.lux,
-                        luxOverride = null,
-                        stepsPerMinute = sensor.stepsPerMinute,
-                        apiStatuses = statuses,
-                        errorMessage = null,
-                        isCached = false,
-                    )
-                }
-                recomputeBurn()
-            }
-        }
     }
 
     /** Recalculate the estimate while preserving elapsed time. */

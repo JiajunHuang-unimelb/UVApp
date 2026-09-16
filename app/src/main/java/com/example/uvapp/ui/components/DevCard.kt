@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.uvapp.data.ApiStatus
+import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.DevUiState
