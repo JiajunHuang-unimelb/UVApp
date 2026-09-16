@@ -1,5 +1,6 @@
 package com.example.uvapp.domain.exposure
 
+import com.example.uvapp.domain.model.SkinType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,10 +12,10 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `start creates an empty running session for the selected skin type`() {
-        val snapshot = session.start(SkinType.TYPE_II, 8.0, 0L)
+        val snapshot = session.start(SkinType.II, 8.0, 0L)
 
         assertTrue(snapshot.isRunning)
-        assertEquals(SkinType.TYPE_II, snapshot.skinType)
+        assertEquals(SkinType.II, snapshot.skinType)
         assertEquals(ExposureContext.UNKNOWN, snapshot.context)
         assertEquals(0.0, snapshot.accumulatedDoseSed, 0.0)
         assertEquals(2.5, snapshot.doseLimitSed, 0.0)
@@ -23,7 +24,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `refresh accumulates dose without double counting`() {
-        session.start(SkinType.TYPE_III, 10.0, 0L)
+        session.start(SkinType.III, 10.0, 0L)
 
         assertEquals(0.75, session.refresh(300_000L).accumulatedDoseSed, EPSILON)
         assertEquals(1.5, session.refresh(600_000L).accumulatedDoseSed, EPSILON)
@@ -31,7 +32,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `an earlier timestamp cannot reduce or add dose`() {
-        session.start(SkinType.TYPE_III, 10.0, 600_000L)
+        session.start(SkinType.III, 10.0, 600_000L)
 
         assertEquals(0.0, session.refresh(300_000L).accumulatedDoseSed, 0.0)
         assertEquals(1.5, session.refresh(1_200_000L).accumulatedDoseSed, EPSILON)
@@ -39,7 +40,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `paused time contributes no dose`() {
-        session.start(SkinType.TYPE_III, 10.0, 0L)
+        session.start(SkinType.III, 10.0, 0L)
         session.pause(300_000L)
         session.refresh(1_800_000L)
         session.resume(2_100_000L)
@@ -52,7 +53,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `pause and resume are idempotent`() {
-        session.start(SkinType.TYPE_III, 10.0, 0L)
+        session.start(SkinType.III, 10.0, 0L)
 
         assertFalse(session.pause(300_000L).isRunning)
         assertFalse(session.pause(600_000L).isRunning)
@@ -63,7 +64,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `UV changes settle the previous interval before using the new value`() {
-        session.start(SkinType.TYPE_III, 5.0, 0L)
+        session.start(SkinType.III, 5.0, 0L)
         session.updateUvIndex(10.0, 600_000L)
 
         val snapshot = session.refresh(1_200_000L)
@@ -75,7 +76,7 @@ class ExposureSessionManagerTest {
     @Test
     fun `context changes split intervals without resetting accumulated dose`() {
         session.start(
-            skinType = SkinType.TYPE_III,
+            skinType = SkinType.III,
             uvIndex = 10.0,
             nowElapsedMs = 0L,
             context = ExposureContext.DIRECT_SUN,
@@ -92,7 +93,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `unknown context uses the conservative full exposure rate`() {
-        session.start(SkinType.TYPE_III, 10.0, 0L)
+        session.start(SkinType.III, 10.0, 0L)
 
         val snapshot = session.refresh(600_000L)
 
@@ -103,7 +104,7 @@ class ExposureSessionManagerTest {
     @Test
     fun `context can change while paused without adding dose`() {
         session.start(
-            skinType = SkinType.TYPE_III,
+            skinType = SkinType.III,
             uvIndex = 10.0,
             nowElapsedMs = 0L,
             context = ExposureContext.DIRECT_SUN,
@@ -119,7 +120,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `zero UV preserves dose and makes remaining time unavailable`() {
-        session.start(SkinType.TYPE_III, 6.0, 0L)
+        session.start(SkinType.III, 6.0, 0L)
         session.updateUvIndex(0.0, 600_000L)
 
         val snapshot = session.refresh(1_200_000L)
@@ -129,11 +130,32 @@ class ExposureSessionManagerTest {
     }
 
     @Test
+    fun `SPF is part of the session dose model`() {
+        val snapshot = session.start(SkinType.II, 8.0, 0L, sunscreenSpf = 15)
+
+        assertEquals(15, snapshot.sunscreenSpf)
+        assertEquals(18_750L, snapshot.estimatedRemainingSeconds)
+        assertEquals(18_750L, snapshot.estimatedTotalSeconds)
+        assertEquals(0.08, session.refresh(600_000L).accumulatedDoseSed, EPSILON)
+    }
+
+    @Test
+    fun `changing SPF settles the previous interval before applying the new value`() {
+        session.start(SkinType.II, 10.0, 0L, sunscreenSpf = 1)
+        session.updateSunscreenSpf(15, 600_000L)
+
+        val snapshot = session.refresh(1_200_000L)
+
+        assertEquals(1.6, snapshot.accumulatedDoseSed, EPSILON)
+        assertEquals(15, snapshot.sunscreenSpf)
+    }
+
+    @Test
     fun `skin type changes preserve accumulated dose and replace the limit`() {
-        session.start(SkinType.TYPE_IV, 8.0, 0L)
+        session.start(SkinType.IV, 8.0, 0L)
         val beforeChange = session.refresh(600_000L)
 
-        val afterChange = session.updateSkinType(SkinType.TYPE_II, 600_000L)
+        val afterChange = session.updateSkinType(SkinType.II, 600_000L)
 
         assertEquals(beforeChange.accumulatedDoseSed, afterChange.accumulatedDoseSed, 0.0)
         assertEquals(2.5, afterChange.doseLimitSed, 0.0)
@@ -142,10 +164,10 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `skin type can change while paused without adding dose`() {
-        session.start(SkinType.TYPE_II, 8.0, 0L)
+        session.start(SkinType.II, 8.0, 0L)
         session.pause(300_000L)
 
-        val snapshot = session.updateSkinType(SkinType.TYPE_V, 1_800_000L)
+        val snapshot = session.updateSkinType(SkinType.V, 1_800_000L)
 
         assertEquals(0.6, snapshot.accumulatedDoseSed, EPSILON)
         assertEquals(6.0, snapshot.doseLimitSed, 0.0)
@@ -154,7 +176,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `normal burndown scenario exposes stable derived values`() {
-        session.start(SkinType.TYPE_III, 6.0, 0L)
+        session.start(SkinType.III, 6.0, 0L)
         session.updateUvIndex(9.0, 600_000L)
 
         val snapshot = session.refresh(1_200_000L)
@@ -167,7 +189,7 @@ class ExposureSessionManagerTest {
 
     @Test
     fun `derived remaining values are clamped after the threshold`() {
-        session.start(SkinType.TYPE_I, 10.0, 0L)
+        session.start(SkinType.I, 10.0, 0L)
 
         val snapshot = session.refresh(1_200_000L)
 

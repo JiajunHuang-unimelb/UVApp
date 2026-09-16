@@ -1,7 +1,10 @@
 package com.example.uvapp.domain.exposure
 
+import com.example.uvapp.domain.model.SkinType
+
 class ExposureSessionManager {
     private lateinit var skinType: SkinType
+    private var sunscreenSpf = 1
     private var currentUvIndex = 0.0
     private var currentContext = ExposureContext.UNKNOWN
     private var accumulatedDoseSed = 0.0
@@ -13,8 +16,10 @@ class ExposureSessionManager {
         uvIndex: Double,
         nowElapsedMs: Long,
         context: ExposureContext = ExposureContext.UNKNOWN,
+        sunscreenSpf: Int = 1,
     ): ExposureSnapshot {
         this.skinType = skinType
+        this.sunscreenSpf = sunscreenSpf.coerceAtLeast(1)
         currentUvIndex = uvIndex.coerceAtLeast(0.0)
         currentContext = context
         accumulatedDoseSed = 0.0
@@ -67,6 +72,15 @@ class ExposureSessionManager {
         return snapshot()
     }
 
+    fun updateSunscreenSpf(
+        sunscreenSpf: Int,
+        nowElapsedMs: Long,
+    ): ExposureSnapshot {
+        settleExposure(nowElapsedMs)
+        this.sunscreenSpf = sunscreenSpf.coerceAtLeast(1)
+        return snapshot()
+    }
+
     fun updateContext(
         context: ExposureContext,
         nowElapsedMs: Long,
@@ -83,6 +97,7 @@ class ExposureSessionManager {
         return ExposureSnapshot(
             isRunning = isRunning,
             skinType = skinType,
+            sunscreenSpf = sunscreenSpf,
             uvIndex = currentUvIndex,
             context = currentContext,
             accumulatedDoseSed = accumulatedDoseSed,
@@ -94,6 +109,21 @@ class ExposureSessionManager {
                     remainingDoseSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
+                    sunscreenSpf,
+                ),
+            estimatedRemainingSeconds =
+                ExposureCalculator.calculateRemainingSeconds(
+                    remainingDoseSed,
+                    currentUvIndex,
+                    currentContext.doseRateFactor,
+                    sunscreenSpf,
+                ),
+            estimatedTotalSeconds =
+                ExposureCalculator.calculateRemainingSeconds(
+                    doseLimitSed,
+                    currentUvIndex,
+                    currentContext.doseRateFactor,
+                    sunscreenSpf,
                 ),
         )
     }
@@ -108,6 +138,7 @@ class ExposureSessionManager {
                 currentUvIndex,
                 elapsedMinutes,
                 currentContext.doseRateFactor,
+                sunscreenSpf,
             )
         lastElapsedMs = nowElapsedMs
     }
