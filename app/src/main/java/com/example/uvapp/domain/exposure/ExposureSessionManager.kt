@@ -3,12 +3,11 @@ package com.example.uvapp.domain.exposure
 import com.example.uvapp.domain.model.SkinType
 
 class ExposureSessionManager {
-    private lateinit var skinType: SkinType
-    private var sunscreenSpf = 1
+    private var skinType = SkinType.II
     private var currentUvIndex = 0.0
     private var currentContext = ExposureContext.UNKNOWN
     private var accumulatedDoseSed = 0.0
-    private var isRunning = false
+    private var status = ExposureStatus.NOT_STARTED
     private var lastElapsedMs: Long? = null
 
     fun start(
@@ -16,14 +15,12 @@ class ExposureSessionManager {
         uvIndex: Double,
         nowElapsedMs: Long,
         context: ExposureContext = ExposureContext.UNKNOWN,
-        sunscreenSpf: Int = 1,
     ): ExposureSnapshot {
         this.skinType = skinType
-        this.sunscreenSpf = sunscreenSpf.coerceAtLeast(1)
         currentUvIndex = uvIndex.coerceAtLeast(0.0)
         currentContext = context
         accumulatedDoseSed = 0.0
-        isRunning = true
+        status = ExposureStatus.RUNNING
         lastElapsedMs = nowElapsedMs
         return snapshot()
     }
@@ -34,23 +31,28 @@ class ExposureSessionManager {
     }
 
     fun pause(nowElapsedMs: Long): ExposureSnapshot {
-        if (isRunning) {
+        if (status == ExposureStatus.RUNNING) {
             settleExposure(nowElapsedMs)
-            isRunning = false
-        } else {
-            ensureStarted()
+            if (status != ExposureStatus.COMPLETE) status = ExposureStatus.PAUSED
         }
         return snapshot()
     }
 
     fun resume(nowElapsedMs: Long): ExposureSnapshot {
-        ensureStarted()
-        if (isRunning) {
+        if (status == ExposureStatus.RUNNING) {
             settleExposure(nowElapsedMs)
-        } else {
-            isRunning = true
+        } else if (status == ExposureStatus.PAUSED) {
+            status = ExposureStatus.RUNNING
             lastElapsedMs = nowElapsedMs
         }
+        return snapshot()
+    }
+
+    fun clear(nowElapsedMs: Long): ExposureSnapshot {
+        settleExposure(nowElapsedMs)
+        accumulatedDoseSed = 0.0
+        status = ExposureStatus.NOT_STARTED
+        lastElapsedMs = null
         return snapshot()
     }
 
@@ -69,15 +71,9 @@ class ExposureSessionManager {
     ): ExposureSnapshot {
         settleExposure(nowElapsedMs)
         this.skinType = skinType
-        return snapshot()
-    }
-
-    fun updateSunscreenSpf(
-        sunscreenSpf: Int,
-        nowElapsedMs: Long,
-    ): ExposureSnapshot {
-        settleExposure(nowElapsedMs)
-        this.sunscreenSpf = sunscreenSpf.coerceAtLeast(1)
+        if (status == ExposureStatus.RUNNING && remainingDoseSed() == 0.0) {
+            status = ExposureStatus.COMPLETE
+        }
         return snapshot()
     }
 
@@ -91,13 +87,11 @@ class ExposureSessionManager {
     }
 
     fun snapshot(): ExposureSnapshot {
-        ensureStarted()
-        val doseLimitSed = skinType.exposureLimitSed
+        val doseLimitSed = ExposureCalculator.calculatePersonalDoseLimit(skinType)
         val remainingDoseSed = ExposureCalculator.calculateRemainingDose(doseLimitSed, accumulatedDoseSed)
         return ExposureSnapshot(
-            isRunning = isRunning,
+            status = status,
             skinType = skinType,
-            sunscreenSpf = sunscreenSpf,
             uvIndex = currentUvIndex,
             context = currentContext,
             accumulatedDoseSed = accumulatedDoseSed,
@@ -109,28 +103,25 @@ class ExposureSessionManager {
                     remainingDoseSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
-                    sunscreenSpf,
                 ),
             estimatedRemainingSeconds =
                 ExposureCalculator.calculateRemainingSeconds(
                     remainingDoseSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
-                    sunscreenSpf,
                 ),
             estimatedTotalSeconds =
                 ExposureCalculator.calculateRemainingSeconds(
                     doseLimitSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
-                    sunscreenSpf,
                 ),
         )
     }
 
     private fun settleExposure(nowElapsedMs: Long) {
-        val previousElapsedMs = ensureStarted()
-        if (!isRunning || nowElapsedMs <= previousElapsedMs) return
+        val previousElapsedMs = lastElapsedMs ?: return
+        if (status != ExposureStatus.RUNNING || nowElapsedMs <= previousElapsedMs) return
 
         val elapsedMinutes = (nowElapsedMs - previousElapsedMs) / MILLIS_PER_MINUTE
         accumulatedDoseSed +=
@@ -138,12 +129,16 @@ class ExposureSessionManager {
                 currentUvIndex,
                 elapsedMinutes,
                 currentContext.doseRateFactor,
-                sunscreenSpf,
             )
         lastElapsedMs = nowElapsedMs
+        if (remainingDoseSed() == 0.0) status = ExposureStatus.COMPLETE
     }
 
-    private fun ensureStarted(): Long = checkNotNull(lastElapsedMs) { "Exposure session has not been started" }
+    private fun remainingDoseSed(): Double =
+        ExposureCalculator.calculateRemainingDose(
+            ExposureCalculator.calculatePersonalDoseLimit(skinType),
+            accumulatedDoseSed,
+        )
 
     private companion object {
         const val MILLIS_PER_MINUTE = 60_000.0

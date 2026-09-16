@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.uvapp.domain.advisor.BurnCalculator
+import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvBand
@@ -382,7 +383,8 @@ fun SafeTimerCard(
     remainingSeconds: Long,
     totalBurnSeconds: Long,
     isWarning: Boolean,
-    onReset: () -> Unit,
+    exposureStatus: ExposureStatus,
+    onPrimaryAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
@@ -427,86 +429,50 @@ fun SafeTimerCard(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (finite) BurnCalculator.formatRemaining(remainingSeconds) else "--:--",
+                        if (finite && exposureStatus != ExposureStatus.NOT_STARTED) {
+                            BurnCalculator.formatRemaining(remainingSeconds)
+                        } else {
+                            "--:--"
+                        },
                         color = if (isWarning) colors.error else colors.onBackground,
                         fontSize = 42.sp,
                         fontWeight = FontWeight.Bold,
                     )
+                    Text(
+                        when (exposureStatus) {
+                            ExposureStatus.NOT_STARTED -> "Ready to track exposure"
+                            ExposureStatus.RUNNING -> "Exposure tracking active"
+                            ExposureStatus.PAUSED -> "Exposure tracking paused"
+                            ExposureStatus.COMPLETE -> "Exposure limit reached"
+                        },
+                        color = colors.textSecondary,
+                        fontSize = 11.sp,
+                    )
                 }
             }
             Spacer(Modifier.weight(1f))
-            if (finite) {
-                Box(
-                    Modifier
-                        .width(148.dp)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
-                        .clickable(onClick = onReset),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "Reset Timer",
-                        color = if (isWarning) colors.error else colors.accent,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-            } else {
-                Spacer(Modifier.height(10.dp))
-            }
-        }
-    }
-}
-
-/** Quick controls for extending or starting the countdown manually. */
-@Composable
-fun AddTimerControls(
-    onAddMinutes: (Int) -> Unit,
-    onClear: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = UvTheme
-    Row(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        listOf(1, 5, 10).forEach { minutes ->
             Box(
                 Modifier
-                    .weight(1f)
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surface)
-                    .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
-                    .clickable { onAddMinutes(minutes) },
+                    .width(148.dp)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
+                    .clickable(onClick = onPrimaryAction),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "+$minutes min",
-                    color = colors.accent,
-                    fontSize = 13.sp,
+                    when (exposureStatus) {
+                        ExposureStatus.NOT_STARTED -> "Start"
+                        ExposureStatus.RUNNING -> "Pause"
+                        ExposureStatus.PAUSED -> "Resume"
+                        ExposureStatus.COMPLETE -> "Reset"
+                    },
+                    color = if (isWarning) colors.error else colors.accent,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-        }
-        Box(
-            Modifier
-                .weight(1f)
-                .height(38.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.surface)
-                .border(1.dp, colors.outline, RoundedCornerShape(10.dp))
-                .clickable(onClick = onClear),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "Clear",
-                color = colors.textSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
