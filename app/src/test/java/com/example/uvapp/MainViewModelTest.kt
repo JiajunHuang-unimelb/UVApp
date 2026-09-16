@@ -1,5 +1,6 @@
 package com.example.uvapp
 
+import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.Coordinates
@@ -69,17 +70,48 @@ class MainViewModelTest {
 
         vm.onOverrideUvToggle()
         vm.onUvOverride(1.0)
+        vm.onStartExposure()
 
         val state = vm.state.value
         assertEquals(1.0, state.displayUv, 0.0)
-        assertEquals(150_000L, state.totalBurnSeconds)
+        assertEquals(4_000L, state.totalBurnSeconds)
         assertEquals(state.totalBurnSeconds, state.remainingSeconds)
+    }
+
+    @Test
+    fun `exposure lifecycle is authoritative`() {
+        val vm = buildLocatedViewModel()
+        settle()
+
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        assertEquals(0L, vm.state.value.remainingSeconds)
+
+        vm.onStartExposure()
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        val runningRemaining = vm.state.value.remainingSeconds
+
+        vm.onPauseExposure()
+        mainDispatcher.scheduler.advanceTimeBy(3_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(runningRemaining, vm.state.value.remainingSeconds)
+
+        vm.onResumeExposure()
+        mainDispatcher.scheduler.advanceTimeBy(1_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(runningRemaining - 1L, vm.state.value.remainingSeconds)
+
+        vm.onClearTimer()
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        assertEquals(0L, vm.state.value.remainingSeconds)
     }
 
     @Test
     fun `countdown ticks down one second per real second`() {
         val vm = buildLocatedViewModel()
         settle()
+        vm.onStartExposure()
         val before = vm.state.value.remainingSeconds
 
         mainDispatcher.scheduler.advanceTimeBy(3_000)
@@ -92,6 +124,7 @@ class MainViewModelTest {
     fun `speed60x makes the countdown tick 60 seconds per tick`() {
         val vm = buildLocatedViewModel()
         settle()
+        vm.onStartExposure()
         vm.onSpeedToggle()
         val before = vm.state.value.remainingSeconds
 
@@ -99,6 +132,25 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
 
         assertEquals((before - 60).coerceAtLeast(0), vm.state.value.remainingSeconds)
+    }
+
+    @Test
+    fun `manual time remains separate from accumulated dose`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onStartExposure()
+        val initial = vm.state.value
+
+        vm.onAddTimerMinutes(5)
+        val adjusted = vm.state.value
+
+        assertEquals(initial.accumulatedDoseSed, adjusted.accumulatedDoseSed, 0.0)
+        assertEquals(initial.totalBurnSeconds + 300L, adjusted.totalBurnSeconds)
+        assertEquals(initial.remainingSeconds + 300L, adjusted.remainingSeconds)
+
+        mainDispatcher.scheduler.advanceTimeBy(1_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(adjusted.remainingSeconds - 1L, vm.state.value.remainingSeconds)
     }
 
     @Test
@@ -201,6 +253,7 @@ class MainViewModelTest {
         )
         vm.onUseCurrentLocation()
         mainDispatcher.scheduler.runCurrent()
+        vm.onStartExposure()
         mainDispatcher.scheduler.advanceTimeBy(3000)
         mainDispatcher.scheduler.runCurrent()
         val remaining = vm.state.value.remainingSeconds

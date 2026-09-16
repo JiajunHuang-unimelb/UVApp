@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposureSessionManager
 import com.example.uvapp.domain.exposure.ExposureSnapshot
+import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.ApiStatus
@@ -60,10 +61,12 @@ data class MainUiState(
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
     val manuallyAddedSeconds: Long = 0L,
-    val exposureRunning: Boolean = true,
+    val exposureStatus: ExposureStatus = ExposureStatus.NOT_STARTED,
+    val exposureStarted: Boolean = false,
+    val exposureRunning: Boolean = false,
     val accumulatedDoseSed: Double = 0.0,
-    val doseLimitSed: Double = 2.5,
-    val remainingDoseSed: Double = 2.5,
+    val doseLimitSed: Double = 1.0,
+    val remainingDoseSed: Double = 1.0,
     val exposureFraction: Double = 0.0,
     val estimatedExposureMinutes: Double? = null,
     val isLoading: Boolean = false,
@@ -95,7 +98,8 @@ data class MainUiState(
     }
 
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
-    val isWarning: Boolean get() = isTimerFinite && remainingSeconds < 15 * 60L
+    val isWarning: Boolean get() =
+        exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
 }
 
 /**
@@ -118,32 +122,21 @@ class MainViewModel(
     private var exposureClockMillis = elapsedRealtimeMillis()
 
     private var lastSkinType: SkinType = SkinType.II
-    private var lastSpf: Int = 15
     private var locationJob: Job? = null
     private var forecastObservationJob: Job? = null
     private var forecastRefreshJob: Job? = null
     private var placeLookupJob: Job? = null
 
     init {
-        val initialState = _state.value
-        publishExposure(
-            exposureSession.start(
-                skinType = initialState.skinType,
-                uvIndex = initialState.displayUv,
-                nowElapsedMs = exposureClockMillis,
-                context = initialState.displayContext.toExposureContext(),
-                sunscreenSpf = initialState.spf,
-            ),
-        )
+        publishExposure(exposureSession.snapshot())
 
         // Mirror settings changes (skin type / SPF / dev mode) into the UI state.
         viewModelScope.launch {
             settingsViewModel.state.collect { s ->
-                val exposureProfileChanged = s.skinType != lastSkinType || s.spf != lastSpf
+                val skinTypeChanged = s.skinType != lastSkinType
                 lastSkinType = s.skinType
-                lastSpf = s.spf
                 _state.update { it.copy(skinType = s.skinType, spf = s.spf, devModeEnabled = s.devModeEnabled) }
-                if (exposureProfileChanged) recomputeExposureEstimate()
+                if (skinTypeChanged) syncExposure()
             }
         }
 
@@ -151,17 +144,16 @@ class MainViewModel(
         viewModelScope.launch {
             while (isActive) {
                 delay(1_000)
-                val previousUv = _state.value.displayUv
                 _state.update { st ->
-                    val step = if (st.dev.speed60x) 60L else 1L
                     st.copy(
                         uvIndex = st.forecastReadings.nearestTo(nowMillis())?.uvIndex ?: st.uvIndex,
-                        remainingSeconds = if (st.isTimerFinite) (st.remainingSeconds - step).coerceAtLeast(0L) else st.remainingSeconds,
                     )
                 }
                 val step = if (_state.value.dev.speed60x) 60L else 1L
-                syncExposure(step * 1_000L)
-                if (_state.value.displayUv != previousUv) recomputeExposureEstimate()
+                syncExposure(
+                    minimumAdvanceMillis = step * 1_000L,
+                    forceMinimumAdvance = step > 1L,
+                )
             }
         }
 
@@ -224,35 +216,39 @@ class MainViewModel(
         }
     }
 
-    fun onResetTimer() = _state.update { it.copy(remainingSeconds = it.totalBurnSeconds) }
+    fun onStartExposure() = restartExposureSession()
 
-    fun onAddTimerMinutes(minutes: Int) {
-        val addedSeconds = minutes * 60L
-        _state.update { state ->
-            if (state.isTimerFinite) {
-                state.copy(
-                    remainingSeconds = state.remainingSeconds + addedSeconds,
-                    totalBurnSeconds = state.totalBurnSeconds + addedSeconds,
-                    manuallyAddedSeconds = state.manuallyAddedSeconds + addedSeconds,
-                )
-            } else {
-                state.copy(
-                    remainingSeconds = addedSeconds,
-                    totalBurnSeconds = addedSeconds,
-                    manuallyAddedSeconds = state.manuallyAddedSeconds + addedSeconds,
-                )
-            }
-        }
+    fun onPauseExposure() {
+        if (!_state.value.exposureStarted) return
+        syncExposure()
+        publishExposure(exposureSession.pause(exposureClockMillis))
     }
 
-    fun onClearTimer() =
-        _state.update {
-            it.copy(
-                remainingSeconds = 0L,
-                totalBurnSeconds = 0L,
-                manuallyAddedSeconds = 0L,
-            )
+    fun onResumeExposure() {
+        if (!_state.value.exposureStarted) {
+            restartExposureSession()
+            return
         }
+        syncExposure()
+        publishExposure(exposureSession.resume(exposureClockMillis))
+    }
+
+    fun onResetTimer() = restartExposureSession()
+
+    fun onAddTimerMinutes(minutes: Int) {
+        require(minutes > 0) { "Timer adjustment must be positive" }
+        if (!_state.value.exposureStarted) restartExposureSession()
+        syncExposure()
+        val addedSeconds = minutes * 60L
+        _state.update { state -> state.copy(manuallyAddedSeconds = state.manuallyAddedSeconds + addedSeconds) }
+        publishExposure(exposureSession.snapshot())
+    }
+
+    fun onClearTimer() {
+        advanceExposureClock()
+        _state.update { it.copy(manuallyAddedSeconds = 0L) }
+        publishExposure(exposureSession.clear(exposureClockMillis))
+    }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
 
@@ -262,7 +258,7 @@ class MainViewModel(
         val previous = _state.value.displayContext
         _state.update { it.copy(luxOverride = clamped) }
         // Only restart the burn countdown when the effective context changed.
-        if (_state.value.displayContext != previous) recomputeExposureEstimate()
+        if (_state.value.displayContext != previous) syncExposure()
     }
 
     // ---- Developer-mode overrides -------------------------------------------
@@ -271,19 +267,19 @@ class MainViewModel(
 
     fun onOverrideUvToggle() = _state.update {
         it.copy(dev = it.dev.copy(overrideUv = !it.dev.overrideUv))
-    }.also { recomputeExposureEstimate() }
+    }.also { syncExposure() }
 
     fun onUvOverride(value: Double) = _state.update {
         it.copy(dev = it.dev.copy(uvOverride = value.coerceIn(0.0, 12.0)))
-    }.also { recomputeExposureEstimate() }
+    }.also { syncExposure() }
 
     fun onOverrideLightToggle() = _state.update {
         it.copy(dev = it.dev.copy(overrideLight = !it.dev.overrideLight))
-    }.also { recomputeExposureEstimate() }
+    }.also { syncExposure() }
 
     fun onLightOverride(context: LightContext) = _state.update {
         it.copy(dev = it.dev.copy(lightOverride = context))
-    }.also { recomputeExposureEstimate() }
+    }.also { syncExposure() }
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
@@ -391,7 +387,7 @@ class MainViewModel(
                                 isCached = forecast.source == UvDataSource.CACHE,
                             )
                         }
-                        if (currentReading != null) recomputeExposureEstimate()
+                        if (currentReading != null) syncExposure()
                     }
             }
     }
@@ -477,53 +473,35 @@ class MainViewModel(
             }
     }
 
-    /** Recalculate the estimate while preserving elapsed time. */
-    private fun recomputeExposureEstimate() {
-        syncExposure()
-        val exposure = exposureSession.snapshot()
-        _state.update {
-            val estimatedTotalSeconds = exposure.estimatedTotalSeconds
-            val estimatedRemainingSeconds = exposure.estimatedRemainingSeconds
-            val totalSeconds =
-                if (estimatedTotalSeconds == null) {
-                    it.manuallyAddedSeconds.takeIf { seconds -> seconds > 0 } ?: Long.MAX_VALUE
-                } else {
-                    estimatedTotalSeconds + it.manuallyAddedSeconds
-                }
-            val remainingSeconds =
-                if (estimatedRemainingSeconds == null) {
-                    it.manuallyAddedSeconds.takeIf { seconds -> seconds > 0 } ?: Long.MAX_VALUE
-                } else {
-                    estimatedRemainingSeconds + it.manuallyAddedSeconds
-                }
-            it.copy(
-                totalBurnSeconds = totalSeconds,
-                remainingSeconds = remainingSeconds,
-            )
-        }
+    private fun restartExposureSession() {
+        advanceExposureClock()
+        val state = _state.value
+        _state.update { it.copy(manuallyAddedSeconds = 0L) }
+        publishExposure(
+            exposureSession.start(
+                skinType = state.skinType,
+                uvIndex = state.displayUv,
+                nowElapsedMs = exposureClockMillis,
+                context = state.displayContext.toExposureContext(),
+            ),
+        )
     }
 
-    private fun syncExposure(minimumAdvanceMillis: Long = 0L) {
-        val observedElapsedMillis = elapsedRealtimeMillis()
-        exposureClockMillis =
-            if (observedElapsedMillis > exposureClockMillis) {
-                observedElapsedMillis
-            } else {
-                exposureClockMillis + minimumAdvanceMillis
-            }
+    private fun syncExposure(
+        minimumAdvanceMillis: Long = 0L,
+        forceMinimumAdvance: Boolean = false,
+    ) {
+        advanceExposureClock(minimumAdvanceMillis, forceMinimumAdvance)
         val state = _state.value
         var snapshot = exposureSession.snapshot()
-        val exposureContext = state.displayContext.toExposureContext()
 
         if (snapshot.skinType != state.skinType) {
             snapshot = exposureSession.updateSkinType(state.skinType, exposureClockMillis)
         }
-        if (snapshot.sunscreenSpf != state.spf) {
-            snapshot = exposureSession.updateSunscreenSpf(state.spf, exposureClockMillis)
-        }
         if (snapshot.uvIndex != state.displayUv) {
             snapshot = exposureSession.updateUvIndex(state.displayUv, exposureClockMillis)
         }
+        val exposureContext = state.displayContext.toExposureContext()
         if (snapshot.context != exposureContext) {
             exposureSession.updateContext(exposureContext, exposureClockMillis)
         }
@@ -531,15 +509,46 @@ class MainViewModel(
         publishExposure(exposureSession.refresh(exposureClockMillis))
     }
 
+    private fun advanceExposureClock(
+        minimumAdvanceMillis: Long = 0L,
+        forceMinimumAdvance: Boolean = false,
+    ) {
+        val observedElapsedMillis = elapsedRealtimeMillis()
+        val observedAdvance = (observedElapsedMillis - exposureClockMillis).coerceAtLeast(0L)
+        exposureClockMillis +=
+            when {
+                forceMinimumAdvance -> maxOf(observedAdvance, minimumAdvanceMillis)
+                observedAdvance > 0L -> observedAdvance
+                else -> minimumAdvanceMillis
+            }
+    }
+
     private fun publishExposure(snapshot: ExposureSnapshot) {
-        _state.update {
-            it.copy(
+        _state.update { state ->
+            val doseComplete = snapshot.status == ExposureStatus.COMPLETE
+            val manualAdjustment = state.manuallyAddedSeconds.takeUnless { doseComplete } ?: 0L
+            state.copy(
+                exposureStatus = snapshot.status,
+                exposureStarted = snapshot.isStarted,
                 exposureRunning = snapshot.isRunning,
                 accumulatedDoseSed = snapshot.accumulatedDoseSed,
                 doseLimitSed = snapshot.doseLimitSed,
                 remainingDoseSed = snapshot.remainingDoseSed,
                 exposureFraction = snapshot.exposureFraction,
                 estimatedExposureMinutes = snapshot.estimatedRemainingMinutes,
+                remainingSeconds =
+                    when {
+                        !snapshot.isStarted -> 0L
+                        doseComplete -> 0L
+                        snapshot.estimatedRemainingSeconds == null -> Long.MAX_VALUE
+                        else -> snapshot.estimatedRemainingSeconds + manualAdjustment
+                    },
+                totalBurnSeconds =
+                    when {
+                        !snapshot.isStarted -> 0L
+                        snapshot.estimatedTotalSeconds == null -> Long.MAX_VALUE
+                        else -> snapshot.estimatedTotalSeconds + manualAdjustment
+                    },
             )
         }
     }

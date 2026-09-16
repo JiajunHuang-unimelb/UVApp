@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.ui.components.AddTimerControls
 import com.example.uvapp.ui.components.CachedIndicator
 import com.example.uvapp.ui.components.ContextCard
@@ -30,6 +31,14 @@ fun HomeScreen(
     onLocate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val onTimerAction: () -> Unit =
+        when (state.exposureStatus) {
+            ExposureStatus.NOT_STARTED -> viewModel::onStartExposure
+            ExposureStatus.RUNNING -> viewModel::onPauseExposure
+            ExposureStatus.PAUSED -> viewModel::onResumeExposure
+            ExposureStatus.COMPLETE -> viewModel::onResetTimer
+        }
+
     Box(modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -56,7 +65,8 @@ fun HomeScreen(
                 remainingSeconds = state.remainingSeconds,
                 totalBurnSeconds = state.totalBurnSeconds,
                 isWarning = state.isWarning,
-                onReset = viewModel::onResetTimer,
+                exposureStatus = state.exposureStatus,
+                onPrimaryAction = onTimerAction,
             )
 
             Spacer(Modifier.height(8.dp))
