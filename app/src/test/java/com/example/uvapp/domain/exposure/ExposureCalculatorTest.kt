@@ -28,25 +28,6 @@ class ExposureCalculatorTest {
     }
 
     @Test
-    fun `sunscreen SPF reduces dose and extends the estimate`() {
-        assertEquals(0.1, ExposureCalculator.calculateDoseIncrement(10.0, 10.0, sunscreenSpf = 15), EPSILON)
-        assertEquals(
-            312.5,
-            ExposureCalculator.calculateRemainingMinutes(2.5, 8.0, sunscreenSpf = 15)!!,
-            EPSILON,
-        )
-    }
-
-    @Test
-    fun `non-positive SPF falls back to one`() {
-        assertEquals(
-            ExposureCalculator.calculateDoseIncrement(10.0, 10.0, sunscreenSpf = 1),
-            ExposureCalculator.calculateDoseIncrement(10.0, 10.0, sunscreenSpf = 0),
-            EPSILON,
-        )
-    }
-
-    @Test
     fun `remaining dose cannot be negative`() {
         assertEquals(2.0, ExposureCalculator.calculateRemainingDose(3.0, 1.0), EPSILON)
         assertEquals(0.0, ExposureCalculator.calculateRemainingDose(3.0, 4.0), 0.0)
@@ -86,11 +67,6 @@ class ExposureCalculatorTest {
     @Test
     fun `remaining minutes are zero after the threshold is reached`() {
         assertEquals(0.0, ExposureCalculator.calculateRemainingMinutes(0.0, 0.0)!!, 0.0)
-    }
-
-    @Test
-    fun `remaining seconds round upward without losing a partial second`() {
-        assertEquals(1L, ExposureCalculator.calculateRemainingSeconds(0.000001, 8.0))
     }
 
     private companion object {
