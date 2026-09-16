@@ -21,4 +21,18 @@ interface OpenMeteoApi {
         forecastDays: Int = 7,
     ): OpenMeteoResponseDto
 
+    /** Sunrise/sunset for the forecast graph's time-of-day slider. */
+    @GET("v1/forecast")
+    suspend fun getSunTimes(
+        @Query("latitude")
+        latitude: Double,
+        @Query("longitude")
+        longitude: Double,
+        @Query("daily")
+        daily: String = "sunrise,sunset",
+        @Query("timezone")
+        timezone: String = "auto",
+        @Query("forecast_days")
+        forecastDays: Int = 7,
+    ): OpenMeteoSunResponseDto
 }

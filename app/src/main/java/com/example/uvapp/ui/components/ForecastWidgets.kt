@@ -1,4 +1,4 @@
-﻿package com.example.uvapp.ui.components
+package com.example.uvapp.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -43,7 +43,6 @@ import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.SEEK_END_MINUTES
 import com.example.uvapp.viewmodel.SEEK_START_MINUTES
 import com.example.uvapp.viewmodel.SEEK_STEP_MINUTES
-import com.example.uvapp.viewmodel.SEEK_STEPS
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -144,11 +143,19 @@ fun UvChartCard(
     val colors = UvTheme
     val textMeasurer = rememberTextMeasurer()
 
-    /** Maps a pointer x (px) inside the chart to a snapped 30-min time. */
+    // The slider is limited to the day's sunrise-sunset window when known,
+    // falling back to the full day otherwise.
+    val sunrise = day.sunriseMinutes
+    val sunset = day.sunsetMinutes
+    val windowStartMinutes = if (sunrise != null && sunset != null && sunrise < sunset) sunrise else SEEK_START_MINUTES
+    val windowEndMinutes = if (sunrise != null && sunset != null && sunrise < sunset) sunset else SEEK_END_MINUTES
+    val windowSteps = windowEndMinutes - windowStartMinutes
+
+    /** Maps a pointer x (px) inside the chart to a snapped time within the window. */
     fun timeFromX(xPx: Float, widthPx: Int): Int {
         val fraction = (xPx / widthPx).coerceIn(0f, 1f)
-        val index = snapFraction(fraction, SEEK_STEPS)
-        return SEEK_START_MINUTES + index * SEEK_STEP_MINUTES
+        val index = snapFraction(fraction, windowSteps)
+        return windowStartMinutes + index * SEEK_STEP_MINUTES
     }
 
     SunCard(
@@ -227,9 +234,9 @@ fun UvChartCard(
                 }
 
                 // Hour -> x: the chart time axis matches the slider window
-                // (SEEK_START..SEEK_END), so the marker always sits under the thumb.
-                val windowStart = SEEK_START_MINUTES / 60f
-                val windowEnd = SEEK_END_MINUTES / 60f
+                // (sunrise..sunset, or the full day), so the marker always sits under the thumb.
+                val windowStart = windowStartMinutes / 60f
+                val windowEnd = windowEndMinutes / 60f
                 val windowHours = windowEnd - windowStart
                 fun hourX(hour: Float) = chartLeft + (hour - windowStart) / windowHours * chartWidth
                 fun uvY(uv: Float) = chartBottom - uv * 12.333f * sy
@@ -303,7 +310,7 @@ fun UvChartCard(
                 // X-axis time labels across the slider window.
                 val axisStyle = TextStyle(fontSize = 10.sp, color = colors.textSecondary)
                 listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { fraction ->
-                    val minutes = SEEK_START_MINUTES + kotlin.math.round((SEEK_END_MINUTES - SEEK_START_MINUTES) * fraction).toInt()
+                    val minutes = windowStartMinutes + kotlin.math.round(windowSteps * fraction).toInt()
                     val layout = textMeasurer.measure(AnnotatedString(minutesToHhMm(minutes)), style = axisStyle)
                     val lx = chartLeft + chartWidth * fraction
                     val labelX = when (fraction) {
