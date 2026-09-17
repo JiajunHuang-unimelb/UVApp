@@ -1,5 +1,6 @@
 package com.example.uvapp
 
+import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
@@ -9,6 +10,8 @@ import com.example.uvapp.domain.model.PlaceName
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
 import com.example.uvapp.domain.model.UvForecastState
+import com.example.uvapp.domain.pocket.PocketSensorSample
+import com.example.uvapp.domain.pocket.PocketState
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.viewmodel.MainViewModel
@@ -109,6 +112,104 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `pocket detection pauses and resumes a running exposure session`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onStartExposure()
+
+        confirmPocketEntry(vm, startMs = 0L)
+        val pocketDose = vm.state.value.accumulatedDoseSed
+
+        assertEquals(PocketState.IN_POCKET, vm.state.value.pocketState)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.POCKET, vm.state.value.exposurePauseReason)
+
+        confirmPocketExit(vm, startMs = 60_000L)
+
+        assertEquals(PocketState.OUT_OF_POCKET, vm.state.value.pocketState)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.exposurePauseReason)
+        assertEquals(pocketDose, vm.state.value.accumulatedDoseSed, 0.0)
+    }
+
+    @Test
+    fun `manual pause is not resumed when the phone leaves the pocket`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onStartExposure()
+        vm.onPauseExposure()
+
+        confirmPocketEntry(vm, startMs = 0L)
+        confirmPocketExit(vm, startMs = 60_000L)
+
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.exposurePauseReason)
+    }
+
+    @Test
+    fun `resume requested in pocket waits until pocket exit`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onStartExposure()
+        confirmPocketEntry(vm, startMs = 0L)
+
+        vm.onResumeExposure()
+
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.POCKET, vm.state.value.exposurePauseReason)
+
+        confirmPocketExit(vm, startMs = 60_000L)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+    }
+
+    @Test
+    fun `developer occlusion toggle drives the pocket detector`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onStartExposure()
+
+        vm.onOccludedToggle()
+        mainDispatcher.scheduler.advanceTimeBy(1_500L)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertTrue(vm.state.value.dev.simulateOccluded)
+        assertEquals(PocketState.IN_POCKET, vm.state.value.pocketState)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+    }
+
+    @Test
+    fun `unavailable pocket sensors do not change a running session`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onStartExposure()
+
+        vm.onPocketSensorSample(
+            PocketSensorSample(
+                proximityNear = null,
+                ambientLux = null,
+                elapsedRealtimeMs = 10_000L,
+            ),
+        )
+
+        assertFalse(vm.state.value.pocketDetectionAvailable)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.exposurePauseReason)
+    }
+
+    @Test
+    fun `pocket detection before start does not start exposure and is honored on start`() {
+        val vm = buildLocatedViewModel()
+        settle()
+
+        confirmPocketEntry(vm, startMs = 0L)
+
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        vm.onStartExposure()
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.POCKET, vm.state.value.exposurePauseReason)
+    }
+
+    @Test
     fun `countdown ticks down one second per real second`() {
         val vm = buildLocatedViewModel()
         settle()
@@ -134,6 +235,32 @@ class MainViewModelTest {
 
         assertEquals((before - 60).coerceAtLeast(0), vm.state.value.remainingSeconds)
     }
+
+    private fun confirmPocketEntry(
+        vm: MainViewModel,
+        startMs: Long,
+    ) {
+        vm.onPocketSensorSample(pocketSample(near = true, lux = 0f, timeMs = startMs))
+        vm.onPocketSensorSample(pocketSample(near = true, lux = 0f, timeMs = startMs + 1_500L))
+    }
+
+    private fun confirmPocketExit(
+        vm: MainViewModel,
+        startMs: Long,
+    ) {
+        vm.onPocketSensorSample(pocketSample(near = false, lux = 1_000f, timeMs = startMs))
+        vm.onPocketSensorSample(pocketSample(near = false, lux = 1_000f, timeMs = startMs + 750L))
+    }
+
+    private fun pocketSample(
+        near: Boolean,
+        lux: Float,
+        timeMs: Long,
+    ) = PocketSensorSample(
+        proximityNear = near,
+        ambientLux = lux,
+        elapsedRealtimeMs = timeMs,
+    )
 
     @Test
     fun `current location refreshes UV through the cached forecast repository`() {

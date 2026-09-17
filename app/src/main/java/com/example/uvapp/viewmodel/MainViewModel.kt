@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.exposure.ExposureContext
+import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
 import com.example.uvapp.domain.exposure.ExposureSnapshot
 import com.example.uvapp.domain.exposure.ExposureStatus
@@ -17,6 +18,11 @@ import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
+import com.example.uvapp.domain.pocket.PocketDetection
+import com.example.uvapp.domain.pocket.PocketDetector
+import com.example.uvapp.domain.pocket.PocketSensorSample
+import com.example.uvapp.domain.pocket.PocketSensorSource
+import com.example.uvapp.domain.pocket.PocketState
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import java.util.Locale
@@ -61,6 +67,7 @@ data class MainUiState(
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
     val exposureStatus: ExposureStatus = ExposureStatus.NOT_STARTED,
+    val exposurePauseReason: ExposurePauseReason? = null,
     val exposureStarted: Boolean = false,
     val exposureRunning: Boolean = false,
     val accumulatedDoseSed: Double = 0.0,
@@ -68,6 +75,8 @@ data class MainUiState(
     val remainingDoseSed: Double = 1.0,
     val exposureFraction: Double = 0.0,
     val estimatedExposureMinutes: Double? = null,
+    val pocketState: PocketState = PocketState.UNKNOWN,
+    val pocketDetectionAvailable: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isCached: Boolean = false,
@@ -110,6 +119,7 @@ class MainViewModel(
     private val locationProvider: CurrentLocationProvider? = null,
     private val forecastRepository: ForecastUvRepository? = null,
     private val placeRepository: PlaceRepository? = null,
+    private val pocketSensorSource: PocketSensorSource? = null,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
 ) : ViewModel() {
@@ -118,13 +128,17 @@ class MainViewModel(
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
+    private val pocketDetector = PocketDetector()
     private var exposureClockMillis = elapsedRealtimeMillis()
+    private var trackingRequested = false
+    private var exposurePauseReason: ExposurePauseReason? = null
 
     private var lastSkinType: SkinType = SkinType.II
     private var locationJob: Job? = null
     private var forecastObservationJob: Job? = null
     private var forecastRefreshJob: Job? = null
     private var placeLookupJob: Job? = null
+    private var mockPocketJob: Job? = null
 
     init {
         publishExposure(exposureSession.snapshot())
@@ -136,6 +150,12 @@ class MainViewModel(
                 lastSkinType = s.skinType
                 _state.update { it.copy(skinType = s.skinType, spf = s.spf, devModeEnabled = s.devModeEnabled) }
                 if (skinTypeChanged) syncExposure()
+            }
+        }
+
+        pocketSensorSource?.let { source ->
+            viewModelScope.launch {
+                source.samples.collect(::onPocketSensorSample)
             }
         }
 
@@ -220,6 +240,8 @@ class MainViewModel(
     fun onPauseExposure() {
         if (!_state.value.exposureStarted) return
         syncExposure()
+        trackingRequested = false
+        exposurePauseReason = ExposurePauseReason.MANUAL
         publishExposure(exposureSession.pause(exposureClockMillis))
     }
 
@@ -229,7 +251,14 @@ class MainViewModel(
             return
         }
         syncExposure()
-        publishExposure(exposureSession.resume(exposureClockMillis))
+        trackingRequested = true
+        if (_state.value.isPocketDetected) {
+            exposurePauseReason = ExposurePauseReason.POCKET
+            publishExposure(exposureSession.pause(exposureClockMillis))
+        } else {
+            exposurePauseReason = null
+            publishExposure(exposureSession.resume(exposureClockMillis))
+        }
     }
 
     fun onResetTimer() = restartExposureSession()
@@ -267,7 +296,42 @@ class MainViewModel(
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
-    fun onOccludedToggle() = _state.update { it.copy(dev = it.dev.copy(simulateOccluded = !it.dev.simulateOccluded)) }
+    fun onOccludedToggle() {
+        val occluded = !_state.value.dev.simulateOccluded
+        _state.update { it.copy(dev = it.dev.copy(simulateOccluded = occluded)) }
+        mockPocketJob?.cancel()
+
+        val startedAt = exposureClockMillis
+        submitMockPocketSample(occluded, startedAt)
+        mockPocketJob =
+            viewModelScope.launch {
+                val confirmationMs =
+                    if (occluded) {
+                        PocketDetector.DEFAULT_ENTER_CONFIRMATION_MS
+                    } else {
+                        PocketDetector.DEFAULT_EXIT_CONFIRMATION_MS
+                    }
+                delay(confirmationMs)
+                if (_state.value.dev.simulateOccluded == occluded) {
+                    submitMockPocketSample(occluded, startedAt + confirmationMs)
+                }
+            }
+    }
+
+    fun onPocketSensorSample(sample: PocketSensorSample) {
+        val detection = pocketDetector.update(sample)
+        val previousState = _state.value.pocketState
+        val wasAvailable = _state.value.pocketDetectionAvailable
+        _state.update {
+            it.copy(
+                pocketState = detection.state,
+                pocketDetectionAvailable = detection.isAvailable,
+            )
+        }
+        if (detection.state != previousState || (!wasAvailable && detection.isAvailable)) {
+            applyPocketDetection(detection, sample.elapsedRealtimeMs)
+        }
+    }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
 
@@ -460,14 +524,20 @@ class MainViewModel(
     private fun restartExposureSession() {
         advanceExposureClock()
         val state = _state.value
-        publishExposure(
+        trackingRequested = true
+        exposurePauseReason = null
+        var snapshot =
             exposureSession.start(
                 skinType = state.skinType,
                 uvIndex = state.displayUv,
                 nowElapsedMs = exposureClockMillis,
                 context = state.displayContext.toExposureContext(),
-            ),
-        )
+            )
+        if (state.isPocketDetected) {
+            exposurePauseReason = ExposurePauseReason.POCKET
+            snapshot = exposureSession.pause(exposureClockMillis)
+        }
+        publishExposure(snapshot)
     }
 
     private fun syncExposure(
@@ -475,6 +545,10 @@ class MainViewModel(
         forceMinimumAdvance: Boolean = false,
     ) {
         advanceExposureClock(minimumAdvanceMillis, forceMinimumAdvance)
+        syncExposureAtCurrentClock()
+    }
+
+    private fun syncExposureAtCurrentClock() {
         val state = _state.value
         var snapshot = exposureSession.snapshot()
 
@@ -507,10 +581,14 @@ class MainViewModel(
     }
 
     private fun publishExposure(snapshot: ExposureSnapshot) {
+        if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
+            exposurePauseReason = null
+        }
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
                 exposureStatus = snapshot.status,
+                exposurePauseReason = exposurePauseReason,
                 exposureStarted = snapshot.isStarted,
                 exposureRunning = snapshot.isRunning,
                 accumulatedDoseSed = snapshot.accumulatedDoseSed,
@@ -535,6 +613,49 @@ class MainViewModel(
         }
     }
 
+    private fun applyPocketDetection(
+        detection: PocketDetection,
+        sampleElapsedRealtimeMs: Long,
+    ) {
+        if (!detection.isAvailable || !trackingRequested) return
+        exposureClockMillis = maxOf(exposureClockMillis, sampleElapsedRealtimeMs)
+
+        when (detection.state) {
+            PocketState.IN_POCKET -> {
+                if (_state.value.exposureStatus == ExposureStatus.RUNNING) {
+                    syncExposureAtCurrentClock()
+                    exposurePauseReason = ExposurePauseReason.POCKET
+                    publishExposure(exposureSession.pause(exposureClockMillis))
+                }
+            }
+
+            PocketState.OUT_OF_POCKET -> {
+                if (
+                    _state.value.exposureStatus == ExposureStatus.PAUSED &&
+                    exposurePauseReason == ExposurePauseReason.POCKET
+                ) {
+                    exposurePauseReason = null
+                    publishExposure(exposureSession.resume(exposureClockMillis))
+                }
+            }
+
+            PocketState.UNKNOWN -> Unit
+        }
+    }
+
+    private fun submitMockPocketSample(
+        occluded: Boolean,
+        elapsedRealtimeMs: Long,
+    ) {
+        onPocketSensorSample(
+            PocketSensorSample(
+                proximityNear = occluded,
+                ambientLux = if (occluded) 0f else 1_000f,
+                elapsedRealtimeMs = elapsedRealtimeMs,
+            ),
+        )
+    }
+
     private fun LightContext.toExposureContext(): ExposureContext =
         when (this) {
             LightContext.INDOOR -> ExposureContext.INDOOR
@@ -547,4 +668,7 @@ class MainViewModel(
 
     private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
         minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
+
+    private val MainUiState.isPocketDetected: Boolean
+        get() = pocketDetectionAvailable && pocketState == PocketState.IN_POCKET
 }
