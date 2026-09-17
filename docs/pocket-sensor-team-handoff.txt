@@ -1,0 +1,119 @@
+POCKET SENSOR TEAM HANDOFF
+==========================
+
+Purpose
+-------
+Provide Android proximity and ambient-light readings to the existing pocket
+detection and exposure countdown backend. The sensor layer supplies raw data;
+it must not decide whether the phone is in a pocket or pause the timer itself.
+
+Existing backend contract
+-------------------------
+Implement:
+
+  app/src/main/java/com/example/uvapp/domain/pocket/PocketSensorSource.kt
+
+It exposes:
+
+  val samples: Flow<PocketSensorSample>
+
+Each sample contains:
+
+  proximityNear: Boolean?
+  ambientLux: Float?
+  elapsedRealtimeMs: Long
+
+Use SystemClock.elapsedRealtime() for elapsedRealtimeMs. This is the same
+monotonic clock used by the exposure session and is not affected by wall-clock
+or timezone changes.
+
+Android implementation
+----------------------
+1. Add AndroidPocketSensorSource under a platform/sensor package.
+2. Obtain SensorManager from the application context.
+3. Read Sensor.TYPE_PROXIMITY and Sensor.TYPE_LIGHT.
+4. Convert proximity to:
+
+     proximityNear = event.values[0] < proximitySensor.maximumRange
+
+5. Pass the light sensor's event.values[0] directly as ambientLux.
+6. Keep the latest value from each sensor and emit a combined sample every
+   200-250 ms while the flow is collected. Periodic emission is required
+   because the backend confirms a state only after it remains stable for a
+   duration; proximity sensors may emit only when their value changes.
+7. Register listeners when collection begins and unregister them from
+   awaitClose when collection is cancelled.
+8. Use Flow.conflate() so a slow collector consumes the latest reading instead
+   of building a queue of obsolete samples.
+
+Unavailable sensors
+-------------------
+If either sensor is missing or has not produced a reading, emit null for that
+field. For example:
+
+  PocketSensorSample(
+      proximityNear = latestProximityNear,
+      ambientLux = latestAmbientLux,
+      elapsedRealtimeMs = SystemClock.elapsedRealtime(),
+  )
+
+The backend treats a sample with either field missing as unavailable and does
+not change the exposure session. Do not invent fallback proximity or lux
+values.
+
+Backend behavior already implemented
+------------------------------------
+- Pocket entry requires proximity near and ambient light <= 10 lux for 1.5 s.
+- Pocket exit requires proximity far or ambient light >= 50 lux for 0.75 s.
+- Confirmed entry pauses a running exposure session after accounting for dose
+  accumulated up to the sample timestamp.
+- Confirmed exit resumes only a session that was paused by pocket detection.
+- A manual pause is never auto-resumed by the sensor pipeline.
+- Missing sensor data leaves the current exposure session unchanged.
+
+Dependency wiring
+-----------------
+Construct the source once in UVAppRoot.kt with the application context and pass
+it to MainViewModel:
+
+  val pocketSensorSource =
+      remember(applicationContext) {
+          AndroidPocketSensorSource(applicationContext)
+      }
+
+  MainViewModel(
+      settingsViewModel = settingsViewModel,
+      locationProvider = locationProvider,
+      forecastRepository = forecastRepository,
+      placeRepository = placeRepository,
+      pocketSensorSource = pocketSensorSource,
+  )
+
+No runtime permission is required for Android proximity or ambient-light
+sensors. AndroidManifest.xml already declares both sensor features.
+
+Sensor-team verification
+------------------------
+1. Both sensors available:
+   Verify combined samples contain non-null proximity and lux values.
+2. Missing proximity sensor:
+   Verify proximityNear remains null and the timer behavior does not change.
+3. Missing light sensor:
+   Verify ambientLux remains null and the timer behavior does not change.
+4. Lifecycle:
+   Verify listeners are registered once while collected and unregistered when
+   the ViewModel is cleared.
+5. Pocket entry:
+   Cover both sensors, wait at least 1.5 s, and verify the running timer pauses.
+6. Pocket exit:
+   Uncover the sensors, wait at least 0.75 s, and verify a pocket-paused timer
+   resumes.
+7. Manual pause precedence:
+   Pause manually, enter and exit the pocket state, and verify it remains
+   paused.
+
+Development without hardware
+----------------------------
+Enable Developer mode in Settings, start the timer on Home, then use
+"Simulate occluded (in pocket)" in the Developer mode card. This mock follows
+the same PocketDetector and MainViewModel path as real sensor samples.
