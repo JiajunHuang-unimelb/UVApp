@@ -5,6 +5,7 @@ import com.example.uvapp.data.db.toDomain
 import com.example.uvapp.data.db.toEntity
 import com.example.uvapp.domain.model.Coordinates
 import com.example.uvapp.domain.model.PlaceName
+import com.example.uvapp.domain.model.PlaceSearchResult
 import com.example.uvapp.domain.repository.PlaceRepository
 import java.util.Locale
 import kotlin.math.atan2
@@ -20,6 +21,43 @@ class DefaultPlaceRepository internal constructor(
     private val rateLimiter: NominatimRateLimiter = NominatimRateLimiter.shared,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : PlaceRepository {
+    // Bounded, instance-scoped cache. Reverse-geocoding results remain persisted in Room.
+    private val searchCache = linkedMapOf<String, CachedSearch>()
+
+    override suspend fun searchPlaces(query: String): Result<List<PlaceSearchResult>> {
+        return try {
+            val cleanedQuery = query.trim().replace(Regex("\\s+"), " ")
+            require(cleanedQuery.isNotBlank()) { "Search query must not be blank" }
+            require(cleanedQuery.length <= 200) { "Search query must not exceed 200 characters" }
+            val key = cleanedQuery.lowercase(Locale.ROOT)
+            cachedSearch(key)?.let { return Result.success(it) }
+            rateLimiter.run {
+                cachedSearch(key)?.let { return@run it }
+                val places = api.searchPlaces(cleanedQuery).map { it.toSearchResult() }
+                synchronized(searchCache) {
+                    searchCache[key] = CachedSearch(places, nowMillis())
+                    if (searchCache.size > SEARCH_CACHE_CAPACITY) {
+                        searchCache.remove(searchCache.keys.first())
+                    }
+                }
+                places
+            }.let(Result.Companion::success)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    private fun cachedSearch(key: String): List<PlaceSearchResult>? =
+        synchronized(searchCache) {
+            searchCache[key]?.takeIf {
+                nowMillis() - it.fetchedAtMillis in 0 until SEARCH_CACHE_MAX_AGE_MILLIS
+            }?.places
+        }
+
+    private data class CachedSearch(val places: List<PlaceSearchResult>, val fetchedAtMillis: Long)
+
     override suspend fun reverseGeocode(coordinates: Coordinates): Result<PlaceName> {
         return try {
             require(coordinates.latitude in -90.0..90.0) { "Latitude must be between -90 and 90" }
@@ -98,6 +136,8 @@ class DefaultPlaceRepository internal constructor(
     }
 
     private companion object {
+        const val SEARCH_CACHE_CAPACITY = 64
+        const val SEARCH_CACHE_MAX_AGE_MILLIS = 24L * 60L * 60L * 1000L
         const val CACHE_REUSE_DISTANCE_METERS = 1_000.0
         const val EARTH_RADIUS_METERS = 6_371_000.0
     }

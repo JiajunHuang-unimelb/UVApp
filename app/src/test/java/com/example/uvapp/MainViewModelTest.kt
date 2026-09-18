@@ -313,6 +313,9 @@ class MainViewModelTest {
     }
 
     private class FakePlaceRepository : PlaceRepository {
+        override suspend fun searchPlaces(query: String) =
+            Result.success(emptyList<com.example.uvapp.domain.model.PlaceSearchResult>())
+
         var coordinates: Coordinates? = null
             private set
 
@@ -332,6 +335,9 @@ class MainViewModelTest {
     }
 
     private class FailingPlaceRepository : PlaceRepository {
+        override suspend fun searchPlaces(query: String) =
+            Result.failure<List<com.example.uvapp.domain.model.PlaceSearchResult>>(IllegalStateException("offline"))
+
         override suspend fun reverseGeocode(coordinates: Coordinates): Result<PlaceName> =
             Result.failure(IllegalStateException("offline"))
     }

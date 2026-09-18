@@ -11,6 +11,43 @@ import org.junit.Test
 
 class NominatimRepositorySmokeTest {
     @Test
+    fun `search maps coordinates and caches normalized queries`() = runBlocking {
+        val api = FakeNominatimApi()
+        val repository = DefaultPlaceRepository(api, FakePlaceNameDao(), NominatimRateLimiter())
+        val first = repository.searchPlaces("  Box   Hill  ").getOrThrow()
+        val second = repository.searchPlaces("box hill").getOrThrow()
+        assertEquals("Box Hill", api.lastQuery)
+        assertEquals("Box Hill", first.single().name)
+        assertEquals(Coordinates(-37.818, 145.123), first.single().coordinates)
+        assertEquals(first, second)
+        assertEquals(1, api.searchCallCount)
+    }
+
+    @Test
+    fun `blank searches do not call the API`() = runBlocking {
+        val api = FakeNominatimApi()
+        val repository = DefaultPlaceRepository(api, FakePlaceNameDao(), NominatimRateLimiter())
+        assertTrue(repository.searchPlaces("   ").isFailure)
+        assertEquals(0, api.searchCallCount)
+    }
+
+    @Test
+    fun `search failure is returned without inventing results`() = runBlocking {
+        val repository = DefaultPlaceRepository(
+            FakeNominatimApi(IOException("offline")), FakePlaceNameDao(), NominatimRateLimiter(),
+        )
+        assertEquals("offline", repository.searchPlaces("Box Hill").exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `search mapper rejects invalid coordinates`() {
+        val result = runCatching {
+            NominatimSearchResultDto("91", "145", "Invalid place").toSearchResult()
+        }
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun `failed request without cache returns failure for coordinate fallback`() =
         runBlocking {
             val repository =
@@ -89,6 +126,18 @@ class NominatimRepositorySmokeTest {
     private class FakeNominatimApi(
         private val error: Exception? = null,
     ) : NominatimApi {
+        var searchCallCount = 0
+            private set
+        var lastQuery: String? = null
+            private set
+
+        override suspend fun searchPlaces(query: String, format: String, limit: Int): List<NominatimSearchResultDto> {
+            searchCallCount++
+            lastQuery = query
+            error?.let { throw it }
+            return listOf(NominatimSearchResultDto("-37.818", "145.123", "Box Hill, Victoria, Australia", "Box Hill"))
+        }
+
         var callCount = 0
             private set
 

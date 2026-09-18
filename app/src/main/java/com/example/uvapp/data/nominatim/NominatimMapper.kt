@@ -1,6 +1,17 @@
 package com.example.uvapp.data.nominatim
 
 import com.example.uvapp.domain.model.PlaceName
+import com.example.uvapp.domain.model.Coordinates
+import com.example.uvapp.domain.model.PlaceSearchResult
+
+fun NominatimSearchResultDto.toSearchResult(): PlaceSearchResult {
+    require(displayName.isNotBlank()) { "Nominatim returned no usable place name" }
+    return PlaceSearchResult(
+        name = name?.takeIf(String::isNotBlank) ?: displayName.substringBefore(',').trim(),
+        displayName = displayName,
+        coordinates = Coordinates(latitude = lat.toDouble(), longitude = lon.toDouble()),
+    )
+}
 
 fun NominatimResponseDto.toPlaceName(): PlaceName {
     val address = address

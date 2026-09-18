@@ -3,6 +3,14 @@ package com.example.uvapp.data.nominatim
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+@Serializable
+data class NominatimSearchResultDto(
+    val lat: String,
+    val lon: String,
+    @SerialName("display_name") val displayName: String,
+    val name: String? = null,
+)
+
 /** Subset of a Nominatim reverse-geocoding response required by the app. */
 @Serializable
 data class NominatimResponseDto(
