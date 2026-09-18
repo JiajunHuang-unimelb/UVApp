@@ -36,6 +36,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        viewBinding = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true

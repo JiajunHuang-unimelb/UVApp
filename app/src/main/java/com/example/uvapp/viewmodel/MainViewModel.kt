@@ -175,6 +175,7 @@ class MainViewModel(
 
     fun onPlaceSelected(suburb: String) {
         cancelLocationWork()
+        println("Suburb selected: $suburb");
         _state.update {
             it.copy(
                 placeName = "$suburb, Melbourne",
@@ -437,7 +438,11 @@ class MainViewModel(
             viewModelScope.launch {
                 val result =
                     try {
+                        println(fix.latitude);
+                        println(fix.longitude);
+
                         repository.reverseGeocode(
+
                             Coordinates(
                                 latitude = fix.latitude,
                                 longitude = fix.longitude,
