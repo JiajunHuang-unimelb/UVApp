@@ -11,18 +11,34 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.text.Text
 import androidx.glance.GlanceModifier
 import android.content.Context
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+import androidx.glance.Button
+import androidx.glance.action.actionStartActivity
+import androidx.glance.layout.*
 
 class MyAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // Load any required data here
         provideContent {
             // Define your UI using Glance composables
-            Column(
-                modifier = GlanceModifier.fillMaxSize(),
-                verticalAlignment = Alignment.Vertical.CenterVertically,
-                horizontalAlignment = Alignment.Horizontal.CenterHorizontally
-            ) {
-                Text(text = "Hello, Glance!")
+            MyContent()
+        }
+    }
+
+    @Composable
+    private fun MyContent() {
+        Column(
+            modifier = GlanceModifier.fillMaxSize(),
+            verticalAlignment = Alignment.Top,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = "Where to?", modifier = GlanceModifier.padding(12.dp))
+            Row(horizontalAlignment = Alignment.CenterHorizontally) {
+                Button(
+                    text = "Home",
+                    onClick = actionStartActivity< MainActivity>()
+                )
             }
         }
     }
