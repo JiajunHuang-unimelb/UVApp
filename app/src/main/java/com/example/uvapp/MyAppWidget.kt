@@ -10,13 +10,8 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.text.Text
 import androidx.glance.GlanceModifier
 import android.content.Context
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.glance.text.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,10 +25,7 @@ import androidx.glance.unit.ColorProvider
 import androidx.glance.GlanceTheme
 
 
-import com.example.uvapp.domain.model.UvBand
-
 import com.example.uvapp.ui.theme.UvTheme
-import com.example.uvapp.ui.theme.BandPalettes
 
 
 class MyAppWidget : GlanceAppWidget() {
@@ -43,12 +35,16 @@ class MyAppWidget : GlanceAppWidget() {
             // Define your UI using Glance composables
             val uv = 0.0;
             val band = null ?: "Awaiting";
-            MyContent(uv, band)
+            val skinType = null ?: "Type Unknown";
+            val skinTypeDesc = null ?: "Unknown"
+            val spf = null ?: 0
+
+            MyContent(uv, band, skinType, spf, skinTypeDesc)
         }
     }
 
     @Composable
-    private fun MyContent(uv: Double, band : String) {
+    private fun MyContent(uv: Double, band : String, skinType: String, spf : Int, skinTypeDesc: String) {
 
         Row(
             modifier = GlanceModifier.fillMaxSize().background(Color.Black),
@@ -98,7 +94,7 @@ class MyAppWidget : GlanceAppWidget() {
                         fontWeight = FontWeight.Bold
                     )
                 )
-                Text(text = "TYPE ERROR",
+                Text(text = skinType,
                     modifier = GlanceModifier.padding(5.dp),
                     style = TextStyle(
                         color = ColorProvider(UvTheme.textSecondary),
@@ -106,7 +102,7 @@ class MyAppWidget : GlanceAppWidget() {
                         fontWeight = FontWeight.Bold
                     )
                 )
-                Text(text = "Unknown",
+                Text(text = skinTypeDesc,
                     modifier = GlanceModifier.padding(5.dp),
                     style = TextStyle(
                         color = ColorProvider(UvTheme.textSecondary),
@@ -114,7 +110,7 @@ class MyAppWidget : GlanceAppWidget() {
                         fontWeight = FontWeight.Bold
                     )
                 )
-                Text(text = "SPF NaN",
+                Text(text = "SPF ${spf.toString()}",
                     modifier = GlanceModifier.padding(10.dp),
                     style = TextStyle(
                         color = ColorProvider(UvTheme.accent),
