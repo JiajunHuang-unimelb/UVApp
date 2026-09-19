@@ -1,7 +1,6 @@
 package com.example.uvapp
 
 
-
 import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.provideContent
@@ -11,10 +10,18 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.text.Text
 import androidx.glance.GlanceModifier
 import android.content.Context
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.glance.text.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.glance.Button
+import androidx.glance.ButtonDefaults
 import androidx.glance.action.actionStartActivity
 import androidx.glance.background
 import androidx.glance.layout.*
@@ -23,17 +30,25 @@ import androidx.glance.unit.ColorProvider
 import androidx.glance.GlanceTheme
 
 
+import com.example.uvapp.domain.model.UvBand
+
+import com.example.uvapp.ui.theme.UvTheme
+import com.example.uvapp.ui.theme.BandPalettes
+
+
 class MyAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // Load any required data here
         provideContent {
             // Define your UI using Glance composables
-            MyContent()
+            val uv = 0.0;
+            val band = null ?: "Awaiting";
+            MyContent(uv, band)
         }
     }
 
     @Composable
-    private fun MyContent() {
+    private fun MyContent(uv: Double, band : String) {
 
         Row(
             modifier = GlanceModifier.fillMaxSize().background(Color.Black),
@@ -43,32 +58,81 @@ class MyAppWidget : GlanceAppWidget() {
 
 
             Column(
-                modifier = GlanceModifier.fillMaxSize(),
-                verticalAlignment = Alignment.Top,
+                modifier = GlanceModifier.defaultWeight().padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = "UV INDEX NOW",
                     modifier = GlanceModifier.padding(12.dp),
-                    style = TextStyle(color = ColorProvider(Color.White))
+                    style = TextStyle(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = ColorProvider(UvTheme.textSecondary),
+                    )
                 )
-                Text(text = "--",
+                Text(text = uv.toString() ?: "--",
+                    modifier = GlanceModifier.padding(0.dp),
+                    style = TextStyle(color = ColorProvider(Color.White),
+                        fontSize = 62.sp,
+                        fontWeight = FontWeight.Bold,
+                ))
+                Text(text = band,
                     modifier = GlanceModifier.padding(12.dp),
-                    style = TextStyle(color = ColorProvider(Color.White))
+                    style = TextStyle(color = ColorProvider(Color.White),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold)
                 )
 
             }
             Column(
-                modifier = GlanceModifier.fillMaxSize(),
-                verticalAlignment = Alignment.Bottom,
+                modifier = GlanceModifier.padding(5.dp).defaultWeight(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ){
-                Row(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Button(
-                        text = "More",
-                        onClick = actionStartActivity<MainActivity>()
+                Text(text = "SKIN / SPF",
+                    modifier = GlanceModifier.padding(12.dp),
+                    style = TextStyle(
+                        color = ColorProvider(UvTheme.textSecondary),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                }
+                )
+                Text(text = "TYPE ERROR",
+                    modifier = GlanceModifier.padding(5.dp),
+                    style = TextStyle(
+                        color = ColorProvider(UvTheme.textSecondary),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Text(text = "Unknown",
+                    modifier = GlanceModifier.padding(5.dp),
+                    style = TextStyle(
+                        color = ColorProvider(UvTheme.textSecondary),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Text(text = "SPF NaN",
+                    modifier = GlanceModifier.padding(10.dp),
+                    style = TextStyle(
+                        color = ColorProvider(UvTheme.accent),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+
+
+                Button(
+                    colors = ButtonDefaults.buttonColors(
+                        backgroundColor = ColorProvider(Color.DarkGray),
+                        contentColor = ColorProvider(Color.White)
+                    ),
+                    text = "More",
+                    onClick = actionStartActivity<MainActivity>()
+                )
+
             }
         }
 
