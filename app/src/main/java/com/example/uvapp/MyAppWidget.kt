@@ -25,26 +25,53 @@ import androidx.glance.unit.ColorProvider
 import androidx.glance.GlanceTheme
 
 
+import android.os.SystemClock
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.doublePreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.currentState
+import androidx.glance.state.GlanceStateDefinition
+import androidx.glance.state.PreferencesGlanceStateDefinition
+import com.example.uvapp.data.repository.UvRepositoryFactory
+import com.example.uvapp.domain.model.UvForecastReading
+import com.example.uvapp.domain.location.CurrentLocationProvider
+import com.example.uvapp.domain.location.LocationResult
+import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import com.example.uvapp.domain.model.LocationFix
+import com.example.uvapp.platform.location.FusedCurrentLocationProvider
+import kotlin.math.abs
+
 import com.example.uvapp.ui.theme.UvTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.update
 
 
 class MyAppWidget : GlanceAppWidget() {
+
+    override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition;
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // Load any required data here
+
+
         provideContent {
             // Define your UI using Glance composables
-            val uv = 0.0;
-            val band = null ?: "Awaiting";
-            val skinType = null ?: "Type Unknown";
-            val skinTypeDesc = null ?: "Unknown"
-            val spf = null ?: 0
 
-            MyContent(uv, band, skinType, spf, skinTypeDesc)
+
+            MyContent()
         }
     }
 
     @Composable
-    private fun MyContent(uv: Double, band : String, skinType: String, spf : Int, skinTypeDesc: String) {
+    private fun MyContent() {
+
+        val data = currentState<Preferences>()
+        val uv = data[doublePreferencesKey("uv")] ?: -2.0
+        val band = data[stringPreferencesKey("band")] ?: "NBand"
+        val skinType = data[stringPreferencesKey("skinType")] ?: "NType"
+        val skinTypeDesc = data[stringPreferencesKey("skinTypeDesc")] ?: "NDesc"
+        val spf = data[intPreferencesKey("spf")] ?: -2
 
         Row(
             modifier = GlanceModifier.fillMaxSize().background(Color.Black),
@@ -119,18 +146,30 @@ class MyAppWidget : GlanceAppWidget() {
                     )
                 )
 
-
-                Button(
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = ColorProvider(Color.DarkGray),
-                        contentColor = ColorProvider(Color.White)
-                    ),
-                    text = "More",
-                    onClick = actionStartActivity<MainActivity>()
-                )
-
+                Row () {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(
+                            backgroundColor = ColorProvider(Color.DarkGray),
+                            contentColor = ColorProvider(Color.White)
+                        ),
+                        text = "Refresh",
+                        onClick = actionRunCallback<
+                                RefreshAction>()
+                    )
+                    Button(
+                        colors = ButtonDefaults.buttonColors(
+                            backgroundColor = ColorProvider(Color.DarkGray),
+                            contentColor = ColorProvider(Color.White)
+                        ),
+                        text = "More",
+                        onClick = actionStartActivity<MainActivity>()
+                    )
+                }
             }
         }
 
     }
+
+
+
 }
