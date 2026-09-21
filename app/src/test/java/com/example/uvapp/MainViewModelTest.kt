@@ -1,6 +1,7 @@
 package com.example.uvapp
 
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
@@ -110,12 +111,14 @@ class MainViewModelTest {
         mainDispatcher.scheduler.advanceTimeBy(3_000)
         mainDispatcher.scheduler.runCurrent()
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
         assertEquals(runningRemaining, vm.state.value.remainingSeconds)
 
         vm.onResumeExposure()
         mainDispatcher.scheduler.advanceTimeBy(1_000)
         mainDispatcher.scheduler.runCurrent()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.pauseReason)
         assertEquals(runningRemaining - 1L, vm.state.value.remainingSeconds)
 
         vm.onResetTimer()
@@ -204,6 +207,7 @@ class MainViewModelTest {
         assertTrue(vm.state.value.nearIndoorLocation)
         assertTrue(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
         assertEquals(1, alerts.callCount)
     }
 
@@ -227,6 +231,7 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
         assertTrue(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
         assertEquals(1, alerts.callCount)
 
         environment.setLux(1_500)
@@ -242,6 +247,7 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.pauseReason)
         assertEquals(1, alerts.callCount)
     }
 
@@ -292,6 +298,7 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
         assertTrue(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
         assertEquals(0, alerts.callCount)
 
         environment.setNearIndoorLocation(false)
@@ -301,6 +308,7 @@ class MainViewModelTest {
 
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
         assertEquals(0, alerts.callCount)
     }
 
@@ -317,6 +325,7 @@ class MainViewModelTest {
         vm.onStartExposure()
 
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
         assertEquals(0, alerts.callCount)
 
         environment.setNearIndoorLocation(false)
@@ -324,6 +333,7 @@ class MainViewModelTest {
         mainDispatcher.scheduler.advanceTimeBy(10_000)
         mainDispatcher.scheduler.runCurrent()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.pauseReason)
     }
 
     @Test

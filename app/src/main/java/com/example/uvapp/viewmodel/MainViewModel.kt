@@ -7,6 +7,7 @@ import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.exposure.ExposureContext
+import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
 import com.example.uvapp.domain.exposure.ExposureSnapshot
 import com.example.uvapp.domain.exposure.ExposureStatus
@@ -71,6 +72,7 @@ data class MainUiState(
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
     val exposureStatus: ExposureStatus = ExposureStatus.NOT_STARTED,
+    val pauseReason: ExposurePauseReason? = null,
     val exposureStarted: Boolean = false,
     val exposureRunning: Boolean = false,
     val accumulatedDoseSed: Double = 0.0,
@@ -150,7 +152,6 @@ class MainViewModel(
             lux = DEFAULT_LUX,
             nearIndoorLocation = false,
         )
-    private var autoPausedForIndoor = false
 
     init {
         publishExposure(exposureSession.snapshot())
@@ -263,9 +264,9 @@ class MainViewModel(
 
     fun onPauseExposure() {
         if (!_state.value.exposureStarted) return
-        autoPausedForIndoor = false
         syncExposure()
         publishExposure(exposureSession.pause(exposureClockMillis))
+        _state.update { it.copy(pauseReason = ExposurePauseReason.MANUAL) }
     }
 
     fun onResumeExposure() {
@@ -582,10 +583,10 @@ class MainViewModel(
         val exitStillValid = !state.nearIndoorLocation || state.displayLux > INDOOR_EXIT_LUX
         if (!state.indoorDetected || !exitStillValid) return
 
+        val shouldResume = state.pauseReason == ExposurePauseReason.INDOOR_DETECTED
         _state.update { it.copy(indoorDetected = false) }
         syncExposure()
-        if (autoPausedForIndoor) {
-            autoPausedForIndoor = false
+        if (shouldResume) {
             publishExposure(exposureSession.resume(exposureClockMillis))
         }
     }
@@ -599,7 +600,7 @@ class MainViewModel(
 
         syncExposure()
         publishExposure(exposureSession.pause(exposureClockMillis))
-        autoPausedForIndoor = true
+        _state.update { it.copy(pauseReason = ExposurePauseReason.INDOOR_DETECTED) }
         if (sendAlert) alertGateway?.notifyIndoorAutoPause()
     }
 
@@ -644,6 +645,7 @@ class MainViewModel(
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
                 exposureStatus = snapshot.status,
+                pauseReason = if (snapshot.status == ExposureStatus.PAUSED) state.pauseReason else null,
                 exposureStarted = snapshot.isStarted,
                 exposureRunning = snapshot.isRunning,
                 accumulatedDoseSed = snapshot.accumulatedDoseSed,

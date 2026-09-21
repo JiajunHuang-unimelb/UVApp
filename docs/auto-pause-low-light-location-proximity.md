@@ -31,7 +31,7 @@ Low light alone and location proximity alone are insufficient to classify the us
 - A manually paused countdown remains paused after returning outdoors.
 - Starting or resetting a countdown while already classified indoors creates an immediately paused session without producing a duplicate vibration.
 
-The pause ownership is kept inside `MainViewModel`. This prevents the environmental workflow from overriding an explicit user pause.
+Pause ownership is exposed by `MainUiState.pauseReason` and enforced by `MainViewModel`. This prevents the environmental workflow from overriding an explicit user pause while allowing the frontend to explain why the timer stopped.
 
 ## Architecture
 
@@ -51,6 +51,32 @@ interface EnvironmentContextProvider {
 The application currently injects `MockEnvironmentContextProvider`. A future light-sensor and GPS/geofence implementation should implement the same interface and emit `EnvironmentSample` values. No countdown or indoor-fusion changes should be required when that provider is replaced.
 
 `ExposureAlertGateway` separates alert side effects from the ViewModel. The current Android implementation checks for an available vibrator and performs a best-effort 250 ms vibration. A missing vibrator or unavailable vibration permission does not interrupt exposure tracking.
+
+## Frontend integration
+
+The frontend should collect `MainViewModel.state` and use these fields:
+
+- `indoorDetected` indicates the current stable indoor classification.
+- `exposureStatus` indicates whether the timer is running, paused, complete, or not started.
+- `pauseReason` is `MANUAL`, `INDOOR_DETECTED`, or `null`. It is non-null only while the session is paused.
+
+A persistent message can be selected without generating side effects from Compose:
+
+```kotlin
+val message = when {
+    state.pauseReason == ExposurePauseReason.INDOOR_DETECTED ->
+        "Indoors detected — exposure timer automatically paused"
+    state.indoorDetected ->
+        "Indoors detected"
+    else -> null
+}
+```
+
+Render that message conditionally as a banner or status row. Do not infer an automatic pause from `indoorDetected && exposureStatus == PAUSED`, because a user can manually pause while indoors. Use `pauseReason` for precise wording.
+
+Compose should not trigger vibration or a system notification from these state values. Recomposition and Activity recreation can repeat those effects. `ExposureAlertGateway` owns the one-time vibration at the confirmed transition. If a future design needs a one-time snackbar, add a dedicated UI-event stream rather than treating `indoorDetected` as an event.
+
+The current state does not expose the remaining time in the 10-second debounce. The frontend should not display detection progress until a dedicated pending/progress value is added.
 
 ## Testing with developer controls
 
