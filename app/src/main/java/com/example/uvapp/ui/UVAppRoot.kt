@@ -20,6 +20,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
 import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
 import com.example.uvapp.data.repository.UvRepositoryFactory
+import com.example.uvapp.platform.alerts.AndroidExposureAlertGateway
+import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
 import com.example.uvapp.ui.components.RefreshButton
@@ -52,6 +54,9 @@ fun UVAppRoot() {
         remember(applicationContext) { PlaceRepositoryFactory.create(applicationContext) }
     val preferencesRepository =
         remember(applicationContext) { DataStoreUserPreferencesRepository(applicationContext) }
+    val environmentContextProvider = remember { MockEnvironmentContextProvider() }
+    val alertGateway =
+        remember(applicationContext) { AndroidExposureAlertGateway(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
@@ -61,6 +66,8 @@ fun UVAppRoot() {
             locationProvider = locationProvider,
             forecastRepository = forecastRepository,
             placeRepository = placeRepository,
+            environmentContextProvider = environmentContextProvider,
+            alertGateway = alertGateway,
         )
     }
     val forecastViewModel: ForecastViewModel = viewModel {

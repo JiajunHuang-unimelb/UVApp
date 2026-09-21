@@ -89,14 +89,14 @@ fun DevCard(
             if (dev.overrideUv) {
                 UvOverridePanel(dev.uvOverride, onUvOverride)
             }
-            DevToggleRow("Override light context", dev.overrideLight, onToggleLightOverride)
+            DevToggleRow("Mock light level", dev.overrideLight, onToggleLightOverride)
             if (dev.overrideLight) {
                 LightContextPanel(dev.lightOverride, onLightOverride)
             }
             DevToggleRow("Override audio context", dev.overrideAudio, onToggleAudio)
             DevToggleRow("Simulate occluded (in pocket)", dev.simulateOccluded, onToggleOccluded)
             DevToggleRow("Force offline (cache-hit)", dev.forceOffline, onToggleOffline)
-            DevToggleRow("Override location", dev.overrideLocation, onToggleLocation)
+            DevToggleRow("Near known indoor location", dev.overrideLocation, onToggleLocation)
             DevToggleRow("Simulate active (sweat signal)", dev.simulateActive, onToggleActive)
         }
     }

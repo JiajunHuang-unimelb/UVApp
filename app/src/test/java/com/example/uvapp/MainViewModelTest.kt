@@ -1,9 +1,11 @@
 package com.example.uvapp
 
+import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.Coordinates
+import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.domain.model.PlaceName
 import com.example.uvapp.domain.model.UvDataSource
@@ -11,6 +13,7 @@ import com.example.uvapp.domain.model.UvForecastReading
 import com.example.uvapp.domain.model.UvForecastState
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +63,19 @@ class MainViewModelTest {
             settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
             locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
             forecastRepository = FakeForecastRepository(),
+            nowMillis = { NOW_MILLIS },
+        )
+
+    private fun buildEnvironmentViewModel(
+        environment: MockEnvironmentContextProvider,
+        alerts: FakeExposureAlertGateway = FakeExposureAlertGateway(),
+    ) =
+        MainViewModel(
+            settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+            locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
+            forecastRepository = FakeForecastRepository(),
+            environmentContextProvider = environment,
+            alertGateway = alerts,
             nowMillis = { NOW_MILLIS },
         )
 
@@ -133,6 +149,181 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
 
         assertEquals((before - 60).coerceAtLeast(0), vm.state.value.remainingSeconds)
+    }
+
+    @Test
+    fun `low light alone does not classify indoor or pause exposure`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(12_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `location proximity alone does not classify indoor or pause exposure`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setNearIndoorLocation(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(12_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `developer location toggle supplies mock indoor proximity`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        vm.onOverrideLightToggle()
+        vm.onLightOverride(LightContext.INDOOR)
+        vm.onLocationToggle()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertTrue(vm.state.value.nearIndoorLocation)
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.callCount)
+    }
+
+    @Test
+    fun `stable low light and location auto pause once then stable outdoor resumes`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        environment.setNearIndoorLocation(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(9_999)
+        mainDispatcher.scheduler.runCurrent()
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+
+        mainDispatcher.scheduler.advanceTimeBy(1)
+        mainDispatcher.scheduler.runCurrent()
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.callCount)
+
+        environment.setLux(1_500)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(12_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+
+        environment.setLux(2_001)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.callCount)
+    }
+
+    @Test
+    fun `signal flapping restarts indoor debounce`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        environment.setNearIndoorLocation(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(9_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        environment.setNearIndoorLocation(false)
+        mainDispatcher.scheduler.runCurrent()
+        environment.setNearIndoorLocation(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(9_999)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(0, alerts.callCount)
+
+        mainDispatcher.scheduler.advanceTimeBy(1)
+        mainDispatcher.scheduler.runCurrent()
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.callCount)
+    }
+
+    @Test
+    fun `outdoor transition does not resume a manually paused exposure`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+        vm.onPauseExposure()
+
+        environment.setLux(500)
+        environment.setNearIndoorLocation(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
+
+        environment.setNearIndoorLocation(false)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `starting exposure while already indoor pauses immediately without duplicate alert`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertTrue(vm.state.value.indoorDetected)
+
+        vm.onStartExposure()
+
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
+
+        environment.setNearIndoorLocation(false)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
     }
 
     @Test
@@ -254,6 +445,15 @@ class MainViewModelTest {
         override suspend fun getCurrentLocation(): LocationResult {
             callCount++
             return result
+        }
+    }
+
+    private class FakeExposureAlertGateway : ExposureAlertGateway {
+        var callCount = 0
+            private set
+
+        override fun notifyIndoorAutoPause() {
+            callCount++
         }
     }
 

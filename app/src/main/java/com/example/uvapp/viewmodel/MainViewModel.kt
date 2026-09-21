@@ -3,6 +3,9 @@ package com.example.uvapp.viewmodel
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.environment.EnvironmentContextProvider
+import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposureSessionManager
 import com.example.uvapp.domain.exposure.ExposureSnapshot
@@ -48,6 +51,14 @@ data class DevUiState(
     val simulateActive: Boolean = false,
 )
 
+private val LightContext.mockLux: Int
+    get() =
+        when (this) {
+            LightContext.INDOOR -> 500
+            LightContext.SHADE -> 8_000
+            LightContext.DIRECT_SUN -> 38_200
+        }
+
 /** Immutable snapshot of everything the Home page (and shared chrome) renders. */
 data class MainUiState(
     val selectedTab: Tab = Tab.HOME,
@@ -57,7 +68,6 @@ data class MainUiState(
     val uvAvailable: Boolean = false,
     val forecastReadings: List<UvForecastReading> = emptyList(),
     val placeName: String = "Locating…",
-    val lightContext: LightContext = LightContext.DIRECT_SUN,
     val remainingSeconds: Long = Long.MAX_VALUE,
     val totalBurnSeconds: Long = Long.MAX_VALUE,
     val exposureStatus: ExposureStatus = ExposureStatus.NOT_STARTED,
@@ -76,6 +86,8 @@ data class MainUiState(
     /** Manual lux override from the slidable exposure indicator (testing). */
     val luxOverride: Int? = null,
     val stepsPerMinute: Int = 84,
+    val nearIndoorLocation: Boolean = false,
+    val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
     val spf: Int = 15,
@@ -86,14 +98,18 @@ data class MainUiState(
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
     val band: UvBand get() = UvBand.fromIndex(displayUv)
 
-    /** Lux shown on the exposure indicator (manual override wins). */
-    val displayLux: Int get() = luxOverride ?: lux
+    /** Lux used by indoor fusion. Explicit developer light simulation wins. */
+    val displayLux: Int get() = when {
+        dev.overrideLight -> dev.lightOverride.mockLux
+        luxOverride != null -> luxOverride
+        else -> lux
+    }
 
-    /** Context shown on Home (dev override wins, then the manual lux override). */
+    /** Low light is only classified as indoor after location-aware debounce confirms it. */
     val displayContext: LightContext get() = when {
-        dev.overrideLight -> dev.lightOverride
-        luxOverride != null -> LightContext.fromLux(luxOverride)
-        else -> lightContext
+        indoorDetected -> LightContext.INDOOR
+        displayLux < LightContext.SHADE_MAX_LUX -> LightContext.SHADE
+        else -> LightContext.DIRECT_SUN
     }
 
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
@@ -110,6 +126,8 @@ class MainViewModel(
     private val locationProvider: CurrentLocationProvider? = null,
     private val forecastRepository: ForecastUvRepository? = null,
     private val placeRepository: PlaceRepository? = null,
+    private val environmentContextProvider: EnvironmentContextProvider? = null,
+    private val alertGateway: ExposureAlertGateway? = null,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
 ) : ViewModel() {
@@ -125,6 +143,14 @@ class MainViewModel(
     private var forecastObservationJob: Job? = null
     private var forecastRefreshJob: Job? = null
     private var placeLookupJob: Job? = null
+    private var indoorTransitionJob: Job? = null
+    private var pendingIndoorTarget: Boolean? = null
+    private var latestEnvironmentSample =
+        EnvironmentSample(
+            lux = DEFAULT_LUX,
+            nearIndoorLocation = false,
+        )
+    private var autoPausedForIndoor = false
 
     init {
         publishExposure(exposureSession.snapshot())
@@ -136,6 +162,21 @@ class MainViewModel(
                 lastSkinType = s.skinType
                 _state.update { it.copy(skinType = s.skinType, spf = s.spf, devModeEnabled = s.devModeEnabled) }
                 if (skinTypeChanged) syncExposure()
+            }
+        }
+
+        environmentContextProvider?.let { provider ->
+            viewModelScope.launch {
+                provider.samples.collect { sample ->
+                    latestEnvironmentSample = sample
+                    _state.update { state ->
+                        state.copy(
+                            lux = sample.lux.coerceIn(0, MAX_LUX),
+                            nearIndoorLocation = sample.nearIndoorLocation || state.dev.overrideLocation,
+                        )
+                    }
+                    evaluateIndoorTransition()
+                }
             }
         }
 
@@ -215,15 +256,20 @@ class MainViewModel(
         }
     }
 
-    fun onStartExposure() = restartExposureSession()
+    fun onStartExposure() {
+        restartExposureSession()
+        pauseNewSessionIfAlreadyIndoor()
+    }
 
     fun onPauseExposure() {
         if (!_state.value.exposureStarted) return
+        autoPausedForIndoor = false
         syncExposure()
         publishExposure(exposureSession.pause(exposureClockMillis))
     }
 
     fun onResumeExposure() {
+        if (_state.value.indoorDetected) return
         if (!_state.value.exposureStarted) {
             restartExposureSession()
             return
@@ -232,16 +278,19 @@ class MainViewModel(
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
 
-    fun onResetTimer() = restartExposureSession()
+    fun onResetTimer() {
+        restartExposureSession()
+        pauseNewSessionIfAlreadyIndoor()
+    }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
 
     /** Dragging the lux bar overrides the sensor reading and re-derives context. */
     fun onLuxChange(lux: Int) {
-        val clamped = lux.coerceIn(0, 100_000)
+        val clamped = lux.coerceIn(0, MAX_LUX)
         val previous = _state.value.displayContext
         _state.update { it.copy(luxOverride = clamped) }
-        // Only restart the burn countdown when the effective context changed.
+        evaluateIndoorTransition()
         if (_state.value.displayContext != previous) syncExposure()
     }
 
@@ -257,13 +306,19 @@ class MainViewModel(
         it.copy(dev = it.dev.copy(uvOverride = value.coerceIn(0.0, 12.0)))
     }.also { syncExposure() }
 
-    fun onOverrideLightToggle() = _state.update {
-        it.copy(dev = it.dev.copy(overrideLight = !it.dev.overrideLight))
-    }.also { syncExposure() }
+    fun onOverrideLightToggle() {
+        val previous = _state.value.displayContext
+        _state.update { it.copy(dev = it.dev.copy(overrideLight = !it.dev.overrideLight)) }
+        evaluateIndoorTransition()
+        if (_state.value.displayContext != previous) syncExposure()
+    }
 
-    fun onLightOverride(context: LightContext) = _state.update {
-        it.copy(dev = it.dev.copy(lightOverride = context))
-    }.also { syncExposure() }
+    fun onLightOverride(context: LightContext) {
+        val previous = _state.value.displayContext
+        _state.update { it.copy(dev = it.dev.copy(lightOverride = context)) }
+        evaluateIndoorTransition()
+        if (_state.value.displayContext != previous) syncExposure()
+    }
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
@@ -271,7 +326,16 @@ class MainViewModel(
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
 
-    fun onLocationToggle() = _state.update { it.copy(dev = it.dev.copy(overrideLocation = !it.dev.overrideLocation)) }
+    fun onLocationToggle() {
+        _state.update { state ->
+            val overrideLocation = !state.dev.overrideLocation
+            state.copy(
+                dev = state.dev.copy(overrideLocation = overrideLocation),
+                nearIndoorLocation = overrideLocation || latestEnvironmentSample.nearIndoorLocation,
+            )
+        }
+        evaluateIndoorTransition()
+    }
 
     fun onActiveToggle() = _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
 
@@ -470,6 +534,75 @@ class MainViewModel(
         )
     }
 
+    /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
+    private fun evaluateIndoorTransition() {
+        val state = _state.value
+        val target =
+            when {
+                !state.indoorDetected &&
+                    state.nearIndoorLocation &&
+                    state.displayLux < INDOOR_ENTER_LUX -> true
+
+                state.indoorDetected &&
+                    (!state.nearIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+
+                else -> null
+            }
+
+        if (target != null && target == pendingIndoorTarget && indoorTransitionJob?.isActive == true) return
+
+        indoorTransitionJob?.cancel()
+        indoorTransitionJob = null
+        pendingIndoorTarget = target
+        if (target == null) return
+
+        indoorTransitionJob =
+            viewModelScope.launch {
+                delay(INDOOR_TRANSITION_DELAY_MILLIS)
+                pendingIndoorTarget = null
+                if (target) {
+                    confirmIndoorIfStillValid()
+                } else {
+                    confirmOutdoorIfStillValid()
+                }
+            }
+    }
+
+    private fun confirmIndoorIfStillValid() {
+        val state = _state.value
+        if (state.indoorDetected || !state.nearIndoorLocation || state.displayLux >= INDOOR_ENTER_LUX) return
+
+        _state.update { it.copy(indoorDetected = true) }
+        syncExposure()
+        autoPauseForIndoor(sendAlert = true)
+    }
+
+    private fun confirmOutdoorIfStillValid() {
+        val state = _state.value
+        val exitStillValid = !state.nearIndoorLocation || state.displayLux > INDOOR_EXIT_LUX
+        if (!state.indoorDetected || !exitStillValid) return
+
+        _state.update { it.copy(indoorDetected = false) }
+        syncExposure()
+        if (autoPausedForIndoor) {
+            autoPausedForIndoor = false
+            publishExposure(exposureSession.resume(exposureClockMillis))
+        }
+    }
+
+    private fun pauseNewSessionIfAlreadyIndoor() {
+        if (_state.value.indoorDetected) autoPauseForIndoor(sendAlert = false)
+    }
+
+    private fun autoPauseForIndoor(sendAlert: Boolean) {
+        if (_state.value.exposureStatus != ExposureStatus.RUNNING) return
+
+        syncExposure()
+        publishExposure(exposureSession.pause(exposureClockMillis))
+        autoPausedForIndoor = true
+        if (sendAlert) alertGateway?.notifyIndoorAutoPause()
+    }
+
     private fun syncExposure(
         minimumAdvanceMillis: Long = 0L,
         forceMinimumAdvance: Boolean = false,
@@ -547,4 +680,12 @@ class MainViewModel(
 
     private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
         minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
+
+    private companion object {
+        const val DEFAULT_LUX = 38_200
+        const val MAX_LUX = 100_000
+        const val INDOOR_ENTER_LUX = 1_000
+        const val INDOOR_EXIT_LUX = 2_000
+        const val INDOOR_TRANSITION_DELAY_MILLIS = 10_000L
+    }
 }
