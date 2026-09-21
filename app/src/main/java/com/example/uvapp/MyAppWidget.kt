@@ -30,6 +30,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.currentState
 import androidx.glance.state.GlanceStateDefinition
@@ -81,13 +82,14 @@ class MyAppWidget : GlanceAppWidget() {
 
 
             Column(
-                modifier = GlanceModifier.defaultWeight().padding(12.dp),
+                modifier = GlanceModifier.defaultWeight()
+                    .padding(12.dp).clickable(actionRunCallback<RefreshAction>()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = "UV INDEX NOW",
-                    modifier = GlanceModifier.padding(12.dp),
+                    modifier = GlanceModifier.padding(2.dp),
                     style = TextStyle(
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
@@ -107,46 +109,10 @@ class MyAppWidget : GlanceAppWidget() {
                         fontWeight = FontWeight.Bold)
                 )
 
-            }
-            Column(
-                modifier = GlanceModifier.padding(5.dp).defaultWeight(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ){
-                Text(text = "SKIN / SPF",
-                    modifier = GlanceModifier.padding(12.dp),
-                    style = TextStyle(
-                        color = ColorProvider(UvTheme.textSecondary),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Text(text = skinType,
-                    modifier = GlanceModifier.padding(5.dp),
-                    style = TextStyle(
-                        color = ColorProvider(UvTheme.textSecondary),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Text(text = skinTypeDesc,
-                    modifier = GlanceModifier.padding(5.dp),
-                    style = TextStyle(
-                        color = ColorProvider(UvTheme.textSecondary),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Text(text = "SPF ${spf.toString()}",
-                    modifier = GlanceModifier.padding(10.dp),
-                    style = TextStyle(
-                        color = ColorProvider(UvTheme.accent),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
+
 
                 Row () {
+                    /*
                     Button(
                         colors = ButtonDefaults.buttonColors(
                             backgroundColor = ColorProvider(Color.DarkGray),
@@ -156,6 +122,8 @@ class MyAppWidget : GlanceAppWidget() {
                         onClick = actionRunCallback<
                                 RefreshAction>()
                     )
+
+                     */
                     Button(
                         colors = ButtonDefaults.buttonColors(
                             backgroundColor = ColorProvider(Color.DarkGray),
