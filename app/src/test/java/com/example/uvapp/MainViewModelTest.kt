@@ -204,7 +204,7 @@ class MainViewModelTest {
         mainDispatcher.scheduler.advanceTimeBy(10_000)
         mainDispatcher.scheduler.runCurrent()
 
-        assertTrue(vm.state.value.nearIndoorLocation)
+        assertEquals(true, vm.state.value.nearIndoorLocation)
         assertTrue(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
         assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)

@@ -73,6 +73,7 @@ data class MainUiState(
     val totalBurnSeconds: Long = Long.MAX_VALUE,
     val exposureStatus: ExposureStatus = ExposureStatus.NOT_STARTED,
     val pauseReason: ExposurePauseReason? = null,
+    val exposureSessionId: Long = 0L,
     val exposureStarted: Boolean = false,
     val exposureRunning: Boolean = false,
     val accumulatedDoseSed: Double = 0.0,
@@ -88,7 +89,7 @@ data class MainUiState(
     /** Manual lux override from the slidable exposure indicator (testing). */
     val luxOverride: Int? = null,
     val stepsPerMinute: Int = 84,
-    val nearIndoorLocation: Boolean = false,
+    val nearIndoorLocation: Boolean? = false,
     val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
@@ -147,6 +148,15 @@ class MainViewModel(
     private var placeLookupJob: Job? = null
     private var indoorTransitionJob: Job? = null
     private var pendingIndoorTarget: Boolean? = null
+    private var savedIndoorProximity: Boolean? = null
+    private var savedProximityConfigured = false
+
+    fun onIndoorProximity(near: Boolean?) {
+        savedProximityConfigured = true
+        savedIndoorProximity = near
+        _state.update { it.copy(nearIndoorLocation = if (it.dev.overrideLocation) true else near) }
+        evaluateIndoorTransition()
+    }
     private var latestEnvironmentSample =
         EnvironmentSample(
             lux = DEFAULT_LUX,
@@ -173,7 +183,7 @@ class MainViewModel(
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
-                            nearIndoorLocation = sample.nearIndoorLocation || state.dev.overrideLocation,
+                            nearIndoorLocation = if (state.dev.overrideLocation) true else if (savedProximityConfigured) savedIndoorProximity else sample.nearIndoorLocation,
                         )
                     }
                     evaluateIndoorTransition()
@@ -265,8 +275,7 @@ class MainViewModel(
     fun onPauseExposure() {
         if (!_state.value.exposureStarted) return
         syncExposure()
-        publishExposure(exposureSession.pause(exposureClockMillis))
-        _state.update { it.copy(pauseReason = ExposurePauseReason.MANUAL) }
+        publishExposure(exposureSession.pause(exposureClockMillis), ExposurePauseReason.MANUAL)
     }
 
     fun onResumeExposure() {
@@ -332,7 +341,7 @@ class MainViewModel(
             val overrideLocation = !state.dev.overrideLocation
             state.copy(
                 dev = state.dev.copy(overrideLocation = overrideLocation),
-                nearIndoorLocation = overrideLocation || latestEnvironmentSample.nearIndoorLocation,
+                nearIndoorLocation = if (overrideLocation) true else if (savedProximityConfigured) savedIndoorProximity else latestEnvironmentSample.nearIndoorLocation,
             )
         }
         evaluateIndoorTransition()
@@ -523,6 +532,7 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
+        _state.update { it.copy(exposureSessionId = it.exposureSessionId + 1) }
         advanceExposureClock()
         val state = _state.value
         publishExposure(
@@ -541,11 +551,11 @@ class MainViewModel(
         val target =
             when {
                 !state.indoorDetected &&
-                    state.nearIndoorLocation &&
+                    state.nearIndoorLocation == true &&
                     state.displayLux < INDOOR_ENTER_LUX -> true
 
                 state.indoorDetected &&
-                    (!state.nearIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+                    (state.nearIndoorLocation == false || state.displayLux > INDOOR_EXIT_LUX) -> false
 
                 else -> null
             }
@@ -571,7 +581,7 @@ class MainViewModel(
 
     private fun confirmIndoorIfStillValid() {
         val state = _state.value
-        if (state.indoorDetected || !state.nearIndoorLocation || state.displayLux >= INDOOR_ENTER_LUX) return
+        if (state.indoorDetected || state.nearIndoorLocation != true || state.displayLux >= INDOOR_ENTER_LUX) return
 
         _state.update { it.copy(indoorDetected = true) }
         syncExposure()
@@ -580,7 +590,7 @@ class MainViewModel(
 
     private fun confirmOutdoorIfStillValid() {
         val state = _state.value
-        val exitStillValid = !state.nearIndoorLocation || state.displayLux > INDOOR_EXIT_LUX
+        val exitStillValid = state.nearIndoorLocation == false || state.displayLux > INDOOR_EXIT_LUX
         if (!state.indoorDetected || !exitStillValid) return
 
         val shouldResume = state.pauseReason == ExposurePauseReason.INDOOR_DETECTED
@@ -599,8 +609,7 @@ class MainViewModel(
         if (_state.value.exposureStatus != ExposureStatus.RUNNING) return
 
         syncExposure()
-        publishExposure(exposureSession.pause(exposureClockMillis))
-        _state.update { it.copy(pauseReason = ExposurePauseReason.INDOOR_DETECTED) }
+        publishExposure(exposureSession.pause(exposureClockMillis), ExposurePauseReason.INDOOR_DETECTED)
         if (sendAlert) alertGateway?.notifyIndoorAutoPause()
     }
 
@@ -640,12 +649,12 @@ class MainViewModel(
             }
     }
 
-    private fun publishExposure(snapshot: ExposureSnapshot) {
+    private fun publishExposure(snapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
                 exposureStatus = snapshot.status,
-                pauseReason = if (snapshot.status == ExposureStatus.PAUSED) state.pauseReason else null,
+                pauseReason = if (snapshot.status == ExposureStatus.PAUSED) reason else null,
                 exposureStarted = snapshot.isStarted,
                 exposureRunning = snapshot.isRunning,
                 accumulatedDoseSed = snapshot.accumulatedDoseSed,

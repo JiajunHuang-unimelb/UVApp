@@ -43,6 +43,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     state: SettingsUiState,
     modifier: Modifier = Modifier,
+    indoorContent: @Composable () -> Unit = {},
 ) {
     val colors = UvTheme
     Column(
@@ -52,6 +53,7 @@ fun SettingsScreen(
             .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 88.dp),
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+        indoorContent()
 
         Spacer(Modifier.height(24.dp))
         Text("Skin type", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)

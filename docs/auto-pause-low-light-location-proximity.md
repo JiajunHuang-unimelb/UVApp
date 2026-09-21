@@ -106,9 +106,46 @@ Unit coverage includes:
 
 The full JVM unit suite and debug APK build pass with this implementation.
 
+## Saved indoor locations and confirmation
+
+Home now offers **I’m indoors here**. This requests a fresh precise GPS fix and opens a confirmation dialog with a name field, Home/University/Work presets, Save and Not now. Nothing is added to saved locations until Save succeeds. Settings → Indoor locations provides rename/delete, a delete confirmation, and an opt-in switch for suggestions after manual pauses. The first-use invitation can be dismissed independently of saving a location.
+
+Locations, invitation dismissal, suggestion preference, and the pending candidate are serialized in the separate `indoor_locations` Preferences DataStore. No Room schema is involved. Locations have a stable ID, name, coordinates, creation time and a fixed 100 m radius. A save within an existing radius offers to use that place or rename it rather than creating a duplicate. Coordinates are kept on device by this repository.
+
+Saving requires precise permission, accuracy <= 50 m and a timestamp no older than 30 seconds. A failed fix shows an error with Retry location. The save provider bypasses the forecast provider's five-minute cache. Candidate coordinates and capture time remain fixed while the dialog is open, including after process recreation; saving an old pending candidate deliberately saves the originally captured place, not wherever the user moved later.
+
+### Frontend state and actions
+
+Collect `IndoorLocationsViewModel.state` with `collectAsStateWithLifecycle()`. `IndoorLocationsUiState` contains `data.locations`, `data.pending`, `name`, `loading`, `saving`, `error`, `visible` and the development-only `demoEnabled`. The pending candidate has a stable ID, latitude, longitude, capture time and persisted draft name.
+
+- Invoke the shared location permission requester before `requestSave()`; route denial to `permissionDenied()`.
+- Render `IndoorSuggestionDialog` only when a pending candidate exists and the app is visible. It is state-driven, so recomposition does not create a new candidate.
+- Use `setName`, `confirm`, `dismiss`, `rename`, `delete`, and `dismissInvitation` for user actions. Keep Save disabled while saving; show storage errors without discarding the pending candidate.
+- Enabling suggestions requests notification permission contextually. Denial still allows in-app suggestions. The existing Notifications preference suppresses background notifications.
+- Forward lifecycle visibility through `setVisible`. The controller owns notification delivery; composables must not post notifications during rendering.
+- Continue using `MainUiState.pauseReason` for pause messaging. Saving a place never transfers ownership of a manual pause to indoor detection.
+
+### Suggestions and notifications
+
+An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Only one automatic opportunity is considered per exposure session. Explicit saving remains available after dismissal. Low light alone and automatic pauses do not prompt.
+
+When hidden, a pending suggestion produces **Were you indoors when you paused?** with a tap action opening the app's confirmation dialog. It never opens a screen without a tap or saves automatically. There is only one pending suggestion; notification slot 2002 is reused for it, updated without repeating alerts, and cancelled on confirmation/dismissal. If notifications are denied, the persisted candidate remains available on the next app visit. The present app has no background pause action/service: this notification path handles pending work completing while hidden and is ready for future service integration.
+
+### Proximity and development testing
+
+`MainUiState.nearIndoorLocation` is now nullable: true = within a saved radius, false = usable fix outside all radii, null = missing/stale/unusable fix. Location fixes and saved-list edits recalculate proximity; a one-second expiry check changes expired results to unknown. Unknown cancels location-based entry/exit decisions rather than acting as outside. Bright light can still establish the existing exit condition. Location freshness uses the 30-second limit above.
+
+The developer **Near known indoor location** override still forces true while enabled. Disabling it returns to calculated proximity. A separate, explicitly enabled **Demo: University Square radius** uses the university map's marker at -37.7986, 144.9602, with a 100 m radius, held only in memory and never inserted into saved places. This is a campus demonstration marker, not evidence of an indoor building. Coordinate source: [University of Melbourne map](https://maps.unimelb.edu.au/point?poi=1001526284). Leaving developer mode disables it.
+
+For emulator testing, provide a precise location in Extended controls → Location, choose I’m indoors here, name and save it, and use the mock light controls. Use Locate to obtain another fix after changing emulator coordinates. Check rename/delete and cancellation, then enable save suggestions, obtain a fresh fix outside all saved radii, start exposure in low light, and manually pause. The timer must remain manually paused after saving. Test notification permission denied and permitted, Activity recreation with a pending dialog, and tapping the notification after backgrounding while a save request finishes.
+
+Automated coverage includes quality/distance boundaries, opt-in saving, duplicate replacement, manual pause eligibility, once-per-session suppression, captured-candidate restoration, and DataStore disk persistence. A Compose instrumentation test exercises saving, rename/delete, empty state, dismissal and visibility restoration. Instrumentation requires a connected emulator/device; compiling the test APK does not mean these device tests have executed.
+
+Validation on 21 September 2026: `testDebugUnitTest assembleDebug assembleDebugAndroidTest` succeeded (86 tests passed, 2 skipped, no failures). No device was connected, so instrumentation and on-device notification permission/tap checks remain pending. The debug APK is at `app/build/outputs/apk/debug/app-debug.apk`.
+
 ## Current limitations
 
 - Environmental monitoring runs while the app process is alive; there is no foreground service or persistent background monitoring.
-- GPS/geofencing, saved indoor locations, and distance calculations are not implemented yet.
+- Saved places and distance calculations now use one-shot GPS fixes; continuous GPS/geofencing and real light-sensor integration remain pending. Movement between fixes is not detected automatically.
 - Android's physical proximity sensor is not used for location proximity.
-- This workflow uses vibration only; it does not create notification channels or request notification permission.
+- Indoor auto-pause still uses vibration only. Save suggestions use their own notification channel and contextual notification permission request.

@@ -1,6 +1,17 @@
 package com.example.uvapp.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
+import com.example.uvapp.platform.alerts.IndoorSuggestionNotifier
+import com.example.uvapp.viewmodel.IndoorLocationsViewModel
+import com.example.uvapp.ui.components.IndoorLocationsPanel
+import com.example.uvapp.ui.components.IndoorSuggestionDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -74,8 +85,30 @@ fun UVAppRoot() {
         ForecastViewModel(settingsViewModel, mainViewModel)
     }
 
+    val indoorRepository = remember { DataStoreIndoorLocationRepository(applicationContext) }
+    val notifier = remember { IndoorSuggestionNotifier(applicationContext) }
+    val indoorViewModel: IndoorLocationsViewModel = viewModel {
+        IndoorLocationsViewModel(indoorRepository, FusedCurrentLocationProvider(applicationContext, freshOnly = true), mainViewModel, notifier::show)
+    }
+    val indoorState by indoorViewModel.state.collectAsStateWithLifecycle()
+    val requestSave = rememberLocationPermissionRequester(onPermissionGranted = indoorViewModel::requestSave, onPermissionDenied = { indoorViewModel.permissionDenied() })
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { indoorViewModel.enableSuggestions(true) }
+    val enableSuggestions: () -> Unit = {
+        if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        else indoorViewModel.enableSuggestions(true)
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, indoorViewModel) {
+        fun updateVisibility() = indoorViewModel.setVisible(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        val observer = LifecycleEventObserver { _, _ -> updateVisibility() }
+        lifecycle.addObserver(observer)
+        updateVisibility()
+        onDispose { lifecycle.removeObserver(observer); indoorViewModel.setVisible(false) }
+    }
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(settingsState.notificationsEnabled) { indoorViewModel.setNotificationsEnabled(settingsState.notificationsEnabled) }
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(mainState.devModeEnabled) { if (!mainState.devModeEnabled) indoorViewModel.setDemoEnabled(false) }
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
     val requestCurrentLocation =
         rememberLocationPermissionRequester(
@@ -88,6 +121,7 @@ fun UVAppRoot() {
     }
 
     UvAppTheme(themeMode = settingsState.themeMode, accent = settingsState.accent) {
+        IndoorSuggestionDialog(indoorViewModel, indoorState)
         Box(
             Modifier
                 .fillMaxSize()
@@ -104,6 +138,7 @@ fun UVAppRoot() {
                         viewModel = mainViewModel,
                         state = mainState,
                         onLocate = requestCurrentLocation,
+                        indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions, developerMode = mainState.devModeEnabled) },
                     )
                     Tab.FORECAST -> ForecastScreen(
                         state = forecastState,
@@ -113,7 +148,7 @@ fun UVAppRoot() {
                         onSelectTime = forecastViewModel::selectTime,
                         onCurrentTime = forecastViewModel::selectCurrentTime,
                     )
-                    Tab.SETTINGS -> SettingsScreen(settingsViewModel, settingsState)
+                    Tab.SETTINGS -> SettingsScreen(settingsViewModel, settingsState, indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions, settings = true) })
                 }
 
                 TopLoadingBar(mainState.isLoading, Modifier.align(Alignment.TopCenter))

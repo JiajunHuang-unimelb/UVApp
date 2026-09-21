@@ -29,6 +29,7 @@ fun HomeScreen(
     state: MainUiState,
     onLocate: () -> Unit,
     modifier: Modifier = Modifier,
+    indoorContent: @Composable () -> Unit = {},
 ) {
     val onTimerAction: () -> Unit =
         when (state.exposureStatus) {
@@ -75,6 +76,7 @@ fun HomeScreen(
                 onLuxChange = viewModel::onLuxChange,
             )
 
+            indoorContent()
             if (state.isCached) {
                 Spacer(Modifier.height(10.dp))
                 CachedIndicator()

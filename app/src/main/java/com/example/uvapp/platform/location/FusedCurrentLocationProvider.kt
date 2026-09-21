@@ -25,6 +25,7 @@ import kotlinx.coroutines.withTimeout
 /** Google Fused Location implementation for a user-initiated, one-shot foreground fix. */
 class FusedCurrentLocationProvider(
     context: Context,
+    private val freshOnly: Boolean = false,
 ) : CurrentLocationProvider {
     private val appContext = context.applicationContext
     private val client = LocationServices.getFusedLocationProviderClient(appContext)
@@ -43,7 +44,7 @@ class FusedCurrentLocationProvider(
             // share one timeout so a stuck Play Services call can't hang forever.
             val location =
                 withTimeout(REQUEST_TIMEOUT_MILLIS) {
-                    recentCachedLocation() ?: requestLocation(Priority.PRIORITY_HIGH_ACCURACY)
+                    (if (freshOnly) null else recentCachedLocation()) ?: requestLocation(Priority.PRIORITY_HIGH_ACCURACY)
                 }
 
             if (location == null) {
@@ -91,7 +92,7 @@ class FusedCurrentLocationProvider(
                 .Builder()
                 .setPriority(priority)
                 .setGranularity(Granularity.GRANULARITY_PERMISSION_LEVEL)
-                .setMaxUpdateAgeMillis(MAX_LOCATION_AGE_MILLIS)
+                .setMaxUpdateAgeMillis(if (freshOnly) 0L else MAX_LOCATION_AGE_MILLIS)
                 .setDurationMillis(SINGLE_ATTEMPT_DURATION_MILLIS)
                 .build()
 
