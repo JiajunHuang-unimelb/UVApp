@@ -17,6 +17,7 @@ class IndoorLocationsViewModel(
     private val main: MainViewModel,
     private val notifySuggestion: (IndoorSuggestion?) -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
+    private val reportIndoorProximity: (Boolean?) -> Unit = main::onIndoorProximity,
 ) : ViewModel() {
     private val mutable = MutableStateFlow(IndoorLocationsUiState())
     val state = mutable.asStateFlow()
@@ -55,7 +56,7 @@ class IndoorLocationsViewModel(
     private fun proximity() {
         val candidate = fix?.takeIf { it.usableForIndoor(now()) }
         val locations = state.value.data.locations + if (state.value.demoEnabled && main.state.value.devModeEnabled) listOf(DEMO_LOCATION) else emptyList()
-        main.onIndoorProximity(candidate?.let { valid -> locations.any { it.contains(valid.latitude, valid.longitude) } })
+        reportIndoorProximity(candidate?.let { valid -> locations.any { it.contains(valid.latitude, valid.longitude) } })
     }
 
     fun setVisible(visible: Boolean) { mutable.update { it.copy(visible = visible) }; deliverNotification() }

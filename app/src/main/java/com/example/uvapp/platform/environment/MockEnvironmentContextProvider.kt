@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-/** Development source used until the real light-sensor and GPS/geofence source is ready. */
+/** Deterministic source for unit tests and developer-controlled environmental input. */
 class MockEnvironmentContextProvider(
     initialLux: Int = 38_200,
     initiallyNearIndoorLocation: Boolean = false,

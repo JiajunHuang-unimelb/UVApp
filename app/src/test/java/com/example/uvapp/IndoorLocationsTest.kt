@@ -58,7 +58,10 @@ class IndoorLocationsTest {
         dispatcher.scheduler.runCurrent()
         vm.requestSave(); dispatcher.scheduler.runCurrent()
         vm.dismiss(); dispatcher.scheduler.runCurrent()
-        main.onLuxChange(500); main.onStartExposure(); dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        dispatcher.scheduler.runCurrent()
         vm.setVisible(false)
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         val candidate = repo.data.value.pending!!

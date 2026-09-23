@@ -2,7 +2,7 @@ package com.example.uvapp.domain.environment
 
 import kotlinx.coroutines.flow.StateFlow
 
-/** Raw environmental signals. GPS/geofencing can later supply [nearIndoorLocation]. */
+/** Raw environmental signals supplied by hardware and saved-location monitoring. */
 data class EnvironmentSample(
     val lux: Int,
     val nearIndoorLocation: Boolean,

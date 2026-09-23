@@ -1,6 +1,7 @@
 package com.example.uvapp
 
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
@@ -128,6 +129,27 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `exposure session starts monitoring and keeps it active while paused`() {
+        val monitoring = FakeExposureMonitoringController()
+        val vm =
+            MainViewModel(
+                settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+                monitoringController = monitoring,
+                nowMillis = { NOW_MILLIS },
+            )
+
+        assertEquals(1, monitoring.stopCount)
+        vm.onStartExposure()
+        assertEquals(1, monitoring.startCount)
+
+        vm.onPauseExposure()
+        assertEquals(1, monitoring.stopCount)
+
+        vm.onResumeExposure()
+        assertEquals(2, monitoring.startCount)
+    }
+
+    @Test
     fun `countdown ticks down one second per real second`() {
         val vm = buildLocatedViewModel()
         settle()
@@ -170,6 +192,38 @@ class MainViewModelTest {
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `light bubble shows indoor range before fused indoor confirmation`() {
+        val environment = MockEnvironmentContextProvider()
+        val vm = buildEnvironmentViewModel(environment, FakeExposureAlertGateway())
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertEquals(LightContext.INDOOR, vm.state.value.lightReadingContext)
+        assertEquals(LightContext.SHADE, vm.state.value.displayContext)
+        assertFalse(vm.state.value.indoorDetected)
+    }
+
+    @Test
+    fun `starting exposure clears and locks manual lux override`() {
+        val vm = buildLocatedViewModel()
+        settle()
+        vm.onLuxChange(500)
+        assertEquals(500, vm.state.value.displayLux)
+
+        vm.onStartExposure()
+        val sensorLux = vm.state.value.lux
+        assertEquals(null, vm.state.value.luxOverride)
+        assertEquals(sensorLux, vm.state.value.displayLux)
+
+        vm.onLuxChange(50)
+        assertEquals(null, vm.state.value.luxOverride)
+        assertEquals(sensorLux, vm.state.value.displayLux)
     }
 
     @Test
@@ -464,6 +518,21 @@ class MainViewModelTest {
 
         override fun notifyIndoorAutoPause() {
             callCount++
+        }
+    }
+
+    private class FakeExposureMonitoringController : ExposureMonitoringController {
+        var startCount = 0
+            private set
+        var stopCount = 0
+            private set
+
+        override fun start() {
+            startCount++
+        }
+
+        override fun stop() {
+            stopCount++
         }
     }
 

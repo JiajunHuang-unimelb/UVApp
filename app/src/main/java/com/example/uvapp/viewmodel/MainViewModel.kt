@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
+import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -108,6 +109,9 @@ data class MainUiState(
         else -> lux
     }
 
+    /** Light-only classification shown by the lux card before sensor fusion is confirmed. */
+    val lightReadingContext: LightContext get() = LightContext.fromLux(displayLux)
+
     /** Low light is only classified as indoor after location-aware debounce confirms it. */
     val displayContext: LightContext get() = when {
         indoorDetected -> LightContext.INDOOR
@@ -130,6 +134,7 @@ class MainViewModel(
     private val forecastRepository: ForecastUvRepository? = null,
     private val placeRepository: PlaceRepository? = null,
     private val environmentContextProvider: EnvironmentContextProvider? = null,
+    private val monitoringController: ExposureMonitoringController? = null,
     private val alertGateway: ExposureAlertGateway? = null,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
@@ -148,12 +153,8 @@ class MainViewModel(
     private var placeLookupJob: Job? = null
     private var indoorTransitionJob: Job? = null
     private var pendingIndoorTarget: Boolean? = null
-    private var savedIndoorProximity: Boolean? = null
-    private var savedProximityConfigured = false
 
     fun onIndoorProximity(near: Boolean?) {
-        savedProximityConfigured = true
-        savedIndoorProximity = near
         _state.update { it.copy(nearIndoorLocation = if (it.dev.overrideLocation) true else near) }
         evaluateIndoorTransition()
     }
@@ -183,7 +184,7 @@ class MainViewModel(
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
-                            nearIndoorLocation = if (state.dev.overrideLocation) true else if (savedProximityConfigured) savedIndoorProximity else sample.nearIndoorLocation,
+                            nearIndoorLocation = if (state.dev.overrideLocation) true else sample.nearIndoorLocation,
                         )
                     }
                     evaluateIndoorTransition()
@@ -284,6 +285,7 @@ class MainViewModel(
             restartExposureSession()
             return
         }
+        monitoringController?.start()
         syncExposure()
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
@@ -297,6 +299,7 @@ class MainViewModel(
 
     /** Dragging the lux bar overrides the sensor reading and re-derives context. */
     fun onLuxChange(lux: Int) {
+        if (_state.value.exposureStarted) return
         val clamped = lux.coerceIn(0, MAX_LUX)
         val previous = _state.value.displayContext
         _state.update { it.copy(luxOverride = clamped) }
@@ -341,7 +344,7 @@ class MainViewModel(
             val overrideLocation = !state.dev.overrideLocation
             state.copy(
                 dev = state.dev.copy(overrideLocation = overrideLocation),
-                nearIndoorLocation = if (overrideLocation) true else if (savedProximityConfigured) savedIndoorProximity else latestEnvironmentSample.nearIndoorLocation,
+                nearIndoorLocation = if (overrideLocation) true else latestEnvironmentSample.nearIndoorLocation,
             )
         }
         evaluateIndoorTransition()
@@ -532,7 +535,13 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
-        _state.update { it.copy(exposureSessionId = it.exposureSessionId + 1) }
+        monitoringController?.start()
+        _state.update {
+            it.copy(
+                exposureSessionId = it.exposureSessionId + 1,
+                luxOverride = null,
+            )
+        }
         advanceExposureClock()
         val state = _state.value
         publishExposure(
@@ -677,6 +686,14 @@ class MainViewModel(
                     },
             )
         }
+        if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
+            monitoringController?.stop()
+        }
+    }
+
+    override fun onCleared() {
+        monitoringController?.stop()
+        super.onCleared()
     }
 
     private fun LightContext.toExposureContext(): ExposureContext =
