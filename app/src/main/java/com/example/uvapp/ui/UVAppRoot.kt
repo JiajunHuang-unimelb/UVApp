@@ -32,7 +32,8 @@ import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
 import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
 import com.example.uvapp.data.repository.UvRepositoryFactory
 import com.example.uvapp.platform.alerts.AndroidExposureAlertGateway
-import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
+import com.example.uvapp.platform.environment.AndroidEnvironmentContextProvider
+import com.example.uvapp.platform.environment.AndroidExposureMonitoringController
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
 import com.example.uvapp.ui.components.RefreshButton
@@ -65,7 +66,9 @@ fun UVAppRoot() {
         remember(applicationContext) { PlaceRepositoryFactory.create(applicationContext) }
     val preferencesRepository =
         remember(applicationContext) { DataStoreUserPreferencesRepository(applicationContext) }
-    val environmentContextProvider = remember { MockEnvironmentContextProvider() }
+    val environmentContextProvider = AndroidEnvironmentContextProvider
+    val monitoringController =
+        remember(applicationContext) { AndroidExposureMonitoringController(applicationContext) }
     val alertGateway =
         remember(applicationContext) { AndroidExposureAlertGateway(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
@@ -78,6 +81,7 @@ fun UVAppRoot() {
             forecastRepository = forecastRepository,
             placeRepository = placeRepository,
             environmentContextProvider = environmentContextProvider,
+            monitoringController = monitoringController,
             alertGateway = alertGateway,
         )
     }
@@ -88,7 +92,15 @@ fun UVAppRoot() {
     val indoorRepository = remember { DataStoreIndoorLocationRepository(applicationContext) }
     val notifier = remember { IndoorSuggestionNotifier(applicationContext) }
     val indoorViewModel: IndoorLocationsViewModel = viewModel {
-        IndoorLocationsViewModel(indoorRepository, FusedCurrentLocationProvider(applicationContext, freshOnly = true), mainViewModel, notifier::show)
+        IndoorLocationsViewModel(
+            repository = indoorRepository,
+            location = FusedCurrentLocationProvider(applicationContext, freshOnly = true),
+            main = mainViewModel,
+            notifySuggestion = notifier::show,
+            reportIndoorProximity = { near ->
+                AndroidEnvironmentContextProvider.updateIndoorProximity(near == true)
+            },
+        )
     }
     val indoorState by indoorViewModel.state.collectAsStateWithLifecycle()
     val requestSave = rememberLocationPermissionRequester(onPermissionGranted = indoorViewModel::requestSave, onPermissionDenied = { indoorViewModel.permissionDenied() })
@@ -112,7 +124,10 @@ fun UVAppRoot() {
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
     val requestCurrentLocation =
         rememberLocationPermissionRequester(
-            onPermissionGranted = mainViewModel::onUseCurrentLocation,
+            onPermissionGranted = {
+                mainViewModel.onUseCurrentLocation()
+                if (mainViewModel.state.value.exposureStarted) monitoringController.start()
+            },
             onPermissionDenied = mainViewModel::onLocationPermissionDenied,
         )
 

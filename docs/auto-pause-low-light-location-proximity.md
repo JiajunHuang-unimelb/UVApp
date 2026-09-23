@@ -7,7 +7,7 @@ The exposure countdown can now infer that the user is indoors from two signals:
 - the ambient light level is low; and
 - the user is near a known indoor location.
 
-When both signals remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. This workflow currently uses mock environmental data so the feature can be developed and tested before the GPS/geofence implementation is ready.
+When both signals remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions now read the Android ambient-light sensor and continuous fused-location updates from a foreground service. Developer overrides and unit tests still use controlled mock values.
 
 ## Detection rules
 
@@ -48,7 +48,11 @@ interface EnvironmentContextProvider {
 }
 ```
 
-The application currently injects `MockEnvironmentContextProvider`. A future light-sensor and GPS/geofence implementation should implement the same interface and emit `EnvironmentSample` values. No countdown or indoor-fusion changes should be required when that provider is replaced.
+The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers `Sensor.TYPE_LIGHT`, requests high-accuracy fused-location updates every five seconds, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared. The service remains active through manual and indoor-detected pauses because those states still require environmental evidence to resume safely. It holds a partial wake lock for the session so a non-wake-up light sensor can continue delivering readings with the screen off; this intentionally favors reliable school-project demonstrations over battery life.
+
+The foreground service collects facts only. Thresholds, debounce, pause ownership and exposure calculations remain in `MainViewModel`. `MockEnvironmentContextProvider` remains available for deterministic unit tests.
+
+If the sensor, location or service becomes unavailable, the provider publishes a conservative high-light/outside state. That prevents an old indoor classification from suppressing outdoor exposure indefinitely.
 
 `ExposureAlertGateway` separates alert side effects from the ViewModel. The current Android implementation checks for an available vibrator and performs a best-effort 250 ms vibration. A missing vibrator or unavailable vibration permission does not interrupt exposure tracking.
 
@@ -88,7 +92,7 @@ The current state does not expose the remaining time in the 10-second debounce. 
 6. Select **Shade** or **Direct sun**, or disable **Near known indoor location**.
 7. Keep the outdoor condition unchanged for 10 seconds. The countdown should resume if it was automatically paused.
 
-The exposure indicator's lux slider can also supply mock light values. The explicit developer light-level override takes precedence while enabled.
+Before a session starts, the exposure indicator's lux slider can supply a mock light value for previewing the UI. Starting a session clears that override and makes the indicator read-only so live sensor values cannot be replaced accidentally. The explicit developer light-level override remains available for deliberate in-session testing and takes precedence while enabled.
 
 ## Verification
 
@@ -133,7 +137,7 @@ When hidden, a pending suggestion produces **Were you indoors when you paused?**
 
 ### Proximity and development testing
 
-`MainUiState.nearIndoorLocation` is now nullable: true = within a saved radius, false = usable fix outside all radii, null = missing/stale/unusable fix. Location fixes and saved-list edits recalculate proximity; a one-second expiry check changes expired results to unknown. Unknown cancels location-based entry/exit decisions rather than acting as outside. Bright light can still establish the existing exit condition. Location freshness uses the 30-second limit above.
+`MainUiState.nearIndoorLocation` remains nullable for the one-shot save workflow. During an active exposure session, `ExposureMonitoringService` recalculates proximity from continuous fixes and saved-list edits. A fix must be no more than 30 seconds old and accurate within 50 m; unavailable or stale evidence is treated conservatively as outside so an automatic indoor pause can clear.
 
 The developer **Near known indoor location** override still forces true while enabled. Disabling it returns to calculated proximity. A separate, explicitly enabled **Demo: University Square radius** uses the university map's marker at -37.7986, 144.9602, with a 100 m radius, held only in memory and never inserted into saved places. This is a campus demonstration marker, not evidence of an indoor building. Coordinate source: [University of Melbourne map](https://maps.unimelb.edu.au/point?poi=1001526284). Leaving developer mode disables it.
 
@@ -141,11 +145,12 @@ For emulator testing, provide a precise location in Extended controls → Locati
 
 Automated coverage includes quality/distance boundaries, opt-in saving, duplicate replacement, manual pause eligibility, once-per-session suppression, captured-candidate restoration, and DataStore disk persistence. A Compose instrumentation test exercises saving, rename/delete, empty state, dismissal and visibility restoration. Instrumentation requires a connected emulator/device; compiling the test APK does not mean these device tests have executed.
 
-Validation on 21 September 2026: `testDebugUnitTest assembleDebug assembleDebugAndroidTest` succeeded (86 tests passed, 2 skipped, no failures). No device was connected, so instrumentation and on-device notification permission/tap checks remain pending. The debug APK is at `app/build/outputs/apk/debug/app-debug.apk`.
+Validation on 23 September 2026: `testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug ktlintCheck` succeeded, and both connected instrumentation tests passed on a Samsung SM-S926B running Android 16. A side-by-side debug install registered the phone's `STK33F11 Light` sensor, observed live readings of 7–10 lux, received fresh fused fixes accurate to 3–8 m, and automatically paused a running session after the saved-location plus low-light debounce. The foreground service, partial wake lock and light-sensor listener remained active through a manual pause, Home/backgrounding and screen-off. The debug APK is at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Current limitations
 
-- Environmental monitoring runs while the app process is alive; there is no foreground service or persistent background monitoring.
-- Saved places and distance calculations now use one-shot GPS fixes; continuous GPS/geofencing and real light-sensor integration remain pending. Movement between fixes is not detected automatically.
+- Monitoring begins only after the user starts an exposure session and location permission is available.
+- The foreground service uses five-second continuous fused-location updates rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
+- Saving an indoor place still uses a separate fresh one-shot GPS fix, while active-session proximity uses continuous service updates.
 - Android's physical proximity sensor is not used for location proximity.
 - Indoor auto-pause still uses vibration only. Save suggestions use their own notification channel and contextual notification permission request.
