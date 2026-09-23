@@ -71,9 +71,10 @@ fun HomeScreen(
 
             Spacer(Modifier.height(12.dp))
             ContextCard(
-                context = state.displayContext,
+                context = state.lightReadingContext,
                 lux = state.displayLux,
                 onLuxChange = viewModel::onLuxChange,
+                interactive = !state.exposureStarted,
             )
 
             indoorContent()

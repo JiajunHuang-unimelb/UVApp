@@ -243,7 +243,13 @@ fun AddressBar(placeName: String, onSearchClick: () -> Unit, onLocate: () -> Uni
  * the current sensor reading.
  */
 @Composable
-fun ContextCard(context: LightContext, lux: Int, onLuxChange: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun ContextCard(
+    context: LightContext,
+    lux: Int,
+    onLuxChange: (Int) -> Unit,
+    interactive: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
     val colors = UvTheme
     SunCard(
         modifier.fillMaxWidth(),
@@ -252,8 +258,16 @@ fun ContextCard(context: LightContext, lux: Int, onLuxChange: (Int) -> Unit, mod
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Text("Light exposure - manual simulation", color = colors.textSecondary, fontSize = 12.sp)
-            Text("Drag to adjust brightness (lux) and timer estimate", color = colors.textSecondary, fontSize = 10.sp)
+            Text(
+                if (interactive) "Light exposure - manual simulation" else "Ambient light",
+                color = colors.textSecondary,
+                fontSize = 12.sp,
+            )
+            Text(
+                if (interactive) "Drag to simulate brightness before starting" else "Live sensor reading",
+                color = colors.textSecondary,
+                fontSize = 10.sp,
+            )
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LightContext.entries.forEach { ctx ->
@@ -290,7 +304,7 @@ fun ContextCard(context: LightContext, lux: Int, onLuxChange: (Int) -> Unit, mod
                 }
             }
             Spacer(Modifier.height(8.dp))
-            LuxBar(lux, onLuxChange)
+            LuxBar(lux, onLuxChange, interactive)
         }
     }
 }
@@ -309,7 +323,12 @@ private fun contextDot(ctx: LightContext): Color = when (ctx) {
 
 /** Lux scale (log, 1..100k): grey = Indoors, amber = In shade, accent = Direct sun. Slidable for testing. */
 @Composable
-private fun LuxBar(lux: Int, onLuxChange: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun LuxBar(
+    lux: Int,
+    onLuxChange: (Int) -> Unit,
+    interactive: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val colors = UvTheme
     val textMeasurer = rememberTextMeasurer()
     val indoorEnd = (log10(LightContext.INDOOR_MAX_LUX.toDouble()) / 5.0).toFloat()
@@ -323,19 +342,25 @@ private fun LuxBar(lux: Int, onLuxChange: (Int) -> Unit, modifier: Modifier = Mo
     }
 
     Column(modifier.fillMaxWidth()) {
+        val interactionModifier =
+            if (interactive) {
+                Modifier
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset -> onLuxChange(luxFromX(offset.x, size.width)) }
+                    }.pointerInput(Unit) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            onLuxChange(luxFromX(change.position.x, size.width))
+                        }
+                    }
+            } else {
+                Modifier
+            }
         Canvas(
             Modifier
                 .fillMaxWidth()
                 .height(30.dp)
-                .pointerInput(Unit) {
-                    detectTapGestures { offset -> onLuxChange(luxFromX(offset.x, size.width)) }
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures { change, _ ->
-                        change.consume()
-                        onLuxChange(luxFromX(change.position.x, size.width))
-                    }
-                },
+                .then(interactionModifier),
         ) {
             val w = size.width
             val barY = 14.dp.toPx()
