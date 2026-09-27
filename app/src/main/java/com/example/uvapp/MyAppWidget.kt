@@ -83,11 +83,23 @@ class MyAppWidget : GlanceAppWidget() {
 
         val size = LocalSize.current;
 
-        val largeFont = (40).sp;
-        val midFont = (18).sp;
-        val smallFont = (16).sp;
 
-        val currentSize = "Size $size";
+        var largeFont = (40).sp;
+        var midFont = (18).sp;
+        var smallFont = (16).sp;
+
+        if (size.width<160.dp){
+            largeFont = (30).sp;
+            midFont = (16).sp;
+            smallFont = (12).sp;
+        } else if (size.width<140.dp){
+            largeFont = (25).sp;
+            midFont = (14).sp;
+            smallFont = (10).sp;
+        }
+
+
+        //val currentSize = "Size $size";
 
 
 
@@ -108,7 +120,7 @@ class MyAppWidget : GlanceAppWidget() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                //testing (comment out when done)
+                /*testing (comment out when done)
                 Text(
                     text = currentSize,
                     modifier = GlanceModifier.padding(0.dp),
@@ -119,9 +131,11 @@ class MyAppWidget : GlanceAppWidget() {
                     )
                 )
 
+                 */
+
                 Text(
                     text = "UV INDEX NOW",
-                    modifier = GlanceModifier.padding(0.dp),
+                    modifier = GlanceModifier.padding(2.dp),
                     style = TextStyle(
                         fontWeight = FontWeight.Bold,
                         fontSize = smallFont,
