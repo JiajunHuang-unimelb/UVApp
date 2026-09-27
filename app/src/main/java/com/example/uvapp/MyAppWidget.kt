@@ -44,6 +44,10 @@ import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import kotlin.math.abs
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.glance.LocalSize
+import androidx.glance.appwidget.SizeMode
+
 import com.example.uvapp.ui.theme.UvTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
@@ -51,6 +55,7 @@ import kotlinx.coroutines.flow.update
 
 class MyAppWidget : GlanceAppWidget() {
 
+    override val sizeMode = SizeMode.Exact;
     override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition;
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // Load any required data here
@@ -70,9 +75,15 @@ class MyAppWidget : GlanceAppWidget() {
         val data = currentState<Preferences>()
         val uv = data[doublePreferencesKey("uv")] ?: -2.0
         val band = data[stringPreferencesKey("band")] ?: "NBand"
-        val skinType = data[stringPreferencesKey("skinType")] ?: "NType"
-        val skinTypeDesc = data[stringPreferencesKey("skinTypeDesc")] ?: "NDesc"
-        val spf = data[intPreferencesKey("spf")] ?: -2
+
+        val size = LocalSize.current;
+
+        val largeFont = (40).sp;
+        val midFont = (18).sp;
+        val smallFont = (16).sp;
+
+        val currentSize = "Size $size";
+
 
         Row(
             modifier = GlanceModifier.fillMaxSize().background(Color.Black),
@@ -87,43 +98,42 @@ class MyAppWidget : GlanceAppWidget() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                //testing (comment out when done)
+                Text(
+                    text = currentSize,
+                    modifier = GlanceModifier.padding(2.dp),
+                    style = TextStyle(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = smallFont,
+                        color = ColorProvider(UvTheme.textSecondary),
+                    )
+                )
+
                 Text(
                     text = "UV INDEX NOW",
                     modifier = GlanceModifier.padding(2.dp),
                     style = TextStyle(
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
+                        fontSize = smallFont,
                         color = ColorProvider(UvTheme.textSecondary),
                     )
                 )
                 Text(text = uv.toString() ?: "--",
                     modifier = GlanceModifier.padding(0.dp),
                     style = TextStyle(color = ColorProvider(Color.White),
-                        fontSize = 62.sp,
+                        fontSize = largeFont,
                         fontWeight = FontWeight.Bold,
                 ))
                 Text(text = band,
                     modifier = GlanceModifier.padding(12.dp),
                     style = TextStyle(color = ColorProvider(Color.White),
-                        fontSize = 18.sp,
+                        fontSize = midFont,
                         fontWeight = FontWeight.Bold)
                 )
 
 
 
                 Row () {
-                    /*
-                    Button(
-                        colors = ButtonDefaults.buttonColors(
-                            backgroundColor = ColorProvider(Color.DarkGray),
-                            contentColor = ColorProvider(Color.White)
-                        ),
-                        text = "Refresh",
-                        onClick = actionRunCallback<
-                                RefreshAction>()
-                    )
-
-                     */
                     Button(
                         colors = ButtonDefaults.buttonColors(
                             backgroundColor = ColorProvider(Color.DarkGray),
