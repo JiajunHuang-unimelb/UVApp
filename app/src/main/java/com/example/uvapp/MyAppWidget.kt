@@ -44,18 +44,14 @@ import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import kotlin.math.abs
 
-import androidx.compose.ui.platform.LocalDensity
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.state.updateAppWidgetState
 import com.example.uvapp.domain.model.UvBand
-import com.example.uvapp.ui.theme.BandPalette
 import com.example.uvapp.ui.theme.BandPalettes
 
 import com.example.uvapp.ui.theme.UvTheme
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.update
-import com.example.uvapp.RefreshAction
 import kotlinx.coroutines.flow.take
 
 
