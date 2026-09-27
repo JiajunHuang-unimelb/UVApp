@@ -77,7 +77,8 @@ class MyAppWidget : GlanceAppWidget() {
 
         val data = currentState<Preferences>()
         val uv = data[doublePreferencesKey("uv")] ?: -1.0
-        //val band = data[stringPreferencesKey("band")] ?: "NBand"
+        //instead of val band = data[stringPreferencesKey("band")] ?: "NBand"
+        //now just generate band from uv instead of storing it
         val band = UvBand.fromIndex(uv)
 
         val size = LocalSize.current;
@@ -162,6 +163,8 @@ class MyAppWidget : GlanceAppWidget() {
 
 
     companion object {
+
+        //so the code is reused between initializing the widget and refreshing it
         suspend fun fetchData(context: Context, glanceId: GlanceId){
             var uv = -1.0;
             var band = "Not Started";
