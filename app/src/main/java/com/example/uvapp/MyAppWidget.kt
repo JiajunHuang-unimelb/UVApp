@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.SizeMode
 import com.example.uvapp.domain.model.UvBand
+import com.example.uvapp.ui.theme.BandPalette
 import com.example.uvapp.ui.theme.BandPalettes
 
 import com.example.uvapp.ui.theme.UvTheme
@@ -76,7 +77,8 @@ class MyAppWidget : GlanceAppWidget() {
 
         val data = currentState<Preferences>()
         val uv = data[doublePreferencesKey("uv")] ?: -2.0
-        val band = data[stringPreferencesKey("band")] ?: "NBand"
+        //val band = data[stringPreferencesKey("band")] ?: "NBand"
+        val band = UvBand.fromIndex(uv)
 
         val size = LocalSize.current;
 
@@ -86,22 +88,10 @@ class MyAppWidget : GlanceAppWidget() {
 
         val currentSize = "Size $size";
 
+
+
         var uvColor = Color.Gray;
-
-        if (band == "Low"){
-            uvColor = Color(0xFF8FE3A0);
-
-        } else if (band == "Moderate"){
-            uvColor = Color(0xFFFFD966)
-        } else if (band == "High"){
-            uvColor = Color(0xFFFFB066)
-        } else if (band == "Very High"){
-            uvColor = Color(0xFFFF8A80)
-        } else if (band == "Extreme"){
-            uvColor = Color(0xFFD9A6F2)
-        }else{
-            uvColor = Color.White;
-        }
+        uvColor = BandPalettes.dark(band).text
 
 
         Row(
@@ -143,7 +133,7 @@ class MyAppWidget : GlanceAppWidget() {
                         fontSize = largeFont,
                         fontWeight = FontWeight.Bold,
                 ))
-                Text(text = band,
+                Text(text = band.label,
                     modifier = GlanceModifier.padding(5.dp),
                     style = TextStyle(color = ColorProvider(uvColor),
                         fontSize = midFont,
