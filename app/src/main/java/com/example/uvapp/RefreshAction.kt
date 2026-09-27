@@ -18,6 +18,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.take
 import kotlin.math.abs
 
+import com.example.uvapp.domain.model.UvBand
+
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         // Perform your data fetch or state update here
@@ -52,6 +54,7 @@ class RefreshAction : ActionCallback {
                         println("second " + currentReading?.uvIndex)
                         val oldUv= uv
                         uv = currentReading?.uvIndex ?: oldUv
+                        band = UvBand.fromIndex(uv).label;
                     }
                 println("goodbye")
             }
@@ -76,7 +79,7 @@ class RefreshAction : ActionCallback {
         }
 
 
-        println("third $uv")
+        println("third $uv $band")
 
         updateAppWidgetState(context, glanceId){
                 prefs -> prefs[doublePreferencesKey("uv")] = uv

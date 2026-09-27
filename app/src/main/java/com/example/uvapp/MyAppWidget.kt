@@ -47,6 +47,8 @@ import kotlin.math.abs
 import androidx.compose.ui.platform.LocalDensity
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.SizeMode
+import com.example.uvapp.domain.model.UvBand
+import com.example.uvapp.ui.theme.BandPalettes
 
 import com.example.uvapp.ui.theme.UvTheme
 import kotlinx.coroutines.CancellationException
@@ -84,6 +86,23 @@ class MyAppWidget : GlanceAppWidget() {
 
         val currentSize = "Size $size";
 
+        var uvColor = Color.Gray;
+
+        if (band == "Low"){
+            uvColor = Color(0xFF8FE3A0);
+
+        } else if (band == "Moderate"){
+            uvColor = Color(0xFFFFD966)
+        } else if (band == "High"){
+            uvColor = Color(0xFFFFB066)
+        } else if (band == "Very High"){
+            uvColor = Color(0xFFFF8A80)
+        } else if (band == "Extreme"){
+            uvColor = Color(0xFFD9A6F2)
+        }else{
+            uvColor = Color.White;
+        }
+
 
         Row(
             modifier = GlanceModifier.fillMaxSize().background(Color.Black),
@@ -101,7 +120,7 @@ class MyAppWidget : GlanceAppWidget() {
                 //testing (comment out when done)
                 Text(
                     text = currentSize,
-                    modifier = GlanceModifier.padding(2.dp),
+                    modifier = GlanceModifier.padding(0.dp),
                     style = TextStyle(
                         fontWeight = FontWeight.Bold,
                         fontSize = smallFont,
@@ -111,7 +130,7 @@ class MyAppWidget : GlanceAppWidget() {
 
                 Text(
                     text = "UV INDEX NOW",
-                    modifier = GlanceModifier.padding(2.dp),
+                    modifier = GlanceModifier.padding(0.dp),
                     style = TextStyle(
                         fontWeight = FontWeight.Bold,
                         fontSize = smallFont,
@@ -120,13 +139,13 @@ class MyAppWidget : GlanceAppWidget() {
                 )
                 Text(text = uv.toString() ?: "--",
                     modifier = GlanceModifier.padding(0.dp),
-                    style = TextStyle(color = ColorProvider(Color.White),
+                    style = TextStyle(color = ColorProvider(uvColor),
                         fontSize = largeFont,
                         fontWeight = FontWeight.Bold,
                 ))
                 Text(text = band,
-                    modifier = GlanceModifier.padding(12.dp),
-                    style = TextStyle(color = ColorProvider(Color.White),
+                    modifier = GlanceModifier.padding(5.dp),
+                    style = TextStyle(color = ColorProvider(uvColor),
                         fontSize = midFont,
                         fontWeight = FontWeight.Bold)
                 )
