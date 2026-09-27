@@ -47,6 +47,7 @@ import kotlin.math.abs
 import androidx.compose.ui.platform.LocalDensity
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.state.updateAppWidgetState
 import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.ui.theme.BandPalette
 import com.example.uvapp.ui.theme.BandPalettes
@@ -54,6 +55,8 @@ import com.example.uvapp.ui.theme.BandPalettes
 import com.example.uvapp.ui.theme.UvTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
+import com.example.uvapp.RefreshAction
+import kotlinx.coroutines.flow.take
 
 
 class MyAppWidget : GlanceAppWidget() {
@@ -63,6 +66,7 @@ class MyAppWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // Load any required data here
 
+        fetchData(context,id)
 
         provideContent {
             // Define your UI using Glance composables
@@ -76,7 +80,7 @@ class MyAppWidget : GlanceAppWidget() {
     private fun MyContent() {
 
         val data = currentState<Preferences>()
-        val uv = data[doublePreferencesKey("uv")] ?: -2.0
+        val uv = data[doublePreferencesKey("uv")] ?: -1.0
         //val band = data[stringPreferencesKey("band")] ?: "NBand"
         val band = UvBand.fromIndex(uv)
 
@@ -157,6 +161,102 @@ class MyAppWidget : GlanceAppWidget() {
 
     }
 
+
+
+
+
+    companion object {
+        suspend fun fetchData(context: Context, glanceId: GlanceId){
+            var uv = -1.0;
+            var band = "Not Started";
+            var skinType = "Not Started";
+            var skinTypeDesc = "Not Started"
+            var spf = -1
+
+            val locationProvider = FusedCurrentLocationProvider(context)
+            val forecastRepository = UvRepositoryFactory.create(context)
+            var locationFix: LocationFix? = null
+            val nowMillis: () -> Long = System::currentTimeMillis
+
+            val result =
+                try {
+                    locationProvider.getCurrentLocation()
+                } catch (error: CancellationException) {
+                    throw error
+                }
+
+            println("result: $result")
+
+            when (result) {
+                is LocationResult.Success -> {
+                    locationFix = result.fix
+                    println("helloworld")
+                    println("first $uv")
+                    forecastRepository
+                        .observeForecast(locationFix.latitude, locationFix.longitude).take(1).collect{
+                                forecast -> val currentReading = forecast.readings.nearestTo(nowMillis())
+                            println("second " + currentReading?.uvIndex)
+                            val oldUv= uv
+                            uv = currentReading?.uvIndex ?: oldUv
+                            band = UvBand.fromIndex(uv).label;
+                        }
+                    println("goodbye")
+                }
+                LocationResult.PermissionDenied -> finishLocationFailure(
+                    "Location permission is required. Tap the locate button to grant it.",
+                )
+
+                LocationResult.LocationDisabled -> finishLocationFailure(
+                    "Location is turned off. Enable it in system settings and try again.",
+                )
+
+                LocationResult.Timeout -> finishLocationFailure(
+                    "Location request timed out. Move near a window or try again.",
+                )
+
+                LocationResult.Unavailable -> finishLocationFailure(
+                    "Current location is unavailable. Try again or choose a place manually.",
+                )
+
+                else -> println("else")
+
+            }
+
+
+            println("third $uv $band")
+
+            updateAppWidgetState(context, glanceId){
+                    prefs -> prefs[doublePreferencesKey("uv")] = uv
+            }
+
+            updateAppWidgetState(context, glanceId){
+                    prefs -> prefs[stringPreferencesKey("band")] = band
+            }
+
+            updateAppWidgetState(context, glanceId){
+                    prefs -> prefs[stringPreferencesKey("skinType")] = skinType
+            }
+
+            updateAppWidgetState(context, glanceId){
+                    prefs -> prefs[stringPreferencesKey("skinTypeDesc")] = skinTypeDesc
+            }
+
+            updateAppWidgetState(context, glanceId){
+                    prefs -> prefs[intPreferencesKey("spf")] = spf
+            }
+
+            // Refresh/update the specific widget instance
+            println("hello")
+            MyAppWidget().update(context, glanceId)
+        }
+
+        private fun finishLocationFailure(message: String) {
+            println(message);
+        }
+
+        private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
+            minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
+    }
 
 
 }
