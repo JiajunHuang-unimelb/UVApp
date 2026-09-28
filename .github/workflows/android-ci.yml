@@ -43,16 +43,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-home-cache-includes: "caches/modules-*/, notifications"
-          gradle-home-cache-cleanup: false
-          add-job-summary: always
-          add-job-summary-as-pr-comment: never
-          dependency-graph: disabled
-          dependency-graph-continue-on-failure: true
-          build-scan-publish: false
-          validate-wrappers: false
-          generate-job-summary: true
-          gradle-home-cache-strict-match: false
+          cache-provider: basic
       - name: Build (assemble + test)
         run: ./gradlew build
       - name: Upload APK artifact
