@@ -7,7 +7,10 @@ import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
 interface ExposureHistoryRepository {
-    /** Persist a complete snapshot atomically. Exact retries succeed; stale/conflicting writes fail. */
+    /**
+     * Replace a complete session atomically; start/zone stay fixed and checkpoint time cannot decrease.
+     * Call saves sequentially, including retries. Equal-time writes replace the previous content.
+     */
     suspend fun save(record: ExposureRecord): Result<Unit>
 
     suspend fun getSession(sessionId: String): ExposureRecord?

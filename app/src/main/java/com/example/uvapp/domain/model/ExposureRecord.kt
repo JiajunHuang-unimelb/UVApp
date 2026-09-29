@@ -16,7 +16,6 @@ data class ExposureDayTotal(
 /** Full cumulative snapshot, not an increment. Keep id/start/zone stable across checkpoints. */
 data class ExposureRecord(
     val sessionId: String,
-    val revision: Long,
     val startedAtMillis: Long,
     val recordedThroughMillis: Long,
     val zoneId: String,
@@ -29,7 +28,6 @@ data class ExposureRecord(
     /** Checks units, day boundaries (including DST), and impossible measurements. */
     fun validated(): ExposureRecord {
         require(sessionId.isNotBlank() && sessionId.length <= 128) { "sessionId must contain 1..128 characters" }
-        require(revision >= 0) { "revision must be non-negative" }
         require(startedAtMillis >= 0 && recordedThroughMillis >= startedAtMillis) { "Invalid session time range" }
         val zone = ZoneId.of(zoneId)
         val firstDay = Instant.ofEpochMilli(startedAtMillis).atZone(zone).toLocalDate()

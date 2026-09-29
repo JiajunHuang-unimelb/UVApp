@@ -28,7 +28,7 @@ class ExposureHistoryRepositoryTest {
             val first = record()
             assertTrue(repository.save(first).isSuccess)
             assertTrue(repository.save(first).isSuccess)
-            val next = first.copy(revision = 1, days = listOf(ExposureDayTotal(date, 120_000, 0.2)))
+            val next = first.copy(days = listOf(ExposureDayTotal(date, 120_000, 0.2)))
             assertTrue(repository.save(next).isSuccess)
             val day = repository.observeDaily(date, date.plusDays(1)).first().single()
             assertEquals(120_000, day.activeDurationMillis)
@@ -37,31 +37,29 @@ class ExposureHistoryRepositoryTest {
             assertEquals(next, repository.getSession(first.sessionId))
         }
 
-    @Test fun `reject stale conflicting decreasing and mutated identity writes`() =
+    @Test fun `reject backwards checkpoint and changed session identity`() =
         runBlocking {
-            val initial = record().copy(revision = 3)
+            val initial = record()
             repository.save(initial).getOrThrow()
-            val invalid =
-                listOf(
-                    initial.copy(revision = 2),
-                    initial.copy(status = ExposureRecordStatus.PAUSED),
-                    initial.copy(revision = 4, startedAtMillis = initial.startedAtMillis + 1),
-                    initial.copy(revision = 4, zoneId = "UTC"),
-                    initial.copy(revision = 4, recordedThroughMillis = initial.recordedThroughMillis - 1),
-                    initial.copy(revision = 4, days = emptyList()),
-                    initial.copy(revision = 4, days = listOf(ExposureDayTotal(date, 59_999, 0.1))),
-                    initial.copy(revision = 4, days = listOf(ExposureDayTotal(date, 60_000, 0.09))),
-                )
+            val invalid = listOf(
+                initial.copy(startedAtMillis = initial.startedAtMillis + 1),
+                initial.copy(zoneId = "UTC"),
+                initial.copy(recordedThroughMillis = initial.recordedThroughMillis - 1),
+            )
             invalid.forEach { assertTrue(repository.save(it).isFailure) }
             assertEquals(initial, repository.getSession(initial.sessionId))
         }
 
-    @Test fun `completed records allow exact retry but no later modification`() =
+    @Test fun `equal time corrections can update completed records and remove daily rows`() =
         runBlocking {
             val done = record().copy(status = ExposureRecordStatus.COMPLETED)
-            assertTrue(repository.save(done).isSuccess)
-            assertTrue(repository.save(done).isSuccess)
-            assertTrue(repository.save(done.copy(revision = 1)).isFailure)
+            repository.save(done).getOrThrow()
+            val corrected = done.copy(days = listOf(ExposureDayTotal(date, 30_000, 0.05)))
+            repository.save(corrected).getOrThrow()
+            assertEquals(corrected, repository.getSession(done.sessionId))
+            assertEquals(0.05, repository.observeWeek(date).first().doseSed, 0.000001)
+            repository.save(corrected.copy(days = emptyList())).getOrThrow()
+            assertEquals(0.0, repository.observeWeek(date).first().doseSed, 0.0)
         }
 
     @Test fun `week starts Monday zero fills and sums multiple sessions`() =
@@ -85,7 +83,6 @@ class ExposureHistoryRepositoryTest {
             val snapshot =
                 ExposureRecord(
                     "midnight",
-                    0,
                     start,
                     end,
                     zone.id,
@@ -103,7 +100,7 @@ class ExposureHistoryRepositoryTest {
             val base = record()
             val invalid =
                 listOf(
-                    base.copy(sessionId = " "), base.copy(revision = -1), base.copy(zoneId = "not-a-zone"),
+                    base.copy(sessionId = " "), base.copy(zoneId = "not-a-zone"),
                     base.copy(recordedThroughMillis = base.startedAtMillis - 1),
                     base.copy(days = base.days + base.days),
                     base.copy(days = listOf(ExposureDayTotal(date.minusDays(1), 1, 0.1))),
@@ -127,7 +124,6 @@ class ExposureHistoryRepositoryTest {
         ): ExposureRecord =
             ExposureRecord(
                 "dst",
-                0,
                 day.atStartOfDay(zone).toInstant().toEpochMilli(),
                 day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
                 zone.id,
@@ -179,7 +175,6 @@ class ExposureHistoryRepositoryTest {
         val start = date.atTime(10, 0).atZone(ZoneId.of("Australia/Melbourne")).toInstant().toEpochMilli()
         return ExposureRecord(
             id,
-            0,
             start,
             start + 3_600_000,
             "Australia/Melbourne",

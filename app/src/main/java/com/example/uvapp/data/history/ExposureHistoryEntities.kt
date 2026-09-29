@@ -14,7 +14,6 @@ import java.time.LocalDate
 @Entity(tableName = "exposure_sessions", indices = [Index("startedAtMillis")])
 data class ExposureSessionEntity(
     @PrimaryKey val sessionId: String,
-    val revision: Long,
     val startedAtMillis: Long,
     val recordedThroughMillis: Long,
     val zoneId: String,
@@ -49,7 +48,6 @@ data class ExposureSessionWithDays(
     fun toDomain(): ExposureRecord =
         ExposureRecord(
             sessionId = session.sessionId,
-            revision = session.revision,
             startedAtMillis = session.startedAtMillis,
             recordedThroughMillis = session.recordedThroughMillis,
             zoneId = session.zoneId,

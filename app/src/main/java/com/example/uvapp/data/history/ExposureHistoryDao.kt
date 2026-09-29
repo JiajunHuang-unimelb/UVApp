@@ -6,7 +6,6 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.example.uvapp.domain.model.ExposureRecord
-import com.example.uvapp.domain.model.ExposureRecordStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -48,35 +47,21 @@ abstract class ExposureHistoryDao {
     @Query("DELETE FROM exposure_sessions")
     abstract suspend fun clearHistory()
 
-    /** Room serializes the read/check/write transaction, including across repository instances. */
+    /** Replace a complete record atomically. Equal checkpoint times allow corrections. */
     @Transaction
     open suspend fun saveSnapshot(input: ExposureRecord) {
         val record = input.validated()
-        val previous = getSession(record.sessionId)?.toDomain()
+        val previous = getSession(record.sessionId)?.session
         if (previous != null) {
             require(record.startedAtMillis == previous.startedAtMillis && record.zoneId == previous.zoneId) {
                 "Session start and timezone cannot change"
             }
-            require(record.revision >= previous.revision) { "Stale revision" }
-            if (record.revision == previous.revision) {
-                require(record == previous) { "Conflicting payload for the same revision" }
-                return
-            }
-            require(previous.status != ExposureRecordStatus.COMPLETED) { "Completed session is immutable" }
             require(record.recordedThroughMillis >= previous.recordedThroughMillis) { "Checkpoint time cannot go backwards" }
-            val newDays = record.days.associateBy { it.date }
-            require(
-                previous.days.all { old ->
-                    val new = newDays[old.date]
-                    new != null && new.activeDurationMillis >= old.activeDurationMillis && new.doseSed >= old.doseSed
-                },
-            ) { "Cumulative daily measurements cannot decrease or disappear" }
         }
         // REPLACE removes the old parent's daily rows through the foreign-key cascade.
         insertSession(
             ExposureSessionEntity(
                 record.sessionId,
-                record.revision,
                 record.startedAtMillis,
                 record.recordedThroughMillis,
                 record.zoneId,
