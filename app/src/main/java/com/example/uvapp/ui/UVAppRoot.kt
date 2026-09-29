@@ -36,6 +36,7 @@ import com.example.uvapp.data.repository.UvRepositoryFactory
 import com.example.uvapp.platform.alerts.AndroidExposureAlertGateway
 import com.example.uvapp.platform.environment.AndroidEnvironmentContextProvider
 import com.example.uvapp.platform.environment.AndroidExposureMonitoringController
+import com.example.uvapp.platform.environment.AndroidCameraLuminanceMonitor
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
@@ -76,6 +77,8 @@ fun UVAppRoot() {
         remember(applicationContext) { AndroidExposureAlertGateway(applicationContext) }
     val microphoneMonitor =
         remember(applicationContext) { AndroidMicrophoneEnvironmentMonitor(applicationContext) }
+    val cameraMonitor =
+        remember(applicationContext) { AndroidCameraLuminanceMonitor(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
@@ -114,7 +117,8 @@ fun UVAppRoot() {
         if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         else indoorViewModel.enableSuggestions(true)
     }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycle = lifecycleOwner.lifecycle
     DisposableEffect(lifecycle, indoorViewModel) {
         fun updateVisibility() = indoorViewModel.setVisible(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         val observer = LifecycleEventObserver { _, _ -> updateVisibility() }
@@ -128,6 +132,7 @@ fun UVAppRoot() {
         remember {
             buildList {
                 add(android.Manifest.permission.RECORD_AUDIO)
+                add(android.Manifest.permission.CAMERA)
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     add(android.Manifest.permission.ACTIVITY_RECOGNITION)
                 }
@@ -154,11 +159,13 @@ fun UVAppRoot() {
             else optionalSensorPermissionLauncher.launch(missing.toTypedArray())
         } else {
             microphoneMonitor.stop()
+            cameraMonitor.stop()
         }
     }
     DisposableEffect(
         lifecycle,
         microphoneMonitor,
+        cameraMonitor,
         settingsState.enhancedSensingEnabled,
         optionalPermissionRevision,
     ) {
@@ -168,8 +175,10 @@ fun UVAppRoot() {
                 lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             ) {
                 microphoneMonitor.start()
+                cameraMonitor.start(lifecycleOwner)
             } else {
                 microphoneMonitor.stop()
+                cameraMonitor.stop()
             }
         }
         val observer = LifecycleEventObserver { _, _ -> updateOptionalSensors() }
@@ -178,6 +187,7 @@ fun UVAppRoot() {
         onDispose {
             lifecycle.removeObserver(observer)
             microphoneMonitor.stop()
+            cameraMonitor.stop()
         }
     }
     LaunchedEffect(settingsState.notificationsEnabled) { indoorViewModel.setNotificationsEnabled(settingsState.notificationsEnabled) }

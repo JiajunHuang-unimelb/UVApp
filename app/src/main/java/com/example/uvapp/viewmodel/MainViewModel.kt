@@ -9,6 +9,7 @@ import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -99,6 +100,8 @@ data class MainUiState(
     val stepsPerMinute: Int? = null,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
+    val cameraLuminancePercent: Int? = null,
+    val cameraLightContext: CameraLightContext? = null,
     val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
@@ -215,6 +218,8 @@ class MainViewModel(
                             stepsPerMinute = sample.stepsPerMinute,
                             soundLevelDb = sample.soundLevelDb,
                             acousticContext = sample.acousticContext,
+                            cameraLuminancePercent = sample.cameraLuminancePercent,
+                            cameraLightContext = sample.cameraLightContext,
                         )
                     }
                     evaluateIndoorTransition()
