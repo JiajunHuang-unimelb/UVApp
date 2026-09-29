@@ -22,7 +22,9 @@ class AndroidCameraLuminanceMonitor(
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageAnalysis: ImageAnalysis? = null
     @Volatile private var enabled = false
+    @Volatile private var generation = 0
 
+    @Synchronized
     fun start(lifecycleOwner: LifecycleOwner) {
         if (enabled) return
         if (
@@ -34,10 +36,11 @@ class AndroidCameraLuminanceMonitor(
         }
 
         enabled = true
+        val requestedGeneration = ++generation
         val providerFuture = ProcessCameraProvider.getInstance(applicationContext)
         providerFuture.addListener(
             {
-                if (!enabled) return@addListener
+                if (!enabled || generation != requestedGeneration) return@addListener
                 try {
                     val provider = providerFuture.get()
                     val analysis =
@@ -57,8 +60,10 @@ class AndroidCameraLuminanceMonitor(
         )
     }
 
+    @Synchronized
     fun stop() {
         enabled = false
+        generation++
         imageAnalysis?.clearAnalyzer()
         imageAnalysis?.let { cameraProvider?.unbind(it) }
         imageAnalysis = null

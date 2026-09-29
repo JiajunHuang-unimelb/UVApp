@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import com.example.uvapp.domain.environment.SoundLevelClassifier
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Samples relative sound level while the app is visible. It never stores microphone audio. */
 class AndroidMicrophoneEnvironmentMonitor(
@@ -19,7 +20,7 @@ class AndroidMicrophoneEnvironmentMonitor(
     private val applicationContext = context.applicationContext
     private val executor = Executors.newSingleThreadExecutor()
     private var task: Future<*>? = null
-    @Volatile private var recorder: AudioRecord? = null
+    @Volatile private var session: RecorderSession? = null
 
     @Synchronized
     @SuppressLint("MissingPermission")
@@ -66,14 +67,15 @@ class AndroidMicrophoneEnvironmentMonitor(
             return
         }
 
-        recorder = audioRecord
+        val recorderSession = RecorderSession(audioRecord)
+        session = recorderSession
         task =
             executor.submit {
                 val classifier = SoundLevelClassifier()
                 val samples = ShortArray(minimumBuffer / Short.SIZE_BYTES)
                 try {
                     audioRecord.startRecording()
-                    while (!Thread.currentThread().isInterrupted) {
+                    while (!Thread.currentThread().isInterrupted && !recorderSession.isReleased()) {
                         val count = audioRecord.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                         if (count > 0) {
                             AndroidEnvironmentContextProvider.updateAcoustic(classifier.classify(samples, count))
@@ -84,7 +86,13 @@ class AndroidMicrophoneEnvironmentMonitor(
                 } catch (_: SecurityException) {
                     AndroidEnvironmentContextProvider.updateAcoustic(null)
                 } finally {
-                    releaseRecorder(audioRecord)
+                    recorderSession.stopAndRelease()
+                    synchronized(this@AndroidMicrophoneEnvironmentMonitor) {
+                        if (session === recorderSession) {
+                            session = null
+                            task = null
+                        }
+                    }
                 }
             }
     }
@@ -92,26 +100,27 @@ class AndroidMicrophoneEnvironmentMonitor(
     @Synchronized
     fun stop() {
         task?.cancel(true)
-        recorder?.let { audioRecord ->
-            try {
-                if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) audioRecord.stop()
-            } catch (_: IllegalStateException) {
-                // Stopping is best-effort; the worker's finally block releases the recorder.
-            }
-        }
+        task = null
+        session?.stopAndRelease()
+        session = null
         AndroidEnvironmentContextProvider.updateAcoustic(null)
     }
 
-    private fun releaseRecorder(audioRecord: AudioRecord) {
-        try {
-            if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) audioRecord.stop()
-        } catch (_: IllegalStateException) {
-            // The recorder may already have been stopped by the other lifecycle path.
-        }
-        audioRecord.release()
-        if (recorder === audioRecord) {
-            recorder = null
-            task = null
+    private class RecorderSession(
+        private val audioRecord: AudioRecord,
+    ) {
+        private val released = AtomicBoolean(false)
+
+        fun isReleased(): Boolean = released.get()
+
+        fun stopAndRelease() {
+            if (!released.compareAndSet(false, true)) return
+            try {
+                if (audioRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) audioRecord.stop()
+            } catch (_: IllegalStateException) {
+                // The recorder may have stopped after the state check.
+            }
+            audioRecord.release()
         }
     }
 
