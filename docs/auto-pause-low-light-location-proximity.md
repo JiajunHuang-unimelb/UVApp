@@ -1,13 +1,13 @@
-# Auto-Pause from Low Light and Location Proximity
+# Auto-Pause from Multi-Sensor Environmental Context
 
 ## Overview
 
-The exposure countdown can now infer that the phone is indoors or pocketed from ambient light plus either supporting signal:
+The exposure countdown can infer that the phone is indoors or pocketed from ambient light plus supporting evidence:
 
 - the ambient light level is low; and
-- the user is near a known indoor location, or the physical proximity sensor reports that the phone is covered.
+- the user is near a known indoor location, the physical proximity sensor reports that the phone is covered, or multiple weaker camera, microphone and motion signals agree.
 
-When low light and one supporting signal remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions read Android ambient-light and physical-proximity sensors plus continuous fused-location updates from a foreground service. Developer overrides and unit tests still use controlled mock values.
+When low light and sufficient supporting evidence remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions read light, proximity, accelerometer, step-counter and fused-location data. Optional microphone and CameraX analysis run only while the app is visible and Enhanced sensing is enabled.
 
 ## Detection rules
 
@@ -15,12 +15,12 @@ Indoor and outdoor transitions use different light thresholds to avoid repeated 
 
 | Transition | Required condition | Stability period |
 | --- | --- | --- |
-| Enter indoor/pocket | Lux is below `1,000` and either saved-location proximity or physical occlusion is true | 10 seconds |
-| Leave indoor/pocket | Lux is above `2,000`, or neither supporting signal is true | 10 seconds |
+| Enter indoor/pocket | Lux is below `1,000` and fused indoor support is at least `0.35` | 10 seconds |
+| Leave indoor/pocket | Lux is above `2,000`, or fused indoor support falls below `0.35` | 10 seconds |
 
 Lux values from `1,000` through `2,000` preserve the current indoor/outdoor classification. If a required condition changes during its stability period, the pending transition is cancelled. A new complete 10-second period is then required.
 
-Low light alone, location proximity alone, and physical proximity alone are insufficient to change the exposure context.
+Low light alone, location proximity alone, and physical proximity alone are insufficient to change the exposure context because low light and supporting evidence are both required. Camera, microphone, posture or stationary state alone are also insufficient supporting evidence.
 
 ## Countdown behavior
 
@@ -42,6 +42,14 @@ data class EnvironmentSample(
     val lux: Int,
     val nearIndoorLocation: Boolean,
     val deviceOccluded: Boolean?,
+    val posture: DevicePosture?,
+    val isMoving: Boolean?,
+    val stepsSinceStart: Int?,
+    val stepsPerMinute: Int?,
+    val soundLevelDb: Double?,
+    val acousticContext: AcousticContext?,
+    val cameraLuminancePercent: Int?,
+    val cameraLightContext: CameraLightContext?,
 )
 
 interface EnvironmentContextProvider {
@@ -49,13 +57,13 @@ interface EnvironmentContextProvider {
 }
 ```
 
-The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers `Sensor.TYPE_LIGHT` and `Sensor.TYPE_PROXIMITY`, requests high-accuracy fused-location updates every five seconds, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. A proximity value lower than the sensor's maximum range is treated as covered. Missing proximity hardware is represented by `null` and does not block light + saved-location detection. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared. The service remains active through manual and indoor-detected pauses because those states still require environmental evidence to resume safely. It holds a partial wake lock for the session so a non-wake-up light sensor can continue delivering readings with the screen off; this intentionally favors reliable school-project demonstrations over battery life.
+The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, requests high-accuracy fused-location updates every five seconds, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. Lifecycle-bound monitors publish microphone and CameraX results into the same provider while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
 
 The foreground service collects facts only. Thresholds, debounce, pause ownership and exposure calculations remain in `MainViewModel`. `MockEnvironmentContextProvider` remains available for deterministic unit tests.
 
 If the sensor, location or service becomes unavailable, the provider publishes a conservative high-light/outside state. That prevents an old indoor classification from suppressing outdoor exposure indefinitely.
 
-`ExposureAlertGateway` separates alert side effects from the ViewModel. The current Android implementation checks for an available vibrator and performs a best-effort 250 ms vibration. A missing vibrator or unavailable vibration permission does not interrupt exposure tracking.
+`ExposureAlertGateway` separates alert side effects from the ViewModel. Indoor auto-pause uses a short vibration. The first transition to completed exposure uses a vibration pattern plus `ToneGenerator`, and developer alert buttons exercise the same real output path. Missing output hardware never interrupts exposure tracking.
 
 ## Frontend integration
 
@@ -105,6 +113,11 @@ Unit coverage includes:
 - location proximity without low light;
 - physical proximity without low light;
 - low light plus physical proximity pause/resume;
+- low light plus dark-camera and quiet-sound fusion;
+- accelerometer posture and movement classification;
+- step-counter rebasing and rate calculation;
+- microphone RMS/dBFS classification;
+- CameraX Y-plane luminance classification;
 - the full 10-second entry debounce;
 - signal flapping and debounce restart;
 - hysteresis between 1,000 and 2,000 lux;
@@ -158,4 +171,6 @@ Validation on 23 September 2026: `testDebugUnitTest assembleDebug assembleDebugA
 - The foreground service uses five-second continuous fused-location updates rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
 - Saving an indoor place still uses a separate fresh one-shot GPS fix, while active-session proximity uses continuous service updates.
 - Proximity sensors are commonly binary and are used only as evidence that the phone is covered; they do not measure whether the user is inside a building.
-- Indoor auto-pause still uses vibration only. Save suggestions use their own notification channel and contextual notification permission request.
+- Camera luminance is affected by automatic exposure and microphone level depends on device gain. Both are weak contextual signals, never UV measurements.
+- Microphone and camera sampling intentionally stop when the app is no longer visible; continuous background access would require additional foreground-service types and user-facing policy justification.
+- Step-counter hardware is optional and may deliver updates with several seconds of latency.
