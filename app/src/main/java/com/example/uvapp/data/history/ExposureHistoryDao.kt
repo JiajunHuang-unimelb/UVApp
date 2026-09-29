@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.example.uvapp.domain.model.ExposureRecord
+import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -49,8 +50,8 @@ abstract class ExposureHistoryDao {
 
     /** Replace a complete record atomically. Equal checkpoint times allow corrections. */
     @Transaction
-    open suspend fun saveSnapshot(input: ExposureRecord) {
-        val record = input.validated()
+    open suspend fun saveSnapshot(record: ExposureRecord) {
+        validateForStorage(record)
         val previous = getSession(record.sessionId)?.session
         if (previous != null) {
             require(record.startedAtMillis == previous.startedAtMillis && record.zoneId == previous.zoneId) {
@@ -73,5 +74,20 @@ abstract class ExposureHistoryDao {
                 ExposureDayEntity(record.sessionId, it.date.toEpochDay(), it.activeDurationMillis, it.doseSed)
             },
         )
+    }
+
+    /** Storage shape and numeric checks only; the producer owns exposure and calendar calculations. */
+    private fun validateForStorage(record: ExposureRecord) {
+        require(record.sessionId.isNotBlank() && record.sessionId.length <= 128) { "sessionId must contain 1..128 characters" }
+        require(record.startedAtMillis >= 0 && record.recordedThroughMillis >= record.startedAtMillis) { "Invalid session time range" }
+        ZoneId.of(record.zoneId)
+        require(record.days.map { it.date }.distinct().size == record.days.size) { "Duplicate day in snapshot" }
+        for (day in record.days) {
+            require(day.activeDurationMillis >= 0) { "Active duration must be non-negative" }
+            require(day.doseSed.isFinite() && day.doseSed >= 0) { "Dose must be finite and non-negative SED" }
+        }
+        // Check representable totals, without comparing them to elapsed session time.
+        require(record.activeDurationMillis >= 0) { "Total active duration must fit in Long" }
+        require(record.doseSed.isFinite()) { "Total dose overflow" }
     }
 }

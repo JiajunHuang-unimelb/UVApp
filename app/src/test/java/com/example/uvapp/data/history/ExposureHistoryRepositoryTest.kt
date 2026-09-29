@@ -100,40 +100,36 @@ class ExposureHistoryRepositoryTest {
             val base = record()
             val invalid =
                 listOf(
-                    base.copy(sessionId = " "), base.copy(zoneId = "not-a-zone"),
+                    base.copy(sessionId = " "), base.copy(sessionId = "x".repeat(129)), base.copy(zoneId = "not-a-zone"),
+                    base.copy(startedAtMillis = -1),
                     base.copy(recordedThroughMillis = base.startedAtMillis - 1),
                     base.copy(days = base.days + base.days),
-                    base.copy(days = listOf(ExposureDayTotal(date.minusDays(1), 1, 0.1))),
                     base.copy(days = listOf(ExposureDayTotal(date, -1, 0.0))),
-                    base.copy(days = listOf(ExposureDayTotal(date, 3_600_001, 0.1))),
                     base.copy(days = listOf(ExposureDayTotal(date, 1, Double.NaN))),
                     base.copy(days = listOf(ExposureDayTotal(date, 1, Double.POSITIVE_INFINITY))),
                     base.copy(days = listOf(ExposureDayTotal(date, 1, -0.1))),
-                    base.copy(days = listOf(ExposureDayTotal(date, 0, 0.1))),
+                    base.copy(days = listOf(ExposureDayTotal(date, Long.MAX_VALUE, 0.1), ExposureDayTotal(date.plusDays(1), 1, 0.1))),
+                    base.copy(days = listOf(ExposureDayTotal(date, 1, Double.MAX_VALUE), ExposureDayTotal(date.plusDays(1), 1, Double.MAX_VALUE))),
                 )
             invalid.forEach { assertTrue("Expected failure: $it", repository.save(it).isFailure) }
             assertTrue(repository.observeHistory().first().isEmpty())
         }
 
-    @Test fun `DST days use actual elapsed duration`() {
-        val zone = ZoneId.of("Australia/Melbourne")
-
-        fun dayRecord(
-            day: LocalDate,
-            hours: Long,
-        ): ExposureRecord =
-            ExposureRecord(
-                "dst",
-                day.atStartOfDay(zone).toInstant().toEpochMilli(),
-                day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
-                zone.id,
-                ExposureRecordStatus.COMPLETED,
-                listOf(ExposureDayTotal(day, hours * 3_600_000, 1.0)),
+    @Test fun `daily totals are stored without interpreting the producer's exposure calculations`() =
+        runBlocking {
+            val supplied = record().copy(
+                days = listOf(
+                    ExposureDayTotal(date.minusDays(1), 25 * 3_600_000L, 0.3),
+                    ExposureDayTotal(date, 0, 0.1),
+                ),
             )
-        dayRecord(LocalDate.of(2026, 10, 4), 23).validated()
-        assertThrows(IllegalArgumentException::class.java) { dayRecord(LocalDate.of(2026, 10, 4), 24).validated() }
-        dayRecord(LocalDate.of(2026, 4, 5), 25).validated()
-    }
+            // Calendar allocation, elapsed-time limits and dose/time consistency belong to the producer.
+            repository.save(supplied).getOrThrow()
+            assertEquals(supplied, repository.getSession(supplied.sessionId))
+            val daily = repository.observeDaily(date.minusDays(1), date.plusDays(1)).first()
+            assertEquals(supplied.days.map { it.activeDurationMillis }, daily.map { it.activeDurationMillis })
+            assertEquals(supplied.days.map { it.doseSed }, daily.map { it.doseSed })
+        }
 
     @Test fun `history pagination deletion and clearing affect totals`() =
         runBlocking {
