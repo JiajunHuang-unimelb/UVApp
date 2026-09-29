@@ -7,6 +7,7 @@ import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
+import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -91,6 +92,10 @@ data class MainUiState(
     val luxOverride: Int? = null,
     val nearIndoorLocation: Boolean? = false,
     val deviceOccluded: Boolean? = null,
+    val devicePosture: DevicePosture? = null,
+    val isMoving: Boolean? = null,
+    val stepsSinceStart: Int? = null,
+    val stepsPerMinute: Int? = null,
     val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
@@ -115,6 +120,9 @@ data class MainUiState(
     /** Physical proximity reading; developer simulation wins when enabled. */
     val effectiveDeviceOccluded: Boolean? get() =
         if (dev.simulateOccluded) true else deviceOccluded
+
+    val effectiveIsMoving: Boolean? get() =
+        if (dev.simulateActive) true else isMoving
 
     /** Either a saved indoor location or a covered proximity sensor can support low-light evidence. */
     val hasIndoorEvidence: Boolean get() =
@@ -195,6 +203,10 @@ class MainViewModel(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
                             nearIndoorLocation = if (state.dev.overrideLocation) true else sample.nearIndoorLocation,
                             deviceOccluded = sample.deviceOccluded,
+                            devicePosture = sample.posture,
+                            isMoving = sample.isMoving,
+                            stepsSinceStart = sample.stepsSinceStart,
+                            stepsPerMinute = sample.stepsPerMinute,
                         )
                     }
                     evaluateIndoorTransition()

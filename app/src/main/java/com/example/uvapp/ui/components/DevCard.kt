@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.LightContext
+import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.DevUiState
 
@@ -39,6 +40,10 @@ fun DevCard(
     apiStatuses: List<ApiStatus>,
     lux: Int,
     deviceOccluded: Boolean?,
+    devicePosture: DevicePosture?,
+    isMoving: Boolean?,
+    stepsSinceStart: Int?,
+    stepsPerMinute: Int?,
     dev: DevUiState,
     onToggleSpeed: () -> Unit,
     onToggleUvOverride: () -> Unit,
@@ -72,6 +77,13 @@ fun DevCard(
                 MonoLine("Light       ·  ${formatThousands(lux)} lux", colors)
                 MonoLine(
                     "Proximity   ·  ${deviceOccluded.toProximityLabel()}",
+                    colors,
+                )
+                MonoLine("Posture     ·  ${devicePosture?.toLabel() ?: "unavailable"}", colors)
+                MonoLine("Motion      ·  ${isMoving.toMotionLabel()}", colors)
+                MonoLine(
+                    "Steps       ·  ${stepsSinceStart ?: "unavailable"}" +
+                        (stepsPerMinute?.let { " ($it / min)" } ?: ""),
                     colors,
                 )
             }
@@ -111,6 +123,15 @@ private fun Boolean?.toProximityLabel(): String =
         false -> "far / clear"
         null -> "unavailable"
     }
+
+private fun Boolean?.toMotionLabel(): String =
+    when (this) {
+        true -> "moving"
+        false -> "stationary"
+        null -> "unavailable"
+    }
+
+private fun DevicePosture.toLabel(): String = name.lowercase().replace('_', ' ')
 
 @Composable
 private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) {

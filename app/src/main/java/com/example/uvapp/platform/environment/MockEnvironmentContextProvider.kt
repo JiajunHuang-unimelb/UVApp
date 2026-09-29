@@ -2,6 +2,7 @@ package com.example.uvapp.platform.environment
 
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
+import com.example.uvapp.domain.environment.DevicePosture
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,25 @@ class MockEnvironmentContextProvider(
 
     fun setDeviceOccluded(isOccluded: Boolean?) {
         _samples.update { it.copy(deviceOccluded = isOccluded) }
+    }
+
+    fun setMotion(
+        posture: DevicePosture?,
+        isMoving: Boolean?,
+    ) {
+        _samples.update { it.copy(posture = posture, isMoving = isMoving) }
+    }
+
+    fun setStepActivity(
+        stepsSinceStart: Int?,
+        stepsPerMinute: Int?,
+    ) {
+        _samples.update {
+            it.copy(
+                stepsSinceStart = stepsSinceStart,
+                stepsPerMinute = stepsPerMinute,
+            )
+        }
     }
 
     private companion object {

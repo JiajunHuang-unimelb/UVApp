@@ -2,6 +2,8 @@ package com.example.uvapp.platform.environment
 
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
+import com.example.uvapp.domain.environment.MotionReading
+import com.example.uvapp.domain.environment.StepActivityReading
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +17,10 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 lux = UNAVAILABLE_LUX,
                 nearIndoorLocation = false,
                 deviceOccluded = null,
+                posture = null,
+                isMoving = null,
+                stepsSinceStart = null,
+                stepsPerMinute = null,
             ),
         )
 
@@ -32,6 +38,24 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
         mutable.update { it.copy(deviceOccluded = isOccluded) }
     }
 
+    fun updateMotion(reading: MotionReading?) {
+        mutable.update {
+            it.copy(
+                posture = reading?.posture,
+                isMoving = reading?.isMoving,
+            )
+        }
+    }
+
+    fun updateSteps(reading: StepActivityReading?) {
+        mutable.update {
+            it.copy(
+                stepsSinceStart = reading?.stepsSinceStart,
+                stepsPerMinute = reading?.averageStepsPerMinute,
+            )
+        }
+    }
+
     /** Unknown evidence is treated as outdoor/high-light so stale indoor pauses can clear. */
     fun markUnavailable() {
         mutable.value =
@@ -39,6 +63,10 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 lux = UNAVAILABLE_LUX,
                 nearIndoorLocation = false,
                 deviceOccluded = null,
+                posture = null,
+                isMoving = null,
+                stepsSinceStart = null,
+                stepsPerMinute = null,
             )
     }
 
