@@ -29,6 +29,7 @@ fun HomeScreen(
     state: MainUiState,
     onLocate: () -> Unit,
     modifier: Modifier = Modifier,
+    indoorContent: @Composable () -> Unit = {},
 ) {
     val onTimerAction: () -> Unit =
         when (state.exposureStatus) {
@@ -70,11 +71,13 @@ fun HomeScreen(
 
             Spacer(Modifier.height(12.dp))
             ContextCard(
-                context = state.displayContext,
+                context = state.lightReadingContext,
                 lux = state.displayLux,
                 onLuxChange = viewModel::onLuxChange,
+                interactive = !state.exposureStarted,
             )
 
+            indoorContent()
             if (state.isCached) {
                 Spacer(Modifier.height(10.dp))
                 CachedIndicator()
@@ -85,7 +88,7 @@ fun HomeScreen(
                 DevCard(
                     apiStatuses = state.apiStatuses,
                     lux = state.displayLux,
-                    stepsPerMinute = state.stepsPerMinute,
+                    deviceOccluded = state.effectiveDeviceOccluded,
                     dev = state.dev,
                     onToggleSpeed = viewModel::onSpeedToggle,
                     onToggleUvOverride = viewModel::onOverrideUvToggle,

@@ -38,7 +38,7 @@ import com.example.uvapp.viewmodel.DevUiState
 fun DevCard(
     apiStatuses: List<ApiStatus>,
     lux: Int,
-    stepsPerMinute: Int,
+    deviceOccluded: Boolean?,
     dev: DevUiState,
     onToggleSpeed: () -> Unit,
     onToggleUvOverride: () -> Unit,
@@ -70,7 +70,10 @@ fun DevCard(
                     MonoLine("${status.name.padEnd(10)}·  ${status.detail}", colors)
                 }
                 MonoLine("Light       ·  ${formatThousands(lux)} lux", colors)
-                MonoLine("Steps       ·  $stepsPerMinute / min", colors)
+                MonoLine(
+                    "Proximity   ·  ${deviceOccluded.toProximityLabel()}",
+                    colors,
+                )
             }
             Spacer(Modifier.height(12.dp))
 
@@ -89,18 +92,25 @@ fun DevCard(
             if (dev.overrideUv) {
                 UvOverridePanel(dev.uvOverride, onUvOverride)
             }
-            DevToggleRow("Override light context", dev.overrideLight, onToggleLightOverride)
+            DevToggleRow("Mock light level", dev.overrideLight, onToggleLightOverride)
             if (dev.overrideLight) {
                 LightContextPanel(dev.lightOverride, onLightOverride)
             }
             DevToggleRow("Override audio context", dev.overrideAudio, onToggleAudio)
             DevToggleRow("Simulate occluded (in pocket)", dev.simulateOccluded, onToggleOccluded)
             DevToggleRow("Force offline (cache-hit)", dev.forceOffline, onToggleOffline)
-            DevToggleRow("Override location", dev.overrideLocation, onToggleLocation)
+            DevToggleRow("Near known indoor location", dev.overrideLocation, onToggleLocation)
             DevToggleRow("Simulate active (sweat signal)", dev.simulateActive, onToggleActive)
         }
     }
 }
+
+private fun Boolean?.toProximityLabel(): String =
+    when (this) {
+        true -> "near / occluded"
+        false -> "far / clear"
+        null -> "unavailable"
+    }
 
 @Composable
 private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) {
