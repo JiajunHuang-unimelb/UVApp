@@ -154,16 +154,21 @@ class DefaultUvRepository(
     private suspend fun resolveLocationKey(
         latitude: Double,
         longitude: Double,
-    ): String =
-        dao
-            .getForecastLocations()
-            .map { cached ->
+    ): String {
+        val cachedDistances =
+            dao.getForecastLocations().map { cached ->
                 cached to distanceMeters(latitude, longitude, cached.latitude, cached.longitude)
-            }.minByOrNull { (_, distance) -> distance }
-            ?.takeIf { (_, distance) -> distance <= CACHE_REUSE_DISTANCE_METERS }
-            ?.first
-            ?.locationKey
-            ?: locationKey(latitude, longitude)
+            }
+        val nearest = cachedDistances.minByOrNull { (_, distance) -> distance }
+            ?: return locationKey(latitude, longitude)
+        val (cached, distance) = nearest
+
+        return if (distance <= CACHE_REUSE_DISTANCE_METERS) {
+            cached.locationKey
+        } else {
+            locationKey(latitude, longitude)
+        }
+    }
 
     private data class RefreshStatus(
         val isRefreshing: Boolean = false,

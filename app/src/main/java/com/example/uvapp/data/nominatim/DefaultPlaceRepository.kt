@@ -1,6 +1,7 @@
 package com.example.uvapp.data.nominatim
 
 import com.example.uvapp.data.db.PlaceNameDao
+import com.example.uvapp.data.db.PlaceNameEntity
 import com.example.uvapp.data.db.toDomain
 import com.example.uvapp.data.db.toEntity
 import com.example.uvapp.domain.location.distanceMeters
@@ -59,19 +60,22 @@ class DefaultPlaceRepository internal constructor(
 
     private suspend fun findCachedPlaceWithinReuseDistance(
         coordinates: Coordinates,
-    ) = dao
-        .getPlaceNames()
-        .map { cached ->
-            cached to
-                distanceMeters(
-                    firstLatitude = coordinates.latitude,
-                    firstLongitude = coordinates.longitude,
-                    secondLatitude = cached.latitude,
-                    secondLongitude = cached.longitude,
-                )
-        }.minByOrNull { (_, distance) -> distance }
-        ?.takeIf { (_, distance) -> distance <= CACHE_REUSE_DISTANCE_METERS }
-        ?.first
+    ): PlaceNameEntity? {
+        val cachedDistances =
+            dao.getPlaceNames().map { cached ->
+                cached to
+                    distanceMeters(
+                        firstLatitude = coordinates.latitude,
+                        firstLongitude = coordinates.longitude,
+                        secondLatitude = cached.latitude,
+                        secondLongitude = cached.longitude,
+                    )
+            }
+        val nearest = cachedDistances.minByOrNull { (_, distance) -> distance } ?: return null
+        val (cached, distance) = nearest
+
+        return if (distance <= CACHE_REUSE_DISTANCE_METERS) cached else null
+    }
 
     private fun locationKey(coordinates: Coordinates): String =
         String.format(Locale.ROOT, "%.5f,%.5f", coordinates.latitude, coordinates.longitude)
