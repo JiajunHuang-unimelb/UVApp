@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
+import com.example.uvapp.domain.environment.EnvironmentEvidence
+import com.example.uvapp.domain.environment.EnvironmentFusion
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.environment.DevicePosture
@@ -133,9 +135,19 @@ data class MainUiState(
     val effectiveAcousticContext: AcousticContext? get() =
         if (dev.overrideAudio) AcousticContext.ACTIVE_OUTDOOR_LIKELY else acousticContext
 
-    /** Either a saved indoor location or a covered proximity sensor can support low-light evidence. */
+    val environmentEvidence: EnvironmentEvidence get() =
+        EnvironmentFusion.evaluate(
+            nearIndoorLocation = nearIndoorLocation,
+            deviceOccluded = effectiveDeviceOccluded,
+            cameraLightContext = cameraLightContext,
+            acousticContext = effectiveAcousticContext,
+            posture = devicePosture,
+            isMoving = effectiveIsMoving,
+        )
+
+    /** Strong evidence or a combination of weak signals can support low-light classification. */
     val hasIndoorEvidence: Boolean get() =
-        nearIndoorLocation == true || effectiveDeviceOccluded == true
+        EnvironmentFusion.supportsIndoor(environmentEvidence)
 
     /** Low light is only classified as indoor after location-aware debounce confirms it. */
     val displayContext: LightContext get() = when {

@@ -50,6 +50,7 @@ fun DevCard(
     acousticContext: AcousticContext?,
     cameraLuminancePercent: Int?,
     cameraLightContext: CameraLightContext?,
+    indoorConfidence: Double,
     dev: DevUiState,
     onToggleSpeed: () -> Unit,
     onToggleUvOverride: () -> Unit,
@@ -102,6 +103,7 @@ fun DevCard(
                     colors,
                 )
                 MonoLine("Camera ctx  ·  ${cameraLightContext?.toLabel() ?: "unavailable"}", colors)
+                MonoLine("Fusion      ·  ${(indoorConfidence * 100).toInt()}% indoor support", colors)
             }
             Spacer(Modifier.height(12.dp))
 

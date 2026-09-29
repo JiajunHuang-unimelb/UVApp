@@ -1,6 +1,8 @@
 package com.example.uvapp
 
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
@@ -192,6 +194,27 @@ class MainViewModelTest {
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `low light with dark camera and quiet sound pauses exposure`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        environment.setCameraLuminance(10, CameraLightContext.DARK)
+        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
+        assertEquals(1, alerts.callCount)
     }
 
     @Test

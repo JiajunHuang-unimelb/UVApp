@@ -97,6 +97,7 @@ fun HomeScreen(
                     acousticContext = state.effectiveAcousticContext,
                     cameraLuminancePercent = state.cameraLuminancePercent,
                     cameraLightContext = state.cameraLightContext,
+                    indoorConfidence = state.environmentEvidence.indoorConfidence,
                     dev = state.dev,
                     onToggleSpeed = viewModel::onSpeedToggle,
                     onToggleUvOverride = viewModel::onOverrideUvToggle,
