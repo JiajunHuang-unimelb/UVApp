@@ -3,14 +3,11 @@ package com.example.uvapp.data.nominatim
 import com.example.uvapp.data.db.PlaceNameDao
 import com.example.uvapp.data.db.toDomain
 import com.example.uvapp.data.db.toEntity
+import com.example.uvapp.domain.location.distanceMeters
 import com.example.uvapp.domain.model.Coordinates
 import com.example.uvapp.domain.model.PlaceName
 import com.example.uvapp.domain.repository.PlaceRepository
 import java.util.Locale
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 
 /** Reverse-geocodes coordinates while caching results and respecting public API limits. */
@@ -79,26 +76,7 @@ class DefaultPlaceRepository internal constructor(
     private fun locationKey(coordinates: Coordinates): String =
         String.format(Locale.ROOT, "%.5f,%.5f", coordinates.latitude, coordinates.longitude)
 
-    private fun distanceMeters(
-        firstLatitude: Double,
-        firstLongitude: Double,
-        secondLatitude: Double,
-        secondLongitude: Double,
-    ): Double {
-        val firstLatitudeRadians = Math.toRadians(firstLatitude)
-        val secondLatitudeRadians = Math.toRadians(secondLatitude)
-        val latitudeDelta = Math.toRadians(secondLatitude - firstLatitude)
-        val longitudeDelta = Math.toRadians(secondLongitude - firstLongitude)
-        val haversine = (
-            sin(latitudeDelta / 2) * sin(latitudeDelta / 2) +
-                cos(firstLatitudeRadians) * cos(secondLatitudeRadians) *
-                sin(longitudeDelta / 2) * sin(longitudeDelta / 2)
-        ).coerceIn(0.0, 1.0)
-        return EARTH_RADIUS_METERS * 2 * atan2(sqrt(haversine), sqrt(1 - haversine))
-    }
-
     private companion object {
         const val CACHE_REUSE_DISTANCE_METERS = 1_000.0
-        const val EARTH_RADIUS_METERS = 6_371_000.0
     }
 }

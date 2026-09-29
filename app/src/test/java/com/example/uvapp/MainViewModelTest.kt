@@ -289,7 +289,6 @@ class MainViewModelTest {
         override suspend fun refresh(
             latitude: Double,
             longitude: Double,
-            force: Boolean,
         ): Result<Unit> {
             this.latitude = latitude
             this.longitude = longitude
