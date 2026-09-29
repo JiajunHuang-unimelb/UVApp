@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +36,7 @@ import com.example.uvapp.data.repository.UvRepositoryFactory
 import com.example.uvapp.platform.alerts.AndroidExposureAlertGateway
 import com.example.uvapp.platform.environment.AndroidEnvironmentContextProvider
 import com.example.uvapp.platform.environment.AndroidExposureMonitoringController
+import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
 import com.example.uvapp.ui.components.RefreshButton
@@ -71,6 +74,8 @@ fun UVAppRoot() {
         remember(applicationContext) { AndroidExposureMonitoringController(applicationContext) }
     val alertGateway =
         remember(applicationContext) { AndroidExposureAlertGateway(applicationContext) }
+    val microphoneMonitor =
+        remember(applicationContext) { AndroidMicrophoneEnvironmentMonitor(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
@@ -118,6 +123,63 @@ fun UVAppRoot() {
         onDispose { lifecycle.removeObserver(observer); indoorViewModel.setVisible(false) }
     }
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
+    var optionalPermissionRevision by remember { mutableIntStateOf(0) }
+    val optionalSensorPermissions =
+        remember {
+            buildList {
+                add(android.Manifest.permission.RECORD_AUDIO)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    add(android.Manifest.permission.ACTIVITY_RECOGNITION)
+                }
+            }
+        }
+    val optionalSensorPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            optionalPermissionRevision++
+            if (mainViewModel.state.value.exposureStarted) {
+                monitoringController.stop()
+                monitoringController.start()
+            }
+        }
+    val toggleEnhancedSensing: () -> Unit = {
+        val enable = !settingsState.enhancedSensingEnabled
+        settingsViewModel.setEnhancedSensingEnabled(enable)
+        if (enable) {
+            val missing =
+                optionalSensorPermissions.filter { permission ->
+                    androidx.core.content.ContextCompat.checkSelfPermission(applicationContext, permission) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+            if (missing.isEmpty()) optionalPermissionRevision++
+            else optionalSensorPermissionLauncher.launch(missing.toTypedArray())
+        } else {
+            microphoneMonitor.stop()
+        }
+    }
+    DisposableEffect(
+        lifecycle,
+        microphoneMonitor,
+        settingsState.enhancedSensingEnabled,
+        optionalPermissionRevision,
+    ) {
+        fun updateOptionalSensors() {
+            if (
+                settingsState.enhancedSensingEnabled &&
+                lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            ) {
+                microphoneMonitor.start()
+            } else {
+                microphoneMonitor.stop()
+            }
+        }
+        val observer = LifecycleEventObserver { _, _ -> updateOptionalSensors() }
+        lifecycle.addObserver(observer)
+        updateOptionalSensors()
+        onDispose {
+            lifecycle.removeObserver(observer)
+            microphoneMonitor.stop()
+        }
+    }
     LaunchedEffect(settingsState.notificationsEnabled) { indoorViewModel.setNotificationsEnabled(settingsState.notificationsEnabled) }
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(mainState.devModeEnabled) { if (!mainState.devModeEnabled) indoorViewModel.setDemoEnabled(false) }
@@ -163,7 +225,20 @@ fun UVAppRoot() {
                         onSelectTime = forecastViewModel::selectTime,
                         onCurrentTime = forecastViewModel::selectCurrentTime,
                     )
-                    Tab.SETTINGS -> SettingsScreen(settingsViewModel, settingsState, indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions, settings = true) })
+                    Tab.SETTINGS -> SettingsScreen(
+                        viewModel = settingsViewModel,
+                        state = settingsState,
+                        indoorContent = {
+                            IndoorLocationsPanel(
+                                indoorViewModel,
+                                indoorState,
+                                requestSave,
+                                enableSuggestions,
+                                settings = true,
+                            )
+                        },
+                        onEnhancedSensingToggle = toggleEnhancedSensing,
+                    )
                 }
 
                 TopLoadingBar(mainState.isLoading, Modifier.align(Alignment.TopCenter))

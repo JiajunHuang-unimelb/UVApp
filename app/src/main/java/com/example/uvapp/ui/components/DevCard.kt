@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.environment.DevicePosture
+import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.DevUiState
 
@@ -44,6 +45,8 @@ fun DevCard(
     isMoving: Boolean?,
     stepsSinceStart: Int?,
     stepsPerMinute: Int?,
+    soundLevelDb: Double?,
+    acousticContext: AcousticContext?,
     dev: DevUiState,
     onToggleSpeed: () -> Unit,
     onToggleUvOverride: () -> Unit,
@@ -86,6 +89,11 @@ fun DevCard(
                         (stepsPerMinute?.let { " ($it / min)" } ?: ""),
                     colors,
                 )
+                MonoLine(
+                    "Audio       ·  ${soundLevelDb?.let { "%.1f dBFS".format(it) } ?: "unavailable"}",
+                    colors,
+                )
+                MonoLine("Sound ctx   ·  ${acousticContext?.toLabel() ?: "unavailable"}", colors)
             }
             Spacer(Modifier.height(12.dp))
 
@@ -132,6 +140,8 @@ private fun Boolean?.toMotionLabel(): String =
     }
 
 private fun DevicePosture.toLabel(): String = name.lowercase().replace('_', ' ')
+
+private fun AcousticContext.toLabel(): String = name.lowercase().replace('_', ' ')
 
 @Composable
 private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) {

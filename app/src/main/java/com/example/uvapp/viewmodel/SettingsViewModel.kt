@@ -37,6 +37,7 @@ data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val accent: AccentColor = AccentColor.AMBER,
     val devModeEnabled: Boolean = false,
+    val enhancedSensingEnabled: Boolean = false,
 )
 
 /** Settings screen state + user actions. */
@@ -96,5 +97,9 @@ class SettingsViewModel(
 
     fun setDevModeEnabled(enabled: Boolean) {
         _state.update { it.copy(devModeEnabled = enabled) }
+    }
+
+    fun setEnhancedSensingEnabled(enabled: Boolean) {
+        _state.update { it.copy(enhancedSensingEnabled = enabled) }
     }
 }

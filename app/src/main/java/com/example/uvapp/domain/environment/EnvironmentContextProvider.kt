@@ -12,6 +12,8 @@ data class EnvironmentSample(
     val isMoving: Boolean? = null,
     val stepsSinceStart: Int? = null,
     val stepsPerMinute: Int? = null,
+    val soundLevelDb: Double? = null,
+    val acousticContext: AcousticContext? = null,
 )
 
 /** Replaceable boundary between sensor/location implementations and exposure logic. */

@@ -8,6 +8,7 @@ import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.environment.DevicePosture
+import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -96,6 +97,8 @@ data class MainUiState(
     val isMoving: Boolean? = null,
     val stepsSinceStart: Int? = null,
     val stepsPerMinute: Int? = null,
+    val soundLevelDb: Double? = null,
+    val acousticContext: AcousticContext? = null,
     val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
@@ -123,6 +126,9 @@ data class MainUiState(
 
     val effectiveIsMoving: Boolean? get() =
         if (dev.simulateActive) true else isMoving
+
+    val effectiveAcousticContext: AcousticContext? get() =
+        if (dev.overrideAudio) AcousticContext.ACTIVE_OUTDOOR_LIKELY else acousticContext
 
     /** Either a saved indoor location or a covered proximity sensor can support low-light evidence. */
     val hasIndoorEvidence: Boolean get() =
@@ -207,6 +213,8 @@ class MainViewModel(
                             isMoving = sample.isMoving,
                             stepsSinceStart = sample.stepsSinceStart,
                             stepsPerMinute = sample.stepsPerMinute,
+                            soundLevelDb = sample.soundLevelDb,
+                            acousticContext = sample.acousticContext,
                         )
                     }
                     evaluateIndoorTransition()

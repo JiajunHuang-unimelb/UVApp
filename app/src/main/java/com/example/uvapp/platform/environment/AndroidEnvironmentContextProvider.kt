@@ -2,6 +2,7 @@ package com.example.uvapp.platform.environment
 
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
+import com.example.uvapp.domain.environment.AcousticReading
 import com.example.uvapp.domain.environment.MotionReading
 import com.example.uvapp.domain.environment.StepActivityReading
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,8 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 isMoving = null,
                 stepsSinceStart = null,
                 stepsPerMinute = null,
+                soundLevelDb = null,
+                acousticContext = null,
             ),
         )
 
@@ -56,6 +59,15 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
         }
     }
 
+    fun updateAcoustic(reading: AcousticReading?) {
+        mutable.update {
+            it.copy(
+                soundLevelDb = reading?.decibelsFullScale,
+                acousticContext = reading?.context,
+            )
+        }
+    }
+
     /** Unknown evidence is treated as outdoor/high-light so stale indoor pauses can clear. */
     fun markUnavailable() {
         mutable.value =
@@ -67,6 +79,8 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 isMoving = null,
                 stepsSinceStart = null,
                 stepsPerMinute = null,
+                soundLevelDb = null,
+                acousticContext = null,
             )
     }
 

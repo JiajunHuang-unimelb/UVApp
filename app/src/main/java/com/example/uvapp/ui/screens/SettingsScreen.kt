@@ -44,6 +44,9 @@ fun SettingsScreen(
     state: SettingsUiState,
     modifier: Modifier = Modifier,
     indoorContent: @Composable () -> Unit = {},
+    onEnhancedSensingToggle: () -> Unit = {
+        viewModel.setEnhancedSensingEnabled(!state.enhancedSensingEnabled)
+    },
 ) {
     val colors = UvTheme
     Column(
@@ -79,6 +82,14 @@ fun SettingsScreen(
             subtitle = "Remind me to reapply sunscreen",
             checked = state.notificationsEnabled,
             onToggle = { viewModel.setNotificationsEnabled(!state.notificationsEnabled) },
+        )
+
+        Spacer(Modifier.height(12.dp))
+        SettingsSwitchRow(
+            title = "Enhanced sensing",
+            subtitle = "Use motion, steps and relative sound level while the app is open",
+            checked = state.enhancedSensingEnabled,
+            onToggle = onEnhancedSensingToggle,
         )
 
         Spacer(Modifier.height(24.dp))

@@ -93,6 +93,8 @@ fun HomeScreen(
                     isMoving = state.effectiveIsMoving,
                     stepsSinceStart = state.stepsSinceStart,
                     stepsPerMinute = state.stepsPerMinute,
+                    soundLevelDb = state.soundLevelDb,
+                    acousticContext = state.effectiveAcousticContext,
                     dev = state.dev,
                     onToggleSpeed = viewModel::onSpeedToggle,
                     onToggleUvOverride = viewModel::onOverrideUvToggle,

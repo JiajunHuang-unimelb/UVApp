@@ -3,6 +3,7 @@ package com.example.uvapp.platform.environment
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.DevicePosture
+import com.example.uvapp.domain.environment.AcousticContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +55,13 @@ class MockEnvironmentContextProvider(
                 stepsPerMinute = stepsPerMinute,
             )
         }
+    }
+
+    fun setAcoustic(
+        soundLevelDb: Double?,
+        context: AcousticContext?,
+    ) {
+        _samples.update { it.copy(soundLevelDb = soundLevelDb, acousticContext = context) }
     }
 
     private companion object {
