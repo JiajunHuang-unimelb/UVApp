@@ -109,6 +109,8 @@ fun HomeScreen(
                     onToggleOffline = viewModel::onOfflineToggle,
                     onToggleLocation = viewModel::onLocationToggle,
                     onToggleActive = viewModel::onActiveToggle,
+                    onTestReapplyAlert = viewModel::onTestReapplyAlert,
+                    onTestBandWarning = viewModel::onTestBandWarning,
                 )
             }
         }

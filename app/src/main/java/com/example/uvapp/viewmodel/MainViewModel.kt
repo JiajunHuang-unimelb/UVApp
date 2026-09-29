@@ -402,6 +402,14 @@ class MainViewModel(
 
     fun onActiveToggle() = _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
 
+    fun onTestReapplyAlert() {
+        alertGateway?.previewReapplyReminder()
+    }
+
+    fun onTestBandWarning() {
+        alertGateway?.previewBandWarning()
+    }
+
     // ---- Internals -----------------------------------------------------------
 
     private fun locate() {
@@ -709,6 +717,7 @@ class MainViewModel(
     }
 
     private fun publishExposure(snapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
+        val previousStatus = _state.value.exposureStatus
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
@@ -735,6 +744,9 @@ class MainViewModel(
                         else -> snapshot.estimatedTotalSeconds
                     },
             )
+        }
+        if (snapshot.status == ExposureStatus.COMPLETE && previousStatus != ExposureStatus.COMPLETE) {
+            alertGateway?.notifyExposureLimitReached()
         }
         if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
             monitoringController?.stop()

@@ -179,6 +179,38 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `exposure completion alerts exactly once`() {
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(MockEnvironmentContextProvider(), alerts)
+        settle()
+        vm.onOverrideUvToggle()
+        vm.onUvOverride(12.0)
+        vm.onStartExposure()
+        vm.onSpeedToggle()
+
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureStatus.COMPLETE, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.exposureLimitCount)
+
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(1, alerts.exposureLimitCount)
+    }
+
+    @Test
+    fun `developer alert buttons invoke output gateway`() {
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(MockEnvironmentContextProvider(), alerts)
+
+        vm.onTestReapplyAlert()
+        vm.onTestBandWarning()
+
+        assertEquals(1, alerts.reapplyPreviewCount)
+        assertEquals(1, alerts.bandPreviewCount)
+    }
+
+    @Test
     fun `low light alone does not classify indoor or pause exposure`() {
         val environment = MockEnvironmentContextProvider()
         val alerts = FakeExposureAlertGateway()
@@ -587,9 +619,27 @@ class MainViewModelTest {
     private class FakeExposureAlertGateway : ExposureAlertGateway {
         var callCount = 0
             private set
+        var exposureLimitCount = 0
+            private set
+        var reapplyPreviewCount = 0
+            private set
+        var bandPreviewCount = 0
+            private set
 
         override fun notifyIndoorAutoPause() {
             callCount++
+        }
+
+        override fun notifyExposureLimitReached() {
+            exposureLimitCount++
+        }
+
+        override fun previewReapplyReminder() {
+            reapplyPreviewCount++
+        }
+
+        override fun previewBandWarning() {
+            bandPreviewCount++
         }
     }
 

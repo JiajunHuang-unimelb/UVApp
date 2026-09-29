@@ -62,6 +62,8 @@ fun DevCard(
     onToggleOffline: () -> Unit,
     onToggleLocation: () -> Unit,
     onToggleActive: () -> Unit,
+    onTestReapplyAlert: () -> Unit,
+    onTestBandWarning: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
@@ -109,9 +111,9 @@ fun DevCard(
 
             // Test alert buttons
             Row {
-                DevPillButton("Test reapply alert", Modifier.weight(1f), colors)
+                DevPillButton("Test reapply alert", onTestReapplyAlert, Modifier.weight(1f), colors)
                 Spacer(Modifier.width(8.dp))
-                DevPillButton("Test band warning", Modifier.weight(1f), colors)
+                DevPillButton("Test band warning", onTestBandWarning, Modifier.weight(1f), colors)
             }
             Spacer(Modifier.height(12.dp))
             Hairline(Modifier.fillMaxWidth(), colors.devStroke)
@@ -167,14 +169,19 @@ private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) 
 }
 
 @Composable
-private fun DevPillButton(label: String, modifier: Modifier, colors: com.example.uvapp.ui.theme.UvColors) {
+private fun DevPillButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    colors: com.example.uvapp.ui.theme.UvColors,
+) {
     Box(
         modifier
             .height(30.dp)
             .clip(RoundedCornerShape(15.dp))
             .background(colors.devButton)
             .border(1.dp, colors.devButtonStroke, RoundedCornerShape(15.dp))
-            .clickable { /* mock: alert would fire here */ },
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = colors.devHeader, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
