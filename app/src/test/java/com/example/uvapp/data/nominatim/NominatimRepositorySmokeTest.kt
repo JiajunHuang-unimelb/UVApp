@@ -88,7 +88,7 @@ class NominatimRepositorySmokeTest {
         }
 
     @Test
-    fun `movement within one kilometre reuses the nearest cached place`() =
+    fun `nearby movement reuses place and distant movement requests a new one`() =
         runBlocking {
             val api = FakeNominatimApi()
             val dao = FakePlaceNameDao()
@@ -103,21 +103,6 @@ class NominatimRepositorySmokeTest {
             repository.reverseGeocode(Coordinates(-37.8176, 144.9631)).getOrThrow()
 
             assertEquals(1, api.callCount)
-        }
-
-    @Test
-    fun `movement beyond one kilometre requests a new place`() =
-        runBlocking {
-            val api = FakeNominatimApi()
-            val dao = FakePlaceNameDao()
-            val repository =
-                DefaultPlaceRepository(
-                    api = api,
-                    dao = dao,
-                    rateLimiter = NominatimRateLimiter(),
-                )
-
-            repository.reverseGeocode(Coordinates(-37.8136, 144.9631)).getOrThrow()
             repository.reverseGeocode(Coordinates(-37.8336, 144.9631)).getOrThrow()
 
             assertEquals(2, api.callCount)

@@ -41,11 +41,12 @@ class DefaultUvRepositoryTest {
         }
 
     @Test
-    fun `fresh cache skips the network`() =
+    fun `fresh cache skips network until the one hour boundary`() =
         runBlocking {
             val api = FakeOpenMeteoApi { validResponse() }
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
-            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
+            var currentTime = 2_000L
+            val repository = repository(api = api, dao = dao, nowMillis = { currentTime })
 
             val result = repository.refresh(LATITUDE, LONGITUDE)
             val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
@@ -54,25 +55,15 @@ class DefaultUvRepositoryTest {
             assertEquals(0, api.callCount)
             assertEquals(UvDataSource.CACHE, state.source)
             assertEquals(1, state.readings.size)
-        }
 
-    @Test
-    fun `cache exactly one hour old refreshes from network`() =
-        runBlocking {
-            val api = FakeOpenMeteoApi { validResponse() }
-            val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
-            val repository = repository(api = api, dao = dao, nowMillis = { 3_601_000L })
-
-            val result = repository.refresh(LATITUDE, LONGITUDE)
-            val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
-
-            assertTrue(result.isSuccess)
+            currentTime = 3_601_000L
+            assertTrue(repository.refresh(LATITUDE, LONGITUDE).isSuccess)
             assertEquals(1, api.callCount)
-            assertEquals(UvDataSource.NETWORK, state.source)
+            assertEquals(UvDataSource.NETWORK, repository.observeForecast(LATITUDE, LONGITUDE).first().source)
         }
 
     @Test
-    fun `movement within one kilometre reuses the fresh forecast cache`() =
+    fun `nearby movement reuses cache and distant movement requests network`() =
         runBlocking {
             val api = FakeOpenMeteoApi { validResponse() }
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
@@ -84,18 +75,8 @@ class DefaultUvRepositoryTest {
             assertTrue(result.isSuccess)
             assertEquals(0, api.callCount)
             assertEquals(1, state.readings.size)
-        }
 
-    @Test
-    fun `movement beyond one kilometre requests a separate forecast`() =
-        runBlocking {
-            val api = FakeOpenMeteoApi { validResponse() }
-            val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
-            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
-
-            val result = repository.refresh(LATITUDE + 0.02, LONGITUDE)
-
-            assertTrue(result.isSuccess)
+            assertTrue(repository.refresh(LATITUDE + 0.02, LONGITUDE).isSuccess)
             assertEquals(1, api.callCount)
         }
 
@@ -204,20 +185,9 @@ class DefaultUvRepositoryTest {
         override suspend fun latestFetchTime(locationKey: String): Long? =
             getForecast(locationKey).maxOfOrNull { entity -> entity.fetchedAtMillis }
 
-        override suspend fun insertReadings(readings: List<UvReadingEntity>) {
-            val incomingKeys = readings.map { entity -> entity.locationKey to entity.forecastTimeMillis }.toSet()
-            this.readings.update { current ->
-                current.filterNot { entity ->
-                    entity.locationKey to entity.forecastTimeMillis in incomingKeys
-                } + readings
-            }
-        }
+        override suspend fun insertReadings(readings: List<UvReadingEntity>): Unit = error("not used by refresh")
 
-        override suspend fun deleteForecast(locationKey: String) {
-            readings.update { current ->
-                current.filterNot { entity -> entity.locationKey == locationKey }
-            }
-        }
+        override suspend fun deleteForecast(locationKey: String): Unit = error("not used by refresh")
 
         override suspend fun replaceForecast(
             locationKey: String,

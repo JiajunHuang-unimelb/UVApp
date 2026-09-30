@@ -98,7 +98,6 @@ val checkpoint = history.getSession(savedSessionId)
 
 不存位置坐标或账号信息，不自动过期，不提供云同步。记录保留至用户删除、清除应用数据或卸载；当前备份规则排除数据库。
 
-- `ExposureHistoryRepositoryTest`：重复保存、统计修正、基础字段和数值检查、身份/时间保护、传入每日结果原样保存、查询、删除、错误及取消。
-- `ExposureHistoryDatabaseTest`：旧版本迁移保留数据、重启后持久化、较旧时间不能覆盖新记录、删除级联、事务回滚。
+- `ExposureHistoryDatabaseTest`（Android 模拟器/设备）：旧版本迁移保留数据、重启后持久化、重复保存与修正、基础输入/时间保护、每日/每周汇总、删除级联、事务回滚。
 
 这些测试验证数据模块。计算模块保存入口、触发时机和历史 UI 仍需接入并验证。
