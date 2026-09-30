@@ -754,6 +754,7 @@ class MainViewModel(
 
     override fun onCleared() {
         monitoringController?.stop()
+        super.onCleared()
     }
 
     private fun LightContext.toExposureContext(): ExposureContext =
