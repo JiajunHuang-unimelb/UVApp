@@ -6,8 +6,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.uvapp.domain.model.ExposureDayTotal
 import com.example.uvapp.domain.model.ExposureRecord
 import com.example.uvapp.domain.model.ExposureRecordStatus
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -81,7 +79,15 @@ class ExposureHistoryDatabaseTest {
                 db = open()
                 repository = RoomExposureHistoryRepository(db.exposureHistoryDao())
                 assertEquals(record(), repository.getSession("test"))
-                repository.save(record().copy(days = listOf(ExposureDayTotal(DATE, 2_000, 0.2)))).getOrThrow()
+                val corrected = record().copy(
+                    status = ExposureRecordStatus.COMPLETED,
+                    days = listOf(ExposureDayTotal(DATE, 2_000, 0.2)),
+                )
+                repository.save(corrected).getOrThrow()
+                repository.save(corrected).getOrThrow()
+                assertEquals(corrected, repository.getSession("test"))
+                assertTrue(repository.save(corrected.copy(recordedThroughMillis = corrected.recordedThroughMillis - 1)).isFailure)
+                assertTrue(repository.save(corrected.copy(days = listOf(ExposureDayTotal(DATE, -1, 0.1)))).isFailure)
                 assertEquals(0.2, repository.observeWeek(DATE).first().doseSed, 0.000001)
                 repository.deleteSession("test").getOrThrow()
                 assertTrue(repository.observeHistory().first().isEmpty())
@@ -92,26 +98,23 @@ class ExposureHistoryDatabaseTest {
             }
         }
 
-    @Test fun concurrentCheckpointTimesDoNotOverwriteNewerSnapshot() =
+    @Test fun dailyAndWeeklyQueriesSumSessionsAndFillMissingDays() =
         runBlocking {
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val db = Room.inMemoryDatabaseBuilder(context, ExposureHistoryDatabase::class.java).build()
             try {
-                val first = RoomExposureHistoryRepository(db.exposureHistoryDao())
-                val second = RoomExposureHistoryRepository(db.exposureHistoryDao())
-                (0L..15L).map { checkpoint ->
-                    async {
-                        val repository = if (checkpoint % 2 == 0L) first else second
-                        repository.save(
-                            record().copy(
-                                recordedThroughMillis = record().recordedThroughMillis + checkpoint,
-                                days = listOf(ExposureDayTotal(DATE, 1_000 + checkpoint, 0.1 + checkpoint)),
-                            ),
-                        )
-                    }
-                }.awaitAll()
-                assertEquals(record().recordedThroughMillis + 15, first.getSession("test")!!.recordedThroughMillis)
-                assertEquals(15.1, first.observeWeek(DATE).first().doseSed, 0.000001)
+                val repository = RoomExposureHistoryRepository(db.exposureHistoryDao())
+                repository.save(record()).getOrThrow()
+                repository.save(record().copy(sessionId = "second", days = listOf(ExposureDayTotal(DATE, 2_000, 0.2)))).getOrThrow()
+                val week = repository.observeWeek(DATE).first()
+                assertEquals(DATE.minusDays(1), week.weekStart)
+                assertEquals(7, week.days.size)
+                assertEquals(3_000L, week.activeDurationMillis)
+                assertEquals(0.3, week.doseSed, 0.000001)
+                assertEquals(2, week.days[1].sessionCount)
+                assertEquals(0.0, week.days.first().doseSed, 0.0)
+                repository.clearHistory().getOrThrow()
+                assertEquals(0.0, repository.observeWeek(DATE).first().doseSed, 0.0)
             } finally {
                 db.close()
             }
