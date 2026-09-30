@@ -13,6 +13,5 @@ interface UvRepository {
     suspend fun refresh(
         latitude: Double,
         longitude: Double,
-        force: Boolean = false,
     ): Result<Unit>
 }

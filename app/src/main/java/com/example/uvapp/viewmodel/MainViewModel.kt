@@ -309,7 +309,7 @@ class MainViewModel(
     fun onRefresh() {
         val fix = _state.value.locationFix
         if (fix != null && forecastRepository != null) {
-            refreshForecast(fix, force = true)
+            refreshForecast(fix)
         } else {
             locate()
         }
@@ -456,7 +456,7 @@ class MainViewModel(
                             )
                         }
                         observeForecast(fix, repository)
-                        refreshForecast(fix, force = false)
+                        refreshForecast(fix)
                         loadPlaceName(fix)
                     }
 
@@ -513,7 +513,6 @@ class MainViewModel(
 
     private fun refreshForecast(
         fix: LocationFix,
-        force: Boolean,
     ) {
         val repository = forecastRepository ?: return
         forecastRefreshJob?.cancel()
@@ -521,7 +520,7 @@ class MainViewModel(
             viewModelScope.launch {
                 _state.update { it.copy(isLoading = true, errorMessage = null) }
                 try {
-                    val result = repository.refresh(fix.latitude, fix.longitude, force)
+                    val result = repository.refresh(fix.latitude, fix.longitude)
                     val error = result.exceptionOrNull()
                     _state.update {
                         if (error != null) {

@@ -231,7 +231,6 @@ class ForecastViewModelTest {
         override suspend fun refresh(
             latitude: Double,
             longitude: Double,
-            force: Boolean,
         ): Result<Unit> {
             refreshCallCount++
             return Result.success(Unit)
