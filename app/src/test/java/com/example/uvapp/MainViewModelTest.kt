@@ -1,6 +1,8 @@
 package com.example.uvapp
 
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
@@ -177,6 +179,38 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `exposure completion alerts exactly once`() {
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(MockEnvironmentContextProvider(), alerts)
+        settle()
+        vm.onOverrideUvToggle()
+        vm.onUvOverride(12.0)
+        vm.onStartExposure()
+        vm.onSpeedToggle()
+
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureStatus.COMPLETE, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.exposureLimitCount)
+
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertEquals(1, alerts.exposureLimitCount)
+    }
+
+    @Test
+    fun `developer alert buttons invoke output gateway`() {
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(MockEnvironmentContextProvider(), alerts)
+
+        vm.onTestReapplyAlert()
+        vm.onTestBandWarning()
+
+        assertEquals(1, alerts.reapplyPreviewCount)
+        assertEquals(1, alerts.bandPreviewCount)
+    }
+
+    @Test
     fun `low light alone does not classify indoor or pause exposure`() {
         val environment = MockEnvironmentContextProvider()
         val alerts = FakeExposureAlertGateway()
@@ -192,6 +226,76 @@ class MainViewModelTest {
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `low light with dark camera and quiet sound pauses exposure`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        environment.setCameraLuminance(10, CameraLightContext.DARK)
+        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
+        assertEquals(1, alerts.callCount)
+    }
+
+    @Test
+    fun `physical proximity alone does not classify indoor or pause exposure`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setDeviceOccluded(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(12_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `stable low light and physical proximity pause then clear proximity resumes`() {
+        val environment = MockEnvironmentContextProvider()
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+
+        environment.setLux(500)
+        environment.setDeviceOccluded(true)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(9_999)
+        mainDispatcher.scheduler.runCurrent()
+        assertFalse(vm.state.value.indoorDetected)
+
+        mainDispatcher.scheduler.advanceTimeBy(1)
+        mainDispatcher.scheduler.runCurrent()
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
+        assertEquals(1, alerts.callCount)
+
+        environment.setDeviceOccluded(false)
+        mainDispatcher.scheduler.runCurrent()
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(1, alerts.callCount)
     }
 
     @Test
@@ -515,9 +619,27 @@ class MainViewModelTest {
     private class FakeExposureAlertGateway : ExposureAlertGateway {
         var callCount = 0
             private set
+        var exposureLimitCount = 0
+            private set
+        var reapplyPreviewCount = 0
+            private set
+        var bandPreviewCount = 0
+            private set
 
         override fun notifyIndoorAutoPause() {
             callCount++
+        }
+
+        override fun notifyExposureLimitReached() {
+            exposureLimitCount++
+        }
+
+        override fun previewReapplyReminder() {
+            reapplyPreviewCount++
+        }
+
+        override fun previewBandWarning() {
+            bandPreviewCount++
         }
     }
 
@@ -568,7 +690,6 @@ class MainViewModelTest {
         override suspend fun refresh(
             latitude: Double,
             longitude: Double,
-            force: Boolean,
         ): Result<Unit> {
             this.latitude = latitude
             this.longitude = longitude
@@ -592,6 +713,9 @@ class MainViewModelTest {
     }
 
     private class FakePlaceRepository : PlaceRepository {
+        override suspend fun searchPlaces(query: String) =
+            Result.success(emptyList<com.example.uvapp.domain.model.PlaceSearchResult>())
+
         var coordinates: Coordinates? = null
             private set
 
@@ -611,6 +735,9 @@ class MainViewModelTest {
     }
 
     private class FailingPlaceRepository : PlaceRepository {
+        override suspend fun searchPlaces(query: String) =
+            Result.failure<List<com.example.uvapp.domain.model.PlaceSearchResult>>(IllegalStateException("offline"))
+
         override suspend fun reverseGeocode(coordinates: Coordinates): Result<PlaceName> =
             Result.failure(IllegalStateException("offline"))
     }

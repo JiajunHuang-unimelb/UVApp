@@ -5,8 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
+import com.example.uvapp.domain.environment.EnvironmentEvidence
+import com.example.uvapp.domain.environment.EnvironmentFusion
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
+import com.example.uvapp.domain.environment.DevicePosture
+import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -89,8 +94,16 @@ data class MainUiState(
     val lux: Int = 38_200,
     /** Manual lux override from the slidable exposure indicator (testing). */
     val luxOverride: Int? = null,
-    val stepsPerMinute: Int = 84,
     val nearIndoorLocation: Boolean? = false,
+    val deviceOccluded: Boolean? = null,
+    val devicePosture: DevicePosture? = null,
+    val isMoving: Boolean? = null,
+    val stepsSinceStart: Int? = null,
+    val stepsPerMinute: Int? = null,
+    val soundLevelDb: Double? = null,
+    val acousticContext: AcousticContext? = null,
+    val cameraLuminancePercent: Int? = null,
+    val cameraLightContext: CameraLightContext? = null,
     val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
@@ -111,6 +124,30 @@ data class MainUiState(
 
     /** Light-only classification shown by the lux card before sensor fusion is confirmed. */
     val lightReadingContext: LightContext get() = LightContext.fromLux(displayLux)
+
+    /** Physical proximity reading; developer simulation wins when enabled. */
+    val effectiveDeviceOccluded: Boolean? get() =
+        if (dev.simulateOccluded) true else deviceOccluded
+
+    val effectiveIsMoving: Boolean? get() =
+        if (dev.simulateActive) true else isMoving
+
+    val effectiveAcousticContext: AcousticContext? get() =
+        if (dev.overrideAudio) AcousticContext.ACTIVE_OUTDOOR_LIKELY else acousticContext
+
+    val environmentEvidence: EnvironmentEvidence get() =
+        EnvironmentFusion.evaluate(
+            nearIndoorLocation = nearIndoorLocation,
+            deviceOccluded = effectiveDeviceOccluded,
+            cameraLightContext = cameraLightContext,
+            acousticContext = effectiveAcousticContext,
+            posture = devicePosture,
+            isMoving = effectiveIsMoving,
+        )
+
+    /** Strong evidence or a combination of weak signals can support low-light classification. */
+    val hasIndoorEvidence: Boolean get() =
+        EnvironmentFusion.supportsIndoor(environmentEvidence)
 
     /** Low light is only classified as indoor after location-aware debounce confirms it. */
     val displayContext: LightContext get() = when {
@@ -162,6 +199,7 @@ class MainViewModel(
         EnvironmentSample(
             lux = DEFAULT_LUX,
             nearIndoorLocation = false,
+            deviceOccluded = null,
         )
 
     init {
@@ -185,6 +223,15 @@ class MainViewModel(
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
                             nearIndoorLocation = if (state.dev.overrideLocation) true else sample.nearIndoorLocation,
+                            deviceOccluded = sample.deviceOccluded,
+                            devicePosture = sample.posture,
+                            isMoving = sample.isMoving,
+                            stepsSinceStart = sample.stepsSinceStart,
+                            stepsPerMinute = sample.stepsPerMinute,
+                            soundLevelDb = sample.soundLevelDb,
+                            acousticContext = sample.acousticContext,
+                            cameraLuminancePercent = sample.cameraLuminancePercent,
+                            cameraLightContext = sample.cameraLightContext,
                         )
                     }
                     evaluateIndoorTransition()
@@ -262,7 +309,7 @@ class MainViewModel(
     fun onRefresh() {
         val fix = _state.value.locationFix
         if (fix != null && forecastRepository != null) {
-            refreshForecast(fix, force = true)
+            refreshForecast(fix)
         } else {
             locate()
         }
@@ -335,7 +382,10 @@ class MainViewModel(
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
-    fun onOccludedToggle() = _state.update { it.copy(dev = it.dev.copy(simulateOccluded = !it.dev.simulateOccluded)) }
+    fun onOccludedToggle() {
+        _state.update { it.copy(dev = it.dev.copy(simulateOccluded = !it.dev.simulateOccluded)) }
+        evaluateIndoorTransition()
+    }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
 
@@ -351,6 +401,14 @@ class MainViewModel(
     }
 
     fun onActiveToggle() = _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
+
+    fun onTestReapplyAlert() {
+        alertGateway?.previewReapplyReminder()
+    }
+
+    fun onTestBandWarning() {
+        alertGateway?.previewBandWarning()
+    }
 
     // ---- Internals -----------------------------------------------------------
 
@@ -398,7 +456,7 @@ class MainViewModel(
                             )
                         }
                         observeForecast(fix, repository)
-                        refreshForecast(fix, force = false)
+                        refreshForecast(fix)
                         loadPlaceName(fix)
                     }
 
@@ -455,7 +513,6 @@ class MainViewModel(
 
     private fun refreshForecast(
         fix: LocationFix,
-        force: Boolean,
     ) {
         val repository = forecastRepository ?: return
         forecastRefreshJob?.cancel()
@@ -463,7 +520,7 @@ class MainViewModel(
             viewModelScope.launch {
                 _state.update { it.copy(isLoading = true, errorMessage = null) }
                 try {
-                    val result = repository.refresh(fix.latitude, fix.longitude, force)
+                    val result = repository.refresh(fix.latitude, fix.longitude)
                     val error = result.exceptionOrNull()
                     _state.update {
                         if (error != null) {
@@ -560,11 +617,11 @@ class MainViewModel(
         val target =
             when {
                 !state.indoorDetected &&
-                    state.nearIndoorLocation == true &&
+                    state.hasIndoorEvidence &&
                     state.displayLux < INDOOR_ENTER_LUX -> true
 
                 state.indoorDetected &&
-                    (state.nearIndoorLocation == false || state.displayLux > INDOOR_EXIT_LUX) -> false
+                    (!state.hasIndoorEvidence || state.displayLux > INDOOR_EXIT_LUX) -> false
 
                 else -> null
             }
@@ -590,7 +647,7 @@ class MainViewModel(
 
     private fun confirmIndoorIfStillValid() {
         val state = _state.value
-        if (state.indoorDetected || state.nearIndoorLocation != true || state.displayLux >= INDOOR_ENTER_LUX) return
+        if (state.indoorDetected || !state.hasIndoorEvidence || state.displayLux >= INDOOR_ENTER_LUX) return
 
         _state.update { it.copy(indoorDetected = true) }
         syncExposure()
@@ -599,7 +656,7 @@ class MainViewModel(
 
     private fun confirmOutdoorIfStillValid() {
         val state = _state.value
-        val exitStillValid = state.nearIndoorLocation == false || state.displayLux > INDOOR_EXIT_LUX
+        val exitStillValid = !state.hasIndoorEvidence || state.displayLux > INDOOR_EXIT_LUX
         if (!state.indoorDetected || !exitStillValid) return
 
         val shouldResume = state.pauseReason == ExposurePauseReason.INDOOR_DETECTED
@@ -659,6 +716,7 @@ class MainViewModel(
     }
 
     private fun publishExposure(snapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
+        val previousStatus = _state.value.exposureStatus
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
@@ -685,6 +743,9 @@ class MainViewModel(
                         else -> snapshot.estimatedTotalSeconds
                     },
             )
+        }
+        if (snapshot.status == ExposureStatus.COMPLETE && previousStatus != ExposureStatus.COMPLETE) {
+            alertGateway?.notifyExposureLimitReached()
         }
         if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
             monitoringController?.stop()

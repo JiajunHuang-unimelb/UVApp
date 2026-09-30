@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.LightContext
+import com.example.uvapp.domain.environment.DevicePosture
+import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.DevUiState
 
@@ -38,7 +41,16 @@ import com.example.uvapp.viewmodel.DevUiState
 fun DevCard(
     apiStatuses: List<ApiStatus>,
     lux: Int,
-    stepsPerMinute: Int,
+    deviceOccluded: Boolean?,
+    devicePosture: DevicePosture?,
+    isMoving: Boolean?,
+    stepsSinceStart: Int?,
+    stepsPerMinute: Int?,
+    soundLevelDb: Double?,
+    acousticContext: AcousticContext?,
+    cameraLuminancePercent: Int?,
+    cameraLightContext: CameraLightContext?,
+    indoorConfidence: Double,
     dev: DevUiState,
     onToggleSpeed: () -> Unit,
     onToggleUvOverride: () -> Unit,
@@ -50,6 +62,8 @@ fun DevCard(
     onToggleOffline: () -> Unit,
     onToggleLocation: () -> Unit,
     onToggleActive: () -> Unit,
+    onTestReapplyAlert: () -> Unit,
+    onTestBandWarning: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
@@ -70,15 +84,36 @@ fun DevCard(
                     MonoLine("${status.name.padEnd(10)}·  ${status.detail}", colors)
                 }
                 MonoLine("Light       ·  ${formatThousands(lux)} lux", colors)
-                MonoLine("Steps       ·  $stepsPerMinute / min", colors)
+                MonoLine(
+                    "Proximity   ·  ${deviceOccluded.toProximityLabel()}",
+                    colors,
+                )
+                MonoLine("Posture     ·  ${devicePosture?.toLabel() ?: "unavailable"}", colors)
+                MonoLine("Motion      ·  ${isMoving.toMotionLabel()}", colors)
+                MonoLine(
+                    "Steps       ·  ${stepsSinceStart ?: "unavailable"}" +
+                        (stepsPerMinute?.let { " ($it / min)" } ?: ""),
+                    colors,
+                )
+                MonoLine(
+                    "Audio       ·  ${soundLevelDb?.let { "%.1f dBFS".format(it) } ?: "unavailable"}",
+                    colors,
+                )
+                MonoLine("Sound ctx   ·  ${acousticContext?.toLabel() ?: "unavailable"}", colors)
+                MonoLine(
+                    "Camera      ·  ${cameraLuminancePercent?.let { "$it%" } ?: "unavailable"}",
+                    colors,
+                )
+                MonoLine("Camera ctx  ·  ${cameraLightContext?.toLabel() ?: "unavailable"}", colors)
+                MonoLine("Fusion      ·  ${(indoorConfidence * 100).toInt()}% indoor support", colors)
             }
             Spacer(Modifier.height(12.dp))
 
             // Test alert buttons
             Row {
-                DevPillButton("Test reapply alert", Modifier.weight(1f), colors)
+                DevPillButton("Test reapply alert", onTestReapplyAlert, Modifier.weight(1f), colors)
                 Spacer(Modifier.width(8.dp))
-                DevPillButton("Test band warning", Modifier.weight(1f), colors)
+                DevPillButton("Test band warning", onTestBandWarning, Modifier.weight(1f), colors)
             }
             Spacer(Modifier.height(12.dp))
             Hairline(Modifier.fillMaxWidth(), colors.devStroke)
@@ -102,6 +137,26 @@ fun DevCard(
     }
 }
 
+private fun Boolean?.toProximityLabel(): String =
+    when (this) {
+        true -> "near / occluded"
+        false -> "far / clear"
+        null -> "unavailable"
+    }
+
+private fun Boolean?.toMotionLabel(): String =
+    when (this) {
+        true -> "moving"
+        false -> "stationary"
+        null -> "unavailable"
+    }
+
+private fun DevicePosture.toLabel(): String = name.lowercase().replace('_', ' ')
+
+private fun AcousticContext.toLabel(): String = name.lowercase().replace('_', ' ')
+
+private fun CameraLightContext.toLabel(): String = name.lowercase().replace('_', ' ')
+
 @Composable
 private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) {
     Text(
@@ -114,14 +169,19 @@ private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) 
 }
 
 @Composable
-private fun DevPillButton(label: String, modifier: Modifier, colors: com.example.uvapp.ui.theme.UvColors) {
+private fun DevPillButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    colors: com.example.uvapp.ui.theme.UvColors,
+) {
     Box(
         modifier
             .height(30.dp)
             .clip(RoundedCornerShape(15.dp))
             .background(colors.devButton)
             .border(1.dp, colors.devButtonStroke, RoundedCornerShape(15.dp))
-            .clickable { /* mock: alert would fire here */ },
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = colors.devHeader, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)

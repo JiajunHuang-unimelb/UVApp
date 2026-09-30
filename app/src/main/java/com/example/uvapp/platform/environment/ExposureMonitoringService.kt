@@ -14,6 +14,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
@@ -21,6 +22,9 @@ import androidx.core.content.ContextCompat
 import com.example.uvapp.MainActivity
 import com.example.uvapp.R
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
+import com.example.uvapp.domain.environment.MotionClassifier
+import com.example.uvapp.domain.environment.ProximityClassifier
+import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.IndoorLocation
 import com.example.uvapp.domain.model.contains
 import com.google.android.gms.location.LocationCallback
@@ -39,13 +43,18 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** Keeps ambient-light and saved-location proximity monitoring alive in the background. */
+/** Keeps ambient-light, physical-proximity, and saved-location monitoring alive in the background. */
 class ExposureMonitoringService : Service(), SensorEventListener {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private val indoorRepository by lazy { DataStoreIndoorLocationRepository(this) }
     private val sensorManager by lazy { getSystemService(SensorManager::class.java) }
     private val lightSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) }
+    private val proximitySensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY) }
+    private val accelerometerSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
+    private val stepCounterSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }
+    private val motionClassifier = MotionClassifier()
+    private val stepCounterTracker = StepCounterTracker()
     private val wakeLock by lazy {
         getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -72,7 +81,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         startForeground(NOTIFICATION_ID, createNotification())
         acquireWakeLock()
         AndroidEnvironmentContextProvider.markUnavailable()
-        startLightMonitoring()
+        startSensorMonitoring()
         startLocationMonitoring()
         repositoryJob =
             serviceScope.launch {
@@ -110,8 +119,38 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        if (event.sensor.type == Sensor.TYPE_LIGHT) {
-            AndroidEnvironmentContextProvider.updateLux(event.values[0].roundToInt())
+        when (event.sensor.type) {
+            Sensor.TYPE_LIGHT -> {
+                event.values.firstOrNull()?.let { lux ->
+                    AndroidEnvironmentContextProvider.updateLux(lux.roundToInt())
+                }
+            }
+
+            Sensor.TYPE_PROXIMITY -> {
+                val distance = event.values.firstOrNull()
+                val isOccluded = ProximityClassifier.isOccluded(distance, event.sensor.maximumRange)
+                AndroidEnvironmentContextProvider.updateDeviceOcclusion(isOccluded)
+            }
+
+            Sensor.TYPE_ACCELEROMETER -> {
+                val values = event.values
+                val reading =
+                    if (values.size >= 3) {
+                        motionClassifier.update(values[0], values[1], values[2])
+                    } else {
+                        null
+                    }
+                AndroidEnvironmentContextProvider.updateMotion(reading)
+            }
+
+            Sensor.TYPE_STEP_COUNTER -> {
+                val cumulativeSteps = event.values.firstOrNull()
+                val reading =
+                    cumulativeSteps?.let {
+                        stepCounterTracker.update(it, event.timestamp / NANOS_PER_MILLISECOND)
+                    }
+                AndroidEnvironmentContextProvider.updateSteps(reading)
+            }
         }
     }
 
@@ -120,10 +159,29 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         accuracy: Int,
     ) = Unit
 
-    private fun startLightMonitoring() {
-        val sensor = lightSensor ?: return
-        sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+    private fun startSensorMonitoring() {
+        lightSensor?.let { sensor ->
+            sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        proximitySensor?.let { sensor ->
+            sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        } ?: AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
+        accelerometerSensor?.let { sensor ->
+            sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        } ?: AndroidEnvironmentContextProvider.updateMotion(null)
+        if (hasActivityRecognitionPermission()) {
+            stepCounterSensor?.let { sensor ->
+                sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+            } ?: AndroidEnvironmentContextProvider.updateSteps(null)
+        } else {
+            AndroidEnvironmentContextProvider.updateSteps(null)
+        }
     }
+
+    private fun hasActivityRecognitionPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) ==
+            PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("WakelockTimeout")
     private fun acquireWakeLock() {
@@ -194,7 +252,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             .Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_locate)
             .setContentTitle("UV exposure monitoring active")
-            .setContentText("Using ambient light and saved indoor locations")
+            .setContentText("Using light, proximity, and saved indoor locations")
             .setContentIntent(openApp)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
@@ -209,5 +267,6 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         const val FRESHNESS_CHECK_MILLIS = 5_000L
         const val MAX_LOCATION_AGE_MILLIS = 30_000L
         const val MAX_LOCATION_ACCURACY_METERS = 50f
+        const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }

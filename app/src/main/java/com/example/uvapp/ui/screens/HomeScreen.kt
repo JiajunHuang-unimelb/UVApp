@@ -88,7 +88,16 @@ fun HomeScreen(
                 DevCard(
                     apiStatuses = state.apiStatuses,
                     lux = state.displayLux,
+                    deviceOccluded = state.effectiveDeviceOccluded,
+                    devicePosture = state.devicePosture,
+                    isMoving = state.effectiveIsMoving,
+                    stepsSinceStart = state.stepsSinceStart,
                     stepsPerMinute = state.stepsPerMinute,
+                    soundLevelDb = state.soundLevelDb,
+                    acousticContext = state.effectiveAcousticContext,
+                    cameraLuminancePercent = state.cameraLuminancePercent,
+                    cameraLightContext = state.cameraLightContext,
+                    indoorConfidence = state.environmentEvidence.indoorConfidence,
                     dev = state.dev,
                     onToggleSpeed = viewModel::onSpeedToggle,
                     onToggleUvOverride = viewModel::onOverrideUvToggle,
@@ -100,6 +109,8 @@ fun HomeScreen(
                     onToggleOffline = viewModel::onOfflineToggle,
                     onToggleLocation = viewModel::onLocationToggle,
                     onToggleActive = viewModel::onActiveToggle,
+                    onTestReapplyAlert = viewModel::onTestReapplyAlert,
+                    onTestBandWarning = viewModel::onTestBandWarning,
                 )
             }
         }

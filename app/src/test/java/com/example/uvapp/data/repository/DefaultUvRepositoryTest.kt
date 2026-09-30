@@ -28,7 +28,7 @@ class DefaultUvRepositoryTest {
             val dao = FakeUvReadingDao()
             val repository = repository(api = api, dao = dao, nowMillis = { 1234L })
 
-            val result = repository.refresh(LATITUDE, LONGITUDE, force = false)
+            val result = repository.refresh(LATITUDE, LONGITUDE)
             val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
 
             assertTrue(result.isSuccess)
@@ -47,7 +47,7 @@ class DefaultUvRepositoryTest {
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
             val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
 
-            val result = repository.refresh(LATITUDE, LONGITUDE, force = false)
+            val result = repository.refresh(LATITUDE, LONGITUDE)
             val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
 
             assertTrue(result.isSuccess)
@@ -57,16 +57,18 @@ class DefaultUvRepositoryTest {
         }
 
     @Test
-    fun `forced refresh still respects the one hour service limit`() =
+    fun `cache exactly one hour old refreshes from network`() =
         runBlocking {
             val api = FakeOpenMeteoApi { validResponse() }
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
-            val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
+            val repository = repository(api = api, dao = dao, nowMillis = { 3_601_000L })
 
-            val result = repository.refresh(LATITUDE, LONGITUDE, force = true)
+            val result = repository.refresh(LATITUDE, LONGITUDE)
+            val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
 
             assertTrue(result.isSuccess)
-            assertEquals(0, api.callCount)
+            assertEquals(1, api.callCount)
+            assertEquals(UvDataSource.NETWORK, state.source)
         }
 
     @Test
@@ -76,7 +78,7 @@ class DefaultUvRepositoryTest {
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
             val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
 
-            val result = repository.refresh(LATITUDE + 0.004, LONGITUDE, force = false)
+            val result = repository.refresh(LATITUDE + 0.004, LONGITUDE)
             val state = repository.observeForecast(LATITUDE + 0.004, LONGITUDE).first()
 
             assertTrue(result.isSuccess)
@@ -91,7 +93,7 @@ class DefaultUvRepositoryTest {
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
             val repository = repository(api = api, dao = dao, nowMillis = { 2_000L })
 
-            val result = repository.refresh(LATITUDE + 0.02, LONGITUDE, force = false)
+            val result = repository.refresh(LATITUDE + 0.02, LONGITUDE)
 
             assertTrue(result.isSuccess)
             assertEquals(1, api.callCount)
@@ -104,7 +106,7 @@ class DefaultUvRepositoryTest {
             val dao = FakeUvReadingDao(listOf(cachedEntity(fetchedAtMillis = 1_000L)))
             val repository = repository(api = api, dao = dao, nowMillis = { 7_200_000L })
 
-            val result = repository.refresh(LATITUDE, LONGITUDE, force = false)
+            val result = repository.refresh(LATITUDE, LONGITUDE)
             val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
 
             assertTrue(result.isFailure)
@@ -121,7 +123,7 @@ class DefaultUvRepositoryTest {
             val api = FakeOpenMeteoApi { throw IOException("network unavailable") }
             val repository = repository(api = api, dao = FakeUvReadingDao())
 
-            val result = repository.refresh(LATITUDE, LONGITUDE, force = true)
+            val result = repository.refresh(LATITUDE, LONGITUDE)
             val state = repository.observeForecast(LATITUDE, LONGITUDE).first()
 
             assertTrue(result.isFailure)

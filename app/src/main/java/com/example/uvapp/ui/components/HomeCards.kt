@@ -62,8 +62,6 @@ import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.pow
 
-import androidx.lifecycle.viewmodel.compose.viewModel
-
 fun formatUv(uv: Double): String = String.format(Locale.US, "%.1f", uv)
 
 /** "38 200" — space-grouped thousands; shared by cards and the dev panel. */
