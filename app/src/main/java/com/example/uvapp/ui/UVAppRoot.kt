@@ -29,7 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.uvapp.WeeklyExposureWidget
+import com.example.uvapp.data.history.ExposureHistoryRepositoryFactory
 import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
 import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
 import com.example.uvapp.data.repository.UvRepositoryFactory
@@ -45,6 +48,7 @@ import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
 import com.example.uvapp.ui.screens.ForecastScreen
+import com.example.uvapp.ui.screens.SunLogScreen
 import com.example.uvapp.ui.screens.HomeScreen
 import com.example.uvapp.ui.screens.SettingsScreen
 import com.example.uvapp.ui.theme.UvAppTheme
@@ -58,9 +62,14 @@ import com.example.uvapp.viewmodel.Tab
  * App shell: theme wiring, shared chrome (loading bar, refresh, bottom nav),
  * tab content and the search-dialog overlay. ViewModels are activity-scoped;
  * Home and Forecast share the same source of truth via MainViewModel.
+ * [requestedTab] comes from a launch intent (the weekly widget); it is applied once
+ * and then cleared through [onRequestedTabHandled].
  */
 @Composable
-fun UVAppRoot() {
+fun UVAppRoot(
+    requestedTab: Tab? = null,
+    onRequestedTabHandled: () -> Unit = {},
+) {
     val applicationContext = LocalContext.current.applicationContext
     val locationProvider =
         remember(applicationContext) { FusedCurrentLocationProvider(applicationContext) }
@@ -79,6 +88,8 @@ fun UVAppRoot() {
         remember(applicationContext) { AndroidMicrophoneEnvironmentMonitor(applicationContext) }
     val cameraMonitor =
         remember(applicationContext) { AndroidCameraLuminanceMonitor(applicationContext) }
+    val historyRepository =
+        remember(applicationContext) { ExposureHistoryRepositoryFactory.create(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
@@ -91,7 +102,15 @@ fun UVAppRoot() {
             environmentContextProvider = environmentContextProvider,
             monitoringController = monitoringController,
             alertGateway = alertGateway,
+            historyRepository = historyRepository,
+            onHistorySaved = { WeeklyExposureWidget().updateAll(applicationContext) },
         )
+    }
+    LaunchedEffect(requestedTab) {
+        if (requestedTab != null) {
+            mainViewModel.onTabSelected(requestedTab)
+            onRequestedTabHandled()
+        }
     }
     val forecastViewModel: ForecastViewModel = viewModel {
         ForecastViewModel(settingsViewModel, mainViewModel)
@@ -234,6 +253,11 @@ fun UVAppRoot() {
                         onSelectDay = forecastViewModel::selectDay,
                         onSelectTime = forecastViewModel::selectTime,
                         onCurrentTime = forecastViewModel::selectCurrentTime,
+                    )
+                    Tab.SUN_LOG -> SunLogScreen(
+                        state = mainState,
+                        onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
+                        onNextWeek = mainViewModel::onSunLogNextWeek,
                     )
                     Tab.SETTINGS -> SettingsScreen(
                         viewModel = settingsViewModel,

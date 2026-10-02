@@ -31,6 +31,9 @@ object UvIcons {
     val Forecast: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_forecast)
 
+    val SunLog: ImageVector
+        @Composable get() = ImageVector.vectorResource(R.drawable.ic_sun_log)
+
     val Settings: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_settings)
 

@@ -21,15 +21,24 @@ import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.Coordinates
+import com.example.uvapp.domain.model.ExposureDayTotal
+import com.example.uvapp.domain.model.ExposureRecord
+import com.example.uvapp.domain.model.ExposureRecordStatus
+import com.example.uvapp.domain.model.ExposureWeeklySummary
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
+import com.example.uvapp.domain.repository.ExposureHistoryRepository
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -40,9 +49,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Bottom-navigation destinations. */
-enum class Tab { HOME, FORECAST, SETTINGS }
+enum class Tab { HOME, FORECAST, SUN_LOG, SETTINGS }
 
 /** Developer-mode override switches (mirrors the high-fi debug card). */
 data class DevUiState(
@@ -110,6 +121,8 @@ data class MainUiState(
     val spf: Int = 15,
     val devModeEnabled: Boolean = false,
     val dev: DevUiState = DevUiState(),
+    /** Week shown on the Sun log tab; null until the first read arrives. */
+    val sunLogWeek: ExposureWeeklySummary? = null,
 ) {
     /** UV shown on the hero (dev override wins). */
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
@@ -175,6 +188,9 @@ class MainViewModel(
     private val alertGateway: ExposureAlertGateway? = null,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
+    private val historyRepository: ExposureHistoryRepository? = null,
+    /** Called after each successful history save (refreshes the weekly widget). */
+    private val onHistorySaved: (suspend () -> Unit)? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
@@ -190,6 +206,20 @@ class MainViewModel(
     private var placeLookupJob: Job? = null
     private var indoorTransitionJob: Job? = null
     private var pendingIndoorTarget: Boolean? = null
+
+    // Exposure history (see docs/exposure-tracking-api.md for the save contract).
+    private val historySaveMutex = Mutex()
+    private var sunLogWeekJob: Job? = null
+    private var sunLogWeekDate: LocalDate = todayDate()
+    private var historySessionId: String? = null
+    private var historyStartedAtMillis = 0L
+    private var historyZoneId: ZoneId = ZoneId.systemDefault()
+    private val historyDays = mutableMapOf<LocalDate, ExposureDayTotal>()
+    private var lastHistoryStatus = ExposureStatus.NOT_STARTED
+    private var lastHistoryWallMillis = 0L
+    private var lastHistoryDoseSed = 0.0
+    private var lastHistorySaveWallMillis = 0L
+    private var lastRecordedThroughMillis = 0L
 
     fun onIndoorProximity(near: Boolean?) {
         _state.update { it.copy(nearIndoorLocation = if (it.dev.overrideLocation) true else near) }
@@ -253,6 +283,7 @@ class MainViewModel(
                     minimumAdvanceMillis = step * 1_000L,
                     forceMinimumAdvance = step > 1L,
                 )
+                recordHistory()
             }
         }
 
@@ -261,11 +292,21 @@ class MainViewModel(
         if (locationProvider != null && forecastRepository != null) {
             locate()
         }
+
+        observeSunLogWeek(sunLogWeekDate)
     }
 
     // ---- User actions -------------------------------------------------------
 
     fun onTabSelected(tab: Tab) = _state.update { it.copy(selectedTab = tab) }
+
+    fun onSunLogPreviousWeek() = observeSunLogWeek(sunLogWeekDate.minusDays(7))
+
+    fun onSunLogNextWeek() {
+        val next = sunLogWeekDate.plusDays(7)
+        if (next.isAfter(todayDate())) return
+        observeSunLogWeek(next)
+    }
 
     fun onSearchClick() = _state.update { it.copy(showSearchDialog = true) }
 
@@ -592,6 +633,7 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
+        closeHistorySession()
         monitoringController?.start()
         _state.update {
             it.copy(
@@ -752,6 +794,118 @@ class MainViewModel(
         }
     }
 
+    // ---- Exposure history -----------------------------------------------------
+
+    /**
+     * Runs once per ticker iteration, right after syncExposure(). Each sync settles exactly
+     * one constant-condition segment, so the dose delta since the last call is added whole
+     * to the local date it ended on. Saves on any status change and every minute while running.
+     */
+    private fun recordHistory() {
+        if (historyRepository == null) return
+        val snapshot = exposureSession.snapshot()
+        val now = nowMillis()
+        if (historySessionId == null) {
+            if (snapshot.status == ExposureStatus.NOT_STARTED) return
+            openHistorySession(snapshot.status, now)
+        }
+        addHistoryDelta(snapshot.accumulatedDoseSed, now)
+        val statusChanged = snapshot.status != lastHistoryStatus
+        val checkpointDue =
+            snapshot.status == ExposureStatus.RUNNING &&
+                now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
+        lastHistoryStatus = snapshot.status
+        if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
+    }
+
+    private fun openHistorySession(status: ExposureStatus, now: Long) {
+        historySessionId = UUID.randomUUID().toString()
+        historyStartedAtMillis = now
+        historyZoneId = ZoneId.systemDefault()
+        historyDays.clear()
+        lastHistoryStatus = status
+        lastHistoryWallMillis = now
+        lastHistoryDoseSed = 0.0
+        lastHistorySaveWallMillis = now
+        lastRecordedThroughMillis = now
+    }
+
+    /** Saves the session being replaced; called before start() resets the dose. */
+    private fun closeHistorySession() {
+        if (historySessionId == null) return
+        val now = nowMillis()
+        addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
+        saveHistory(ExposureRecordStatus.COMPLETED, now)
+        historySessionId = null
+    }
+
+    /** Duration uses wall time (never more than real time, even in 60x dev mode). */
+    private fun addHistoryDelta(doseSed: Double, now: Long) {
+        var durationMillis = now - lastHistoryWallMillis
+        if (durationMillis < 0L || lastHistoryStatus != ExposureStatus.RUNNING) durationMillis = 0L
+        val doseDelta = doseSed - lastHistoryDoseSed
+        lastHistoryWallMillis = now
+        lastHistoryDoseSed = doseSed
+        if (durationMillis == 0L && doseDelta <= 0.0) return
+
+        val date = Instant.ofEpochMilli(now).atZone(historyZoneId).toLocalDate()
+        val previous = historyDays[date]
+        if (previous == null) {
+            historyDays[date] = ExposureDayTotal(date, durationMillis, doseDelta)
+        } else {
+            historyDays[date] =
+                ExposureDayTotal(date, previous.activeDurationMillis + durationMillis, previous.doseSed + doseDelta)
+        }
+    }
+
+    /** Builds the record now, then saves it in order behind any earlier save. */
+    private fun saveHistory(status: ExposureRecordStatus, now: Long) {
+        val repository = historyRepository
+        val sessionId = historySessionId
+        if (repository == null || sessionId == null) return
+        // Storage rejects a checkpoint older than the last one, so a wall-clock jump back is held.
+        if (now > lastRecordedThroughMillis) lastRecordedThroughMillis = now
+        lastHistorySaveWallMillis = now
+        val record =
+            ExposureRecord(
+                sessionId = sessionId,
+                startedAtMillis = historyStartedAtMillis,
+                recordedThroughMillis = lastRecordedThroughMillis,
+                zoneId = historyZoneId.id,
+                status = status,
+                days = historyDays.values.sortedBy { it.date },
+            )
+        viewModelScope.launch {
+            // Single attempt: the next checkpoint carries the full cumulative state anyway.
+            val saved = historySaveMutex.withLock { repository.save(record).isSuccess }
+            val callback = onHistorySaved
+            if (saved && callback != null) callback()
+        }
+    }
+
+    private fun toRecordStatus(status: ExposureStatus): ExposureRecordStatus =
+        when (status) {
+            ExposureStatus.PAUSED -> ExposureRecordStatus.PAUSED
+            ExposureStatus.COMPLETE -> ExposureRecordStatus.COMPLETED
+            else -> ExposureRecordStatus.ACTIVE
+        }
+
+    private fun observeSunLogWeek(date: LocalDate) {
+        val repository = historyRepository ?: return
+        sunLogWeekDate = date
+        val weekFlow = repository.observeWeek(date)
+        sunLogWeekJob?.cancel()
+        sunLogWeekJob =
+            viewModelScope.launch {
+                weekFlow.collect { week ->
+                    _state.update { it.copy(sunLogWeek = week) }
+                }
+            }
+    }
+
+    private fun todayDate(): LocalDate =
+        Instant.ofEpochMilli(nowMillis()).atZone(ZoneId.systemDefault()).toLocalDate()
+
     override fun onCleared() {
         monitoringController?.stop()
         super.onCleared()
@@ -776,5 +930,6 @@ class MainViewModel(
         const val INDOOR_ENTER_LUX = 1_000
         const val INDOOR_EXIT_LUX = 2_000
         const val INDOOR_TRANSITION_DELAY_MILLIS = 10_000L
+        const val HISTORY_CHECKPOINT_MILLIS = 60_000L
     }
 }
