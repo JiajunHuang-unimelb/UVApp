@@ -123,6 +123,8 @@ data class MainUiState(
     val dev: DevUiState = DevUiState(),
     /** Week shown on the Sun log tab; null until the first read arrives. */
     val sunLogWeek: ExposureWeeklySummary? = null,
+    /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
+    val sunLogShowsTime: Boolean = false,
 ) {
     /** UV shown on the hero (dev override wins). */
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
@@ -299,6 +301,8 @@ class MainViewModel(
     // ---- User actions -------------------------------------------------------
 
     fun onTabSelected(tab: Tab) = _state.update { it.copy(selectedTab = tab) }
+
+    fun onSunLogShowTime(showTime: Boolean) = _state.update { it.copy(sunLogShowsTime = showTime) }
 
     fun onSunLogPreviousWeek() = observeSunLogWeek(sunLogWeekDate.minusDays(7))
 

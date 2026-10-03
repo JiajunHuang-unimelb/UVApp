@@ -782,6 +782,17 @@ class MainViewModelTest {
         assertEquals(today, vm.state.value.sunLogWeek?.weekStart)
     }
 
+    @Test
+    fun `sun log numbers default to percent and switch to time`() {
+        val vm = buildHistoryViewModel(FakeExposureHistoryRepository())
+        settle()
+        assertFalse(vm.state.value.sunLogShowsTime)
+
+        vm.onSunLogShowTime(true)
+        vm.onTabSelected(com.example.uvapp.viewmodel.Tab.HOME)
+        assertTrue(vm.state.value.sunLogShowsTime)
+    }
+
     private class FakeExposureHistoryRepository : ExposureHistoryRepository {
         val saved = mutableListOf<ExposureRecord>()
         val weekRequests = mutableListOf<LocalDate>()

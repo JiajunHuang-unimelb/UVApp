@@ -258,6 +258,7 @@ fun UVAppRoot(
                         state = mainState,
                         onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
                         onNextWeek = mainViewModel::onSunLogNextWeek,
+                        onShowTime = mainViewModel::onSunLogShowTime,
                     )
                     Tab.SETTINGS -> SettingsScreen(
                         viewModel = settingsViewModel,

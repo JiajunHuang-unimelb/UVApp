@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +35,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.exposure.ExposureCalculator
 import com.example.uvapp.domain.model.ExposureDailySummary
+import com.example.uvapp.ui.components.SkinSpfCard
 import com.example.uvapp.ui.components.SunCard
+import com.example.uvapp.ui.components.UvSwitch
 import com.example.uvapp.ui.components.formatSunTime
 import com.example.uvapp.ui.icons.UvIcons
 import com.example.uvapp.ui.theme.UvTheme
@@ -40,16 +45,21 @@ import com.example.uvapp.viewmodel.MainUiState
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToLong
 
 private val dayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
 private val weekLabelFormat = DateTimeFormatter.ofPattern("d MMM", Locale.US)
 
-/** Sun log tab: one Mon-Sun week of exposure as % of the personal daily limit. */
+/**
+ * Sun log tab: same top layout as Home/Forecast (hero row without the address bar),
+ * then one Mon-Sun week of exposure as % of the personal daily limit.
+ */
 @Composable
 fun SunLogScreen(
     state: MainUiState,
     onPreviousWeek: () -> Unit,
     onNextWeek: () -> Unit,
+    onShowTime: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
@@ -58,9 +68,14 @@ fun SunLogScreen(
         modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 88.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 80.dp),
     ) {
-        Text("Sun log", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+        // Same geometry as HeroRow: 132 dp tall, 224 dp left card, skin card fills the rest.
+        Row(Modifier.fillMaxWidth().height(132.dp), verticalAlignment = Alignment.Top) {
+            SunTimeCard(week?.activeDurationMillis, Modifier.width(224.dp).fillMaxHeight())
+            Spacer(Modifier.width(8.dp))
+            SkinSpfCard(state.skinType, state.spf, Modifier.weight(1f).fillMaxHeight())
+        }
         if (week == null) return@Column
 
         val today = LocalDate.now()
@@ -87,29 +102,37 @@ fun SunLogScreen(
         }
 
         Spacer(Modifier.height(12.dp))
-        Text(
-            formatSunTime(week.activeDurationMillis) + " in the sun",
-            color = colors.accent,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(12.dp))
         WeekChartCard(
             days = week.days,
             limitSed = ExposureCalculator.calculatePersonalDoseLimit(state.skinType),
             today = today,
+            showTime = state.sunLogShowsTime,
+            onShowTime = onShowTime,
         )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Full bar = your daily limit for skin ${state.skinType.label}",
-            color = colors.textSecondary,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
+    }
+}
+
+/** Takes the UV hero card's place: the week's total time in the sun, in accent tint. */
+@Composable
+private fun SunTimeCard(activeDurationMillis: Long?, modifier: Modifier) {
+    val colors = UvTheme
+    SunCard(modifier, containerColor = colors.activePill, shape = RoundedCornerShape(12.dp)) {
+        Column(
+            Modifier.fillMaxSize().padding(top = 16.dp, bottom = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("WEEKLY TOTAL", color = colors.accent.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (activeDurationMillis == null) "--" else formatSunTime(activeDurationMillis),
+                color = colors.accent,
+                fontSize = 40.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+            )
+            Spacer(Modifier.weight(1f))
+            Text("in the sun", color = colors.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -134,9 +157,18 @@ private fun WeekArrow(rotation: Float, description: String, enabled: Boolean, on
     }
 }
 
-/** Seven bars, Monday to Sunday; height = share of the daily limit, capped at 100%. */
+/**
+ * Seven bars, Monday to Sunday; height = share of the daily limit, capped at 100%.
+ * The number row above shows either that share (uncapped) or the time in the sun.
+ */
 @Composable
-private fun WeekChartCard(days: List<ExposureDailySummary>, limitSed: Double, today: LocalDate) {
+private fun WeekChartCard(
+    days: List<ExposureDailySummary>,
+    limitSed: Double,
+    today: LocalDate,
+    showTime: Boolean,
+    onShowTime: (Boolean) -> Unit,
+) {
     val colors = UvTheme
     SunCard(
         Modifier.fillMaxWidth(),
@@ -145,8 +177,54 @@ private fun WeekChartCard(days: List<ExposureDailySummary>, limitSed: Double, to
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("% OF DAILY LIMIT", color = colors.textSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "% OF DAILY LIMIT",
+                    color = colors.textSecondary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                ToggleLabel("%", selected = !showTime, onClick = { onShowTime(false) })
+                Spacer(Modifier.width(8.dp))
+                // Both sides are valid views, so the track keeps the accent colour either way.
+                UvSwitch(
+                    checked = showTime,
+                    onToggle = { onShowTime(!showTime) },
+                    onColor = colors.accent,
+                    offColor = colors.accent,
+                )
+                Spacer(Modifier.width(8.dp))
+                ToggleLabel("Time", selected = showTime, onClick = { onShowTime(true) })
+            }
+
             Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                for (day in days) {
+                    var label = ""
+                    var labelColor = colors.onBackground
+                    // Days still ahead in this week stay blank; past days with nothing show a real zero.
+                    if (!day.date.isAfter(today)) {
+                        if (showTime) {
+                            label = formatSunTime(day.activeDurationMillis)
+                        } else {
+                            label = (day.doseSed / limitSed * 100).roundToLong().toString() + "%"
+                            if (day.doseSed > limitSed) labelColor = colors.error
+                        }
+                    }
+                    Text(
+                        label,
+                        color = labelColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
             Canvas(Modifier.fillMaxWidth().height(140.dp)) {
                 val slot = size.width / 7f
                 val barWidth = slot * 0.5f
@@ -188,4 +266,17 @@ private fun WeekChartCard(days: List<ExposureDailySummary>, limitSed: Double, to
             }
         }
     }
+}
+
+/** One side of the %/Time slider; the selected side is bold accent. */
+@Composable
+private fun ToggleLabel(text: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = UvTheme
+    Text(
+        text,
+        color = if (selected) colors.accent else colors.textSecondary,
+        fontSize = 13.sp,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
