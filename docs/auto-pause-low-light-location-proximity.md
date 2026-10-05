@@ -2,12 +2,12 @@
 
 ## Overview
 
-The exposure countdown can infer that the phone is indoors or pocketed from ambient light plus supporting evidence:
+The exposure countdown identifies a confirmed indoor context from two signals:
 
 - the ambient light level is low; and
-- the user is near a known indoor location, the physical proximity sensor reports that the phone is covered, or multiple weaker camera, microphone and motion signals agree.
+- the user is within 100 m of a saved indoor location.
 
-When low light and sufficient supporting evidence remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions read light, proximity, accelerometer, step-counter and fused-location data. Optional microphone and CameraX analysis run only while the app is visible and Enhanced sensing is enabled.
+When both conditions remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions also read proximity, accelerometer and step-counter data for diagnostics and suggestion context, but those signals do not classify a place as indoors. The optional microphone monitor runs only while the app is visible and Enhanced sensing is enabled.
 
 ## Detection rules
 
@@ -15,12 +15,12 @@ Indoor and outdoor transitions use different light thresholds to avoid repeated 
 
 | Transition | Required condition | Stability period |
 | --- | --- | --- |
-| Enter indoor/pocket | Lux is below `1,000` and fused indoor support is at least `0.35` | 10 seconds |
-| Leave indoor/pocket | Lux is above `2,000`, or fused indoor support falls below `0.35` | 10 seconds |
+| Enter indoor | Lux is below `1,000` and the current fix is within 100 m of a saved indoor location | 10 seconds |
+| Leave indoor | Lux is above `2,000`, or the current fix leaves the saved radius | 10 seconds |
 
 Lux values from `1,000` through `2,000` preserve the current indoor/outdoor classification. If a required condition changes during its stability period, the pending transition is cancelled. A new complete 10-second period is then required.
 
-Low light alone, location proximity alone, and physical proximity alone are insufficient to change the exposure context because low light and supporting evidence are both required. Camera, microphone, posture or stationary state alone are also insufficient supporting evidence.
+Low light alone and saved-location proximity alone are insufficient because both are required. Physical proximity, microphone context, posture, movement and steps never change the automatic indoor classification.
 
 ## Countdown behavior
 
@@ -48,8 +48,6 @@ data class EnvironmentSample(
     val stepsPerMinute: Int?,
     val soundLevelDb: Double?,
     val acousticContext: AcousticContext?,
-    val cameraLuminancePercent: Int?,
-    val cameraLightContext: CameraLightContext?,
 )
 
 interface EnvironmentContextProvider {
@@ -57,9 +55,9 @@ interface EnvironmentContextProvider {
 }
 ```
 
-The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, requests high-accuracy fused-location updates every five seconds, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. Lifecycle-bound monitors publish microphone and CameraX results into the same provider while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
+The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, requests high-accuracy fused-location updates every five seconds, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. A lifecycle-bound microphone monitor publishes sound context while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
 
-The foreground service collects facts only. Thresholds, debounce, pause ownership and exposure calculations remain in `MainViewModel`. `MockEnvironmentContextProvider` remains available for deterministic unit tests.
+The foreground service collects facts only. Saved-radius gating, thresholds, debounce, pause ownership and exposure calculations remain in `MainViewModel`. `MockEnvironmentContextProvider` remains available for deterministic unit tests.
 
 If the sensor, location or service becomes unavailable, the provider publishes a conservative high-light/outside state. That prevents an old indoor classification from suppressing outdoor exposure indefinitely.
 
@@ -101,7 +99,7 @@ The current state does not expose the remaining time in the 10-second debounce. 
 6. Select **Shade** or **Direct sun**, or disable **Near known indoor location**.
 7. Keep the outdoor condition unchanged for 10 seconds. The countdown should resume if it was automatically paused.
 
-The alternative pocket test uses **Mock light level → Indoors** together with **Simulate occluded (in pocket)**. This follows the same 10-second pause/resume debounce without requiring a saved location.
+The **Simulate occluded (in pocket)** control is diagnostic only and cannot trigger an indoor auto-pause without saved-location proximity.
 
 Before a session starts, the exposure indicator's lux slider can supply a mock light value for previewing the UI. Starting a session clears that override and makes the indicator read-only so live sensor values cannot be replaced accidentally. The explicit developer light-level override remains available for deliberate in-session testing and takes precedence while enabled.
 
@@ -111,13 +109,11 @@ Unit coverage includes:
 
 - low light without location proximity;
 - location proximity without low light;
-- physical proximity without low light;
-- low light plus physical proximity pause/resume;
-- low light plus dark-camera and quiet-sound fusion;
+- physical proximity with low light remaining insufficient;
+- quiet and stationary context with low light remaining insufficient for auto-pause;
 - accelerometer posture and movement classification;
 - step-counter rebasing and rate calculation;
 - microphone RMS/dBFS classification;
-- CameraX Y-plane luminance classification;
 - the full 10-second entry debounce;
 - signal flapping and debounce restart;
 - hysteresis between 1,000 and 2,000 lux;
@@ -149,7 +145,7 @@ Collect `IndoorLocationsViewModel.state` with `collectAsStateWithLifecycle()`. `
 
 ### Suggestions and notifications
 
-An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Only one automatic opportunity is considered per exposure session. Explicit saving remains available after dismissal. Low light alone and automatic pauses do not prompt.
+An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, quiet microphone context, a stationary accelerometer classification, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Both quiet and stationary signals are required. Only one eligible automatic opportunity is considered per exposure session. Explicit saving remains available after dismissal. Low light alone and automatic pauses do not prompt.
 
 When hidden, a pending suggestion produces **Were you indoors when you paused?** with a tap action opening the app's confirmation dialog. It never opens a screen without a tap or saves automatically. There is only one pending suggestion; notification slot 2002 is reused for it, updated without repeating alerts, and cancelled on confirmation/dismissal. If notifications are denied, the persisted candidate remains available on the next app visit. The present app has no background pause action/service: this notification path handles pending work completing while hidden and is ready for future service integration.
 
@@ -159,7 +155,7 @@ When hidden, a pending suggestion produces **Were you indoors when you paused?**
 
 The developer **Near known indoor location** override still forces true while enabled. Disabling it returns to calculated proximity. A separate, explicitly enabled **Demo: University Square radius** uses the university map's marker at -37.7986, 144.9602, with a 100 m radius, held only in memory and never inserted into saved places. This is a campus demonstration marker, not evidence of an indoor building. Coordinate source: [University of Melbourne map](https://maps.unimelb.edu.au/point?poi=1001526284). Leaving developer mode disables it.
 
-For emulator testing, provide a precise location in Extended controls → Location, choose I’m indoors here, name and save it, and use the mock light controls. Use Locate to obtain another fix after changing emulator coordinates. Check rename/delete and cancellation, then enable save suggestions, obtain a fresh fix outside all saved radii, start exposure in low light, and manually pause. The timer must remain manually paused after saving. Test notification permission denied and permitted, Activity recreation with a pending dialog, and tapping the notification after backgrounding while a save request finishes.
+For emulator testing, provide a precise location in Extended controls → Location, choose I’m indoors here, name and save it, and use the mock light controls. Use Locate to obtain another fix after changing emulator coordinates. Check rename/delete and cancellation. To exercise automatic suggestions, enable Enhanced sensing and save suggestions, obtain a fresh fix outside all saved radii, then manually pause an exposure in low light while the sound classifier is quiet and the accelerometer is stationary. The timer must remain manually paused after saving. Test notification permission denied and permitted, Activity recreation with a pending dialog, and tapping the notification after backgrounding while a save request finishes.
 
 Automated coverage includes quality/distance boundaries, opt-in saving, duplicate replacement, manual pause eligibility, once-per-session suppression, captured-candidate restoration, and DataStore disk persistence. A Compose instrumentation test exercises saving, rename/delete, empty state, dismissal and visibility restoration. Instrumentation requires a connected emulator/device; compiling the test APK does not mean these device tests have executed.
 
@@ -170,7 +166,7 @@ Validation on 23 September 2026: `testDebugUnitTest assembleDebug assembleDebugA
 - Monitoring begins only after the user starts an exposure session and location permission is available.
 - The foreground service uses five-second continuous fused-location updates rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
 - Saving an indoor place still uses a separate fresh one-shot GPS fix, while active-session proximity uses continuous service updates.
-- Proximity sensors are commonly binary and are used only as evidence that the phone is covered; they do not measure whether the user is inside a building.
-- Camera luminance is affected by automatic exposure and microphone level depends on device gain. Both are weak contextual signals, never UV measurements.
-- Microphone and camera sampling intentionally stop when the app is no longer visible; continuous background access would require additional foreground-service types and user-facing policy justification.
+- Proximity sensors are commonly binary and are retained only as diagnostics that the phone is covered; they do not affect indoor detection.
+- Microphone level depends on device gain and is used only with stationary motion to gate an optional save suggestion, never as a UV measurement or definitive indoor classification.
+- Microphone sampling intentionally stops when the app is no longer visible; continuous background access would require an additional foreground-service type and user-facing policy justification.
 - Step-counter hardware is optional and may deliver updates with several seconds of latency.

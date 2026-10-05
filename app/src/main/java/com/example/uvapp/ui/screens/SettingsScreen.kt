@@ -105,12 +105,20 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(12.dp))
-        SettingsSection("Sensing") {
-            SettingsSwitchRow(
-                title = "Enhanced sensing",
-                subtitle = "Use motion, steps, sound and camera brightness while the app is open",
-                checked = state.enhancedSensingEnabled,
-                onToggle = onEnhancedSensingToggle,
+        SettingsSwitchRow(
+            title = "Enhanced sensing",
+            subtitle = "Use motion, steps and sound while the app is open",
+            checked = state.enhancedSensingEnabled,
+            onToggle = onEnhancedSensingToggle,
+        )
+
+        Spacer(Modifier.height(24.dp))
+        Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+        ThemeMode.entries.forEach { mode ->
+            SettingsRadioRow(
+                label = mode.label,
+                selected = state.themeMode == mode,
+                onClick = { viewModel.setThemeMode(mode) },
             )
             Spacer(Modifier.height(8.dp))
             Text(

@@ -1,8 +1,12 @@
 package com.example.uvapp
 
+import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.DevicePosture
+import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
+import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
 import com.example.uvapp.viewmodel.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -20,7 +24,12 @@ class IndoorLocationsTest {
         override val data = MutableStateFlow(IndoorLocationsData())
         override suspend fun update(transform: (IndoorLocationsData) -> IndoorLocationsData) { data.value = transform(data.value) }
     }
-    private fun main() = MainViewModel(SettingsViewModel(FakeUserPreferencesRepository()), elapsedRealtimeMillis = { dispatcher.scheduler.currentTime })
+    private fun main(environment: EnvironmentContextProvider? = null) =
+        MainViewModel(
+            SettingsViewModel(FakeUserPreferencesRepository()),
+            environmentContextProvider = environment,
+            elapsedRealtimeMillis = { dispatcher.scheduler.currentTime },
+        )
     private fun provider(fix: LocationFix = good) = object : CurrentLocationProvider { override suspend fun getCurrentLocation() = LocationResult.Success(fix) }
     @Test fun `quality and distance boundaries`() {
         assertTrue(good.usableForIndoor(40_000))
@@ -52,7 +61,8 @@ class IndoorLocationsTest {
     @Test fun `manual pause prompts once and preserves captured candidate across restoration`() {
         val repo = Memory()
         repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
-        val main = main()
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
         val alerts = mutableListOf<IndoorSuggestion?>()
         val vm = IndoorLocationsViewModel(repo, provider(), main, alerts::add, now = { 10_000 })
         dispatcher.scheduler.runCurrent()
@@ -61,6 +71,8 @@ class IndoorLocationsTest {
         main.onStartExposure()
         main.onOverrideLightToggle()
         main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
         dispatcher.scheduler.runCurrent()
         vm.setVisible(false)
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
@@ -76,6 +88,38 @@ class IndoorLocationsTest {
         val restored = IndoorLocationsViewModel(repo, provider(good.copy(latitude = 0.0)), main(), now = { 99_000 })
         dispatcher.scheduler.runCurrent()
         assertEquals(candidate, restored.state.value.data.pending)
+    }
+    @Test fun `manual pause suggestion requires both quiet audio and stationary motion`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        val vm = IndoorLocationsViewModel(repo, provider(), main, now = { 10_000 })
+        dispatcher.scheduler.runCurrent()
+        vm.requestSave(); dispatcher.scheduler.runCurrent()
+        vm.dismiss(); dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+
+        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = true)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onResumeExposure()
+        environment.setAcoustic(-20.0, AcousticContext.ACTIVE_OUTDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onResumeExposure()
+        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNotNull(repo.data.value.pending)
     }
     @Test fun `bad location never produces candidate and proximity is unknown`() {
         val repo = Memory()

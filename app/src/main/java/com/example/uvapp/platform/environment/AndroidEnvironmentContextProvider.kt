@@ -3,7 +3,6 @@ package com.example.uvapp.platform.environment
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.AcousticReading
-import com.example.uvapp.domain.environment.CameraLuminanceReading
 import com.example.uvapp.domain.environment.MotionReading
 import com.example.uvapp.domain.environment.StepActivityReading
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,8 +24,6 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 stepsPerMinute = null,
                 soundLevelDb = null,
                 acousticContext = null,
-                cameraLuminancePercent = null,
-                cameraLightContext = null,
             ),
         )
 
@@ -71,15 +68,6 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
         }
     }
 
-    fun updateCameraLuminance(reading: CameraLuminanceReading?) {
-        mutable.update {
-            it.copy(
-                cameraLuminancePercent = reading?.luminancePercent,
-                cameraLightContext = reading?.context,
-            )
-        }
-    }
-
     /** Unknown evidence is treated as outdoor/high-light so stale indoor pauses can clear. */
     fun markUnavailable() {
         mutable.value =
@@ -93,8 +81,6 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 stepsPerMinute = null,
                 soundLevelDb = null,
                 acousticContext = null,
-                cameraLuminancePercent = null,
-                cameraLightContext = null,
             )
     }
 

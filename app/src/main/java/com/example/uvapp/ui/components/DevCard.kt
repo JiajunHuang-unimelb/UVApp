@@ -28,7 +28,6 @@ import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.AcousticContext
-import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.DevUiState
 
@@ -48,9 +47,7 @@ fun DevCard(
     stepsPerMinute: Int?,
     soundLevelDb: Double?,
     acousticContext: AcousticContext?,
-    cameraLuminancePercent: Int?,
-    cameraLightContext: CameraLightContext?,
-    indoorConfidence: Double,
+    nearIndoorLocation: Boolean?,
     dev: DevUiState,
     onToggleSpeed: () -> Unit,
     onToggleUvOverride: () -> Unit,
@@ -100,12 +97,7 @@ fun DevCard(
                     colors,
                 )
                 MonoLine("Sound ctx   ·  ${acousticContext?.toLabel() ?: "unavailable"}", colors)
-                MonoLine(
-                    "Camera      ·  ${cameraLuminancePercent?.let { "$it%" } ?: "unavailable"}",
-                    colors,
-                )
-                MonoLine("Camera ctx  ·  ${cameraLightContext?.toLabel() ?: "unavailable"}", colors)
-                MonoLine("Fusion      ·  ${(indoorConfidence * 100).toInt()}% indoor support", colors)
+                MonoLine("Saved place ·  ${nearIndoorLocation.toLocationLabel()}", colors)
             }
             Spacer(Modifier.height(12.dp))
 
@@ -151,11 +143,16 @@ private fun Boolean?.toMotionLabel(): String =
         null -> "unavailable"
     }
 
+private fun Boolean?.toLocationLabel(): String =
+    when (this) {
+        true -> "within 100 m"
+        false -> "outside radius"
+        null -> "unavailable"
+    }
+
 private fun DevicePosture.toLabel(): String = name.lowercase().replace('_', ' ')
 
 private fun AcousticContext.toLabel(): String = name.lowercase().replace('_', ' ')
-
-private fun CameraLightContext.toLabel(): String = name.lowercase().replace('_', ' ')
 
 @Composable
 private fun MonoLine(text: String, colors: com.example.uvapp.ui.theme.UvColors) {
