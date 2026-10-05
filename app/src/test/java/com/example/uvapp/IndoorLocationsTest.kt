@@ -91,7 +91,7 @@ class IndoorLocationsTest {
         dispatcher.scheduler.runCurrent()
         assertEquals(candidate, restored.state.value.data.pending)
     }
-    @Test fun `manual pause suggestion requires quiet audio stationary motion and no recent steps`() {
+    @Test fun `manual pause suggestion allows conversational audio but blocks sustained loud activity`() {
         val repo = Memory()
         repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
         val environment = MockEnvironmentContextProvider()
@@ -112,20 +112,28 @@ class IndoorLocationsTest {
         assertNull(repo.data.value.pending)
 
         main.onResumeExposure()
-        environment.setAcoustic(-20.0, AcousticContext.ACTIVE_OUTDOOR_LIKELY)
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
         environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNotNull(repo.data.value.pending)
+        vm.dismiss(); dispatcher.scheduler.runCurrent()
+
+        main.onStartExposure()
+        environment.setAcoustic(-10.0, AcousticContext.ACTIVE_OUTDOOR_LIKELY)
+        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNull(repo.data.value.pending)
 
-        main.onResumeExposure()
-        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        main.onStartExposure()
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
         environment.setStepActivity(10, 10, recentSteps = 3, activity = StepActivity.WALKING)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNull(repo.data.value.pending)
 
-        main.onResumeExposure()
+        main.onStartExposure()
         environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()

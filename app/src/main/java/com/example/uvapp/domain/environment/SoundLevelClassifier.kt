@@ -17,8 +17,10 @@ data class AcousticReading(
 /** Calculates a smoothed relative sound level. Raw microphone samples are never retained. */
 class SoundLevelClassifier(
     private val smoothingFactor: Double = DEFAULT_SMOOTHING_FACTOR,
+    private val elapsedRealtimeMillis: () -> Long = { System.nanoTime() / NANOS_PER_MILLISECOND },
 ) {
     private var smoothedDb: Double? = null
+    private var activeLevelStartedAtMillis: Long? = null
 
     init {
         require(smoothingFactor in 0.0..1.0)
@@ -46,20 +48,43 @@ class SoundLevelClassifier(
             }
         smoothedDb = resultDb
 
-        val context =
-            when {
-                resultDb <= QUIET_THRESHOLD_DB -> AcousticContext.QUIET_INDOOR_LIKELY
-                resultDb >= ACTIVE_THRESHOLD_DB -> AcousticContext.ACTIVE_OUTDOOR_LIKELY
-                else -> AcousticContext.UNCERTAIN
-            }
+        val nowElapsedMillis = elapsedRealtimeMillis()
+        val context = classifyContext(resultDb, nowElapsedMillis)
         return AcousticReading(decibelsFullScale = resultDb, context = context)
+    }
+
+    private fun classifyContext(
+        resultDb: Double,
+        nowElapsedMillis: Long,
+    ): AcousticContext {
+        if (resultDb >= ACTIVE_THRESHOLD_DB) {
+            val activeStartedAt = activeLevelStartedAtMillis
+            if (activeStartedAt == null || nowElapsedMillis < activeStartedAt) {
+                activeLevelStartedAtMillis = nowElapsedMillis
+                return AcousticContext.UNCERTAIN
+            }
+            return if (nowElapsedMillis - activeStartedAt >= ACTIVE_CONFIRMATION_MILLIS) {
+                AcousticContext.ACTIVE_OUTDOOR_LIKELY
+            } else {
+                AcousticContext.UNCERTAIN
+            }
+        }
+
+        activeLevelStartedAtMillis = null
+        return if (resultDb <= QUIET_THRESHOLD_DB) {
+            AcousticContext.QUIET_INDOOR_LIKELY
+        } else {
+            AcousticContext.UNCERTAIN
+        }
     }
 
     private companion object {
         const val DEFAULT_SMOOTHING_FACTOR = 0.25
+        const val NANOS_PER_MILLISECOND = 1_000_000L
         const val MINIMUM_RMS = 0.000_001
         const val MINIMUM_DB = -120.0
         const val QUIET_THRESHOLD_DB = -45.0
-        const val ACTIVE_THRESHOLD_DB = -25.0
+        const val ACTIVE_THRESHOLD_DB = -15.0
+        const val ACTIVE_CONFIRMATION_MILLIS = 5_000L
     }
 }

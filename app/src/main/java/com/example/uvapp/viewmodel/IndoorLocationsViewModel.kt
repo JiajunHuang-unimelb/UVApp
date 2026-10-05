@@ -46,7 +46,8 @@ class IndoorLocationsViewModel(
                     previous.exposureRunning &&
                     current.pauseReason == com.example.uvapp.domain.exposure.ExposurePauseReason.MANUAL &&
                     current.displayLux < 1_000 &&
-                    current.effectiveAcousticContext == AcousticContext.QUIET_INDOOR_LIKELY &&
+                    current.effectiveAcousticContext != null &&
+                    current.effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
                     current.effectiveIsMoving == false &&
                     current.stepActivity == StepActivity.STATIONARY &&
                     !asked &&

@@ -9,7 +9,7 @@
 | Accelerometer | `Sensor.TYPE_ACCELEROMETER` | Classifies posture and movement; stationary state gates indoor-location suggestions but not auto-pause. |
 | Step counter | `Sensor.TYPE_STEP_COUNTER` | Rebases the reboot-scoped counter and classifies recent activity as unknown, walking or stationary. |
 | Location | `FusedLocationProviderClient` | Uses adaptive high-accuracy updates and compares fresh fixes with saved indoor locations. |
-| Microphone | `AudioRecord` | Calculates smoothed RMS/dBFS for suggestion eligibility and discards PCM immediately. No audio is stored or uploaded. |
+| Microphone | `AudioRecord` | Calculates smoothed RMS/dBFS and blocks suggestions only after five seconds of sustained loud activity. PCM is discarded immediately; no audio is stored or uploaded. |
 | Haptic output | `Vibrator` | Signals automatic indoor pause and exposure-limit alerts. |
 | Audio output | `ToneGenerator` | Signals exposure-limit and developer-preview alerts using the notification stream. |
 
@@ -27,7 +27,7 @@ Automatic indoor detection requires ambient light below 1,000 lux and a fresh, p
 
 Physical proximity, posture, movement, step count and microphone context do not affect automatic pause or resume. Leaving the detected state also uses a 10-second debounce and occurs when lux rises above 2,000 or the fresh location fix leaves the saved radius. A manually paused countdown is never automatically resumed.
 
-An indoor-location suggestion is separate from detection. It requires low light, quiet microphone context, stationary accelerometer state and a `STATIONARY` step state after 60 seconds without steps at the moment the user manually pauses, plus a usable GPS fix outside all saved radii. `UNKNOWN` and `WALKING` step states suppress automatic suggestions. The user must explicitly confirm before anything is saved.
+An indoor-location suggestion is separate from detection. It requires low light, available audio that is not sustained loud activity, stationary accelerometer state and a `STATIONARY` step state after 60 seconds without steps at the moment the user manually pauses, plus a usable GPS fix outside all saved radii. Quiet and conversational/uncertain audio are accepted; a smoothed level at or above -15 dBFS must persist for five seconds before it blocks. Missing audio and `UNKNOWN` or `WALKING` step states suppress automatic suggestions. The user must explicitly confirm before anything is saved.
 
 ## Adaptive location cadence
 
