@@ -16,15 +16,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.model.SkinType
+import com.example.uvapp.R
+import com.example.uvapp.ui.components.DataSourcesDialog
 import com.example.uvapp.ui.components.SettingsRadioRow
 import com.example.uvapp.ui.components.SettingsSection
 import com.example.uvapp.ui.components.SettingsSwitchRow
@@ -48,6 +56,10 @@ fun SettingsScreen(
     },
 ) {
     val colors = UvTheme
+    var showDataSources by rememberSaveable { mutableStateOf(false) }
+    if (showDataSources) {
+        DataSourcesDialog(onDismiss = { showDataSources = false })
+    }
     Column(
         modifier
             .fillMaxWidth()
@@ -74,6 +86,12 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(8.dp))
             SpfSlider(state.spf, viewModel::setSpf)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.spf_countdown_hint),
+                color = colors.textSecondary,
+                fontSize = 12.sp,
+            )
         }
 
         Spacer(Modifier.height(12.dp))
@@ -93,6 +111,12 @@ fun SettingsScreen(
                 subtitle = "Use motion, steps, sound and camera brightness while the app is open",
                 checked = state.enhancedSensingEnabled,
                 onToggle = onEnhancedSensingToggle,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.enhanced_sensing_privacy_note),
+                color = colors.textSecondary,
+                fontSize = 12.sp,
             )
             Spacer(Modifier.height(8.dp))
             indoorContent()
@@ -148,6 +172,10 @@ fun SettingsScreen(
                 checked = state.devModeEnabled,
                 onToggle = { viewModel.setDevModeEnabled(!state.devModeEnabled) },
             )
+        }
+        Spacer(Modifier.height(24.dp))
+        TextButton(onClick = { showDataSources = true }) {
+            Text(stringResource(R.string.data_sources), color = colors.accent)
         }
     }
 }
