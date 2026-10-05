@@ -16,6 +16,7 @@ import com.example.uvapp.domain.model.ExposureWeeklySummary
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.domain.model.PlaceName
+import com.example.uvapp.domain.model.PlaceSearchResult
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
 import com.example.uvapp.domain.model.UvForecastState
@@ -547,6 +548,74 @@ class MainViewModelTest {
 
         assertEquals("-37.81360, 144.96310", vm.state.value.placeName)
         assertEquals(approximateFix, vm.state.value.locationFix)
+    }
+
+    private fun buildSearchViewModel(
+        placeRepository: PlaceRepository,
+        forecastRepository: FakeForecastRepository = FakeForecastRepository(),
+    ) = MainViewModel(
+        settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+        locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
+        forecastRepository = forecastRepository,
+        placeRepository = placeRepository,
+        nowMillis = { NOW_MILLIS },
+    )
+
+    @Test
+    fun `submitted search shows place results`() {
+        val vm = buildSearchViewModel(FakePlaceRepository(listOf(CARLTON)))
+        settle()
+
+        vm.onSearchClick()
+        vm.onQueryChange("Carlton")
+        vm.onSearchSubmit()
+        settle()
+
+        assertEquals(listOf(CARLTON), vm.state.value.searchResults)
+        assertEquals(null, vm.state.value.searchStatus)
+    }
+
+    @Test
+    fun `empty or failed search shows a status line`() {
+        val empty = buildSearchViewModel(FakePlaceRepository())
+        settle()
+        empty.onQueryChange("Nowhere")
+        empty.onSearchSubmit()
+        settle()
+        assertEquals("No places found", empty.state.value.searchStatus)
+
+        val failing = buildSearchViewModel(FailingPlaceRepository())
+        settle()
+        failing.onQueryChange("Carlton")
+        failing.onSearchSubmit()
+        settle()
+        assertEquals("Search failed. Check your connection.", failing.state.value.searchStatus)
+        assertTrue(failing.state.value.searchResults.isEmpty())
+    }
+
+    @Test
+    fun `selecting a place loads its forecast with an approximate fix`() {
+        val forecastRepository = FakeForecastRepository()
+        val vm = buildSearchViewModel(FakePlaceRepository(listOf(CARLTON)), forecastRepository)
+        settle()
+
+        vm.onSearchClick()
+        vm.onQueryChange("Carlton")
+        vm.onSearchSubmit()
+        settle()
+        vm.onPlaceSelected(CARLTON)
+        settle()
+
+        val state = vm.state.value
+        assertEquals("Carlton", state.placeName)
+        assertFalse(state.showSearchDialog)
+        assertEquals("", state.searchQuery)
+        assertTrue(state.searchResults.isEmpty())
+        assertEquals(CARLTON.coordinates.latitude, state.locationFix!!.latitude, 0.0)
+        assertEquals(CARLTON.coordinates.longitude, state.locationFix!!.longitude, 0.0)
+        assertTrue(state.locationFix!!.isApproximate)
+        assertEquals(CARLTON.coordinates.latitude, forecastRepository.latitude, 0.0)
+        assertEquals(CARLTON.coordinates.longitude, forecastRepository.longitude, 0.0)
     }
 
     @Test
@@ -1081,9 +1150,10 @@ class MainViewModelTest {
         }
     }
 
-    private class FakePlaceRepository : PlaceRepository {
-        override suspend fun searchPlaces(query: String) =
-            Result.success(emptyList<com.example.uvapp.domain.model.PlaceSearchResult>())
+    private class FakePlaceRepository(
+        private val searchResults: List<PlaceSearchResult> = emptyList(),
+    ) : PlaceRepository {
+        override suspend fun searchPlaces(query: String) = Result.success(searchResults)
 
         var coordinates: Coordinates? = null
             private set
@@ -1113,6 +1183,12 @@ class MainViewModelTest {
 
     private companion object {
         const val NOW_MILLIS = 1_800_000L
+        val CARLTON =
+            PlaceSearchResult(
+                name = "Carlton",
+                displayName = "Carlton, Melbourne, City of Melbourne, Victoria, 3053, Australia",
+                coordinates = Coordinates(latitude = -37.8001, longitude = 144.9671),
+            )
         val PRECISE_FIX =
             LocationFix(
                 latitude = -37.8136,

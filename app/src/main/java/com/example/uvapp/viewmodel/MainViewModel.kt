@@ -27,6 +27,7 @@ import com.example.uvapp.domain.model.ExposureRecordStatus
 import com.example.uvapp.domain.model.ExposureWeeklySummary
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
+import com.example.uvapp.domain.model.PlaceSearchResult
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.domain.model.UvDataSource
@@ -82,6 +83,9 @@ data class MainUiState(
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
+    val searchResults: List<PlaceSearchResult> = emptyList(),
+    /** "Searching...", "No places found" or an error; null when results (or nothing) show. */
+    val searchStatus: String? = null,
     val uvIndex: Double = 0.0,
     val uvAvailable: Boolean = false,
     val forecastReadings: List<UvForecastReading> = emptyList(),
@@ -206,6 +210,7 @@ class MainViewModel(
     private var forecastObservationJob: Job? = null
     private var forecastRefreshJob: Job? = null
     private var placeLookupJob: Job? = null
+    private var placeSearchJob: Job? = null
     private var indoorTransitionJob: Job? = null
     private var pendingIndoorTarget: Boolean? = null
 
@@ -314,22 +319,75 @@ class MainViewModel(
 
     fun onSearchClick() = _state.update { it.copy(showSearchDialog = true) }
 
-    fun onSearchDismiss() = _state.update { it.copy(showSearchDialog = false) }
+    fun onSearchDismiss() {
+        placeSearchJob?.cancel()
+        _state.update {
+            it.copy(showSearchDialog = false, searchQuery = "", searchResults = emptyList(), searchStatus = null)
+        }
+    }
 
     fun onQueryChange(query: String) = _state.update { it.copy(searchQuery = query) }
 
-    fun onPlaceSelected(suburb: String) {
+    /** Runs one Nominatim search for the submitted query (never per keystroke). */
+    fun onSearchSubmit() {
+        val repository = placeRepository ?: return
+        val query = _state.value.searchQuery
+        if (query.isBlank()) return
+        placeSearchJob?.cancel()
+        placeSearchJob =
+            viewModelScope.launch {
+                _state.update { it.copy(searchResults = emptyList(), searchStatus = "Searching...") }
+                val result =
+                    try {
+                        repository.searchPlaces(query)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Result.failure(error)
+                    }
+                val places = result.getOrNull()
+                _state.update {
+                    it.copy(
+                        searchResults = places.orEmpty(),
+                        searchStatus =
+                            when {
+                                places == null -> "Search failed. Check your connection."
+                                places.isEmpty() -> "No places found"
+                                else -> null
+                            },
+                    )
+                }
+            }
+    }
+
+    fun onPlaceSelected(place: PlaceSearchResult) {
         cancelLocationWork()
+        placeSearchJob?.cancel()
+        // Approximate, so indoor-location logic never treats a searched place as the user's position.
+        val fix =
+            LocationFix(
+                latitude = place.coordinates.latitude,
+                longitude = place.coordinates.longitude,
+                accuracyMeters = 0f,
+                capturedAtMillis = nowMillis(),
+                isApproximate = true,
+                isMock = false,
+            )
         _state.update {
             it.copy(
-                placeName = "$suburb, Melbourne",
+                placeName = place.name,
                 showSearchDialog = false,
                 searchQuery = "",
-                locationFix = null,
+                searchResults = emptyList(),
+                searchStatus = null,
+                locationFix = fix,
                 errorMessage = null,
                 isCached = false,
             )
         }
+        val repository = forecastRepository ?: return
+        observeForecast(fix, repository)
+        refreshForecast(fix)
     }
 
     /** Called only after the UI has granted a foreground location permission. */

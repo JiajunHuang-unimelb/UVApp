@@ -295,7 +295,10 @@ fun UVAppRoot(
                     BackHandler { mainViewModel.onSearchDismiss() }
                     SearchDialogOverlay(
                         query = mainState.searchQuery,
+                        results = mainState.searchResults,
+                        status = mainState.searchStatus,
                         onQueryChange = mainViewModel::onQueryChange,
+                        onSubmit = mainViewModel::onSearchSubmit,
                         onDismiss = mainViewModel::onSearchDismiss,
                         onSelectPlace = mainViewModel::onPlaceSelected,
                         onUseCurrentLocation = requestCurrentLocation,
