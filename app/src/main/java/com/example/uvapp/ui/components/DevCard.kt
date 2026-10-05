@@ -47,7 +47,7 @@ fun DevCard(
     stepsSinceStart: Int?,
     recentSteps: Int?,
     stepsPerMinute: Int?,
-    stepActivity: StepActivity,
+    stepActivity: StepActivity?,
     soundLevelDb: Double?,
     acousticContext: AcousticContext?,
     nearIndoorLocation: Boolean?,
@@ -96,7 +96,7 @@ fun DevCard(
                     colors,
                 )
                 MonoLine("Recent steps·  ${recentSteps ?: "unavailable"}", colors)
-                MonoLine("Step state  ·  ${stepActivity.name.lowercase()}", colors)
+                MonoLine("Step state  ·  ${stepActivity?.name?.lowercase() ?: "unavailable"}", colors)
                 MonoLine(
                     "Audio       ·  ${soundLevelDb?.let { "%.1f dBFS".format(it) } ?: "unavailable"}",
                     colors,

@@ -119,7 +119,7 @@ data class MainUiState(
     val recentSteps: Int? = null,
     val stepsPerMinute: Int? = null,
     val lastStepElapsedMillis: Long? = null,
-    val stepActivity: StepActivity = StepActivity.UNKNOWN,
+    val stepActivity: StepActivity? = null,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
     val indoorDetected: Boolean = false,
