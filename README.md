@@ -11,7 +11,7 @@ The UI is complete; **no backend code** — all data comes from `MockUvRepositor
 | Home — states (error banner, cached data, <15 min warning) | via dev card: *Force offline* + countdown |
 | Forecast — day chips, drag-on-curve time picker, 24 h UV chart | `ui/screens/ForecastScreen.kt` |
 | Settings — skin type, SPF, notifications, theme, dev mode | `ui/screens/SettingsScreen.kt` |
-| Search dialog (scrim + live-filtered suburbs) | `ui/components/SearchDialog.kt` |
+| Search dialog (scrim + Nominatim place search) | `ui/components/SearchDialog.kt` |
 | Developer-mode card (8 override toggles) | `ui/components/DevCard.kt` |
 
 ## Connecting the backend (2 steps)

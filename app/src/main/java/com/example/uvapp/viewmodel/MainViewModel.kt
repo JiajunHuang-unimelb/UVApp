@@ -21,15 +21,25 @@ import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.Coordinates
+import com.example.uvapp.domain.model.ExposureDayTotal
+import com.example.uvapp.domain.model.ExposureRecord
+import com.example.uvapp.domain.model.ExposureRecordStatus
+import com.example.uvapp.domain.model.ExposureWeeklySummary
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
+import com.example.uvapp.domain.model.PlaceSearchResult
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
+import com.example.uvapp.domain.repository.ExposureHistoryRepository
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -40,9 +50,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Bottom-navigation destinations. */
-enum class Tab { HOME, FORECAST, SETTINGS }
+enum class Tab { HOME, FORECAST, SUN_LOG, SETTINGS }
 
 /** Developer-mode override switches (mirrors the high-fi debug card). */
 data class DevUiState(
@@ -71,6 +83,9 @@ data class MainUiState(
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
+    val searchResults: List<PlaceSearchResult> = emptyList(),
+    /** "Searching...", "No places found" or an error; null when results (or nothing) show. */
+    val searchStatus: String? = null,
     val uvIndex: Double = 0.0,
     val uvAvailable: Boolean = false,
     val forecastReadings: List<UvForecastReading> = emptyList(),
@@ -110,6 +125,10 @@ data class MainUiState(
     val spf: Int = 15,
     val devModeEnabled: Boolean = false,
     val dev: DevUiState = DevUiState(),
+    /** Week shown on the Sun log tab; null until the first read arrives. */
+    val sunLogWeek: ExposureWeeklySummary? = null,
+    /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
+    val sunLogShowsTime: Boolean = false,
 ) {
     /** UV shown on the hero (dev override wins). */
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
@@ -175,6 +194,9 @@ class MainViewModel(
     private val alertGateway: ExposureAlertGateway? = null,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
+    private val historyRepository: ExposureHistoryRepository? = null,
+    /** Called after each successful history save (refreshes the weekly widget). */
+    private val onHistorySaved: (suspend () -> Unit)? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
@@ -188,8 +210,24 @@ class MainViewModel(
     private var forecastObservationJob: Job? = null
     private var forecastRefreshJob: Job? = null
     private var placeLookupJob: Job? = null
+    private var placeSearchJob: Job? = null
     private var indoorTransitionJob: Job? = null
     private var pendingIndoorTarget: Boolean? = null
+
+    // Exposure history (see docs/exposure-tracking-api.md for the save contract).
+    private val historySaveMutex = Mutex()
+    private var sunLogWeekJob: Job? = null
+    private var sunLogWeekDate: LocalDate = todayDate()
+    private var historySessionId: String? = null
+    private var historyStartedAtMillis = 0L
+    private var historyZoneId: ZoneId = ZoneId.systemDefault()
+    private val historyDays = mutableMapOf<LocalDate, ExposureDayTotal>()
+    private var lastHistoryStatus = ExposureStatus.NOT_STARTED
+    private var lastHistoryContext = ExposureContext.UNKNOWN
+    private var lastHistoryWallMillis = 0L
+    private var lastHistoryDoseSed = 0.0
+    private var lastHistorySaveWallMillis = 0L
+    private var lastRecordedThroughMillis = 0L
 
     fun onIndoorProximity(near: Boolean?) {
         _state.update { it.copy(nearIndoorLocation = if (it.dev.overrideLocation) true else near) }
@@ -261,30 +299,95 @@ class MainViewModel(
         if (locationProvider != null && forecastRepository != null) {
             locate()
         }
+
+        observeSunLogWeek(sunLogWeekDate)
     }
 
     // ---- User actions -------------------------------------------------------
 
     fun onTabSelected(tab: Tab) = _state.update { it.copy(selectedTab = tab) }
 
+    fun onSunLogShowTime(showTime: Boolean) = _state.update { it.copy(sunLogShowsTime = showTime) }
+
+    fun onSunLogPreviousWeek() = observeSunLogWeek(sunLogWeekDate.minusDays(7))
+
+    fun onSunLogNextWeek() {
+        val next = sunLogWeekDate.plusDays(7)
+        if (next.isAfter(todayDate())) return
+        observeSunLogWeek(next)
+    }
+
     fun onSearchClick() = _state.update { it.copy(showSearchDialog = true) }
 
-    fun onSearchDismiss() = _state.update { it.copy(showSearchDialog = false) }
+    fun onSearchDismiss() {
+        placeSearchJob?.cancel()
+        _state.update {
+            it.copy(showSearchDialog = false, searchQuery = "", searchResults = emptyList(), searchStatus = null)
+        }
+    }
 
     fun onQueryChange(query: String) = _state.update { it.copy(searchQuery = query) }
 
-    fun onPlaceSelected(suburb: String) {
+    /** Runs one Nominatim search for the submitted query (never per keystroke). */
+    fun onSearchSubmit() {
+        val repository = placeRepository ?: return
+        val query = _state.value.searchQuery
+        if (query.isBlank()) return
+        placeSearchJob?.cancel()
+        placeSearchJob =
+            viewModelScope.launch {
+                _state.update { it.copy(searchResults = emptyList(), searchStatus = "Searching...") }
+                val result =
+                    try {
+                        repository.searchPlaces(query)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Result.failure(error)
+                    }
+                val places = result.getOrNull()
+                _state.update {
+                    it.copy(
+                        searchResults = places.orEmpty(),
+                        searchStatus =
+                            when {
+                                places == null -> "Search failed. Check your connection."
+                                places.isEmpty() -> "No places found"
+                                else -> null
+                            },
+                    )
+                }
+            }
+    }
+
+    fun onPlaceSelected(place: PlaceSearchResult) {
         cancelLocationWork()
+        placeSearchJob?.cancel()
+        // Approximate, so indoor-location logic never treats a searched place as the user's position.
+        val fix =
+            LocationFix(
+                latitude = place.coordinates.latitude,
+                longitude = place.coordinates.longitude,
+                accuracyMeters = 0f,
+                capturedAtMillis = nowMillis(),
+                isApproximate = true,
+                isMock = false,
+            )
         _state.update {
             it.copy(
-                placeName = "$suburb, Melbourne",
+                placeName = place.name,
                 showSearchDialog = false,
                 searchQuery = "",
-                locationFix = null,
+                searchResults = emptyList(),
+                searchStatus = null,
+                locationFix = fix,
                 errorMessage = null,
                 isCached = false,
             )
         }
+        val repository = forecastRepository ?: return
+        observeForecast(fix, repository)
+        refreshForecast(fix)
     }
 
     /** Called only after the UI has granted a foreground location permission. */
@@ -592,6 +695,7 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
+        closeHistorySession()
         monitoringController?.start()
         _state.update {
             it.copy(
@@ -750,7 +854,145 @@ class MainViewModel(
         if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
             monitoringController?.stop()
         }
+        recordHistory()
     }
+
+    // ---- Exposure history -----------------------------------------------------
+
+    /**
+     * Runs after every publishExposure(), so each start, pause, resume, context change and
+     * tick settles the segment before it under that segment's own status and context.
+     * Saves on start, on any status change and every minute while running.
+     */
+    private fun recordHistory() {
+        if (historyRepository == null) return
+        val snapshot = exposureSession.snapshot()
+        val now = nowMillis()
+        val opened = historySessionId == null
+        if (opened) {
+            if (snapshot.status == ExposureStatus.NOT_STARTED) return
+            openHistorySession(now)
+        } else {
+            addHistoryDelta(snapshot.accumulatedDoseSed, now)
+        }
+        val statusChanged = opened || snapshot.status != lastHistoryStatus
+        val checkpointDue =
+            snapshot.status == ExposureStatus.RUNNING &&
+                now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
+        lastHistoryStatus = snapshot.status
+        lastHistoryContext = snapshot.context
+        if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
+    }
+
+    private fun openHistorySession(now: Long) {
+        historySessionId = UUID.randomUUID().toString()
+        historyStartedAtMillis = now
+        historyZoneId = ZoneId.systemDefault()
+        historyDays.clear()
+        lastHistoryWallMillis = now
+        lastHistoryDoseSed = 0.0
+        lastHistorySaveWallMillis = now
+        lastRecordedThroughMillis = now
+    }
+
+    /** Saves the session being replaced; called before start() resets the dose. */
+    private fun closeHistorySession() {
+        if (historySessionId == null) return
+        val now = nowMillis()
+        addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
+        saveHistory(ExposureRecordStatus.COMPLETED, now)
+        historySessionId = null
+    }
+
+    /**
+     * Duration uses wall time (never more than real time, even in 60x dev mode) and only
+     * counts direct sun, so "time in the sun" excludes shade; shade still adds its dose.
+     * A segment that crosses local midnight is split, with dose shared by time on each day.
+     */
+    private fun addHistoryDelta(doseSed: Double, now: Long) {
+        val from = lastHistoryWallMillis
+        val inDirectSun =
+            lastHistoryStatus == ExposureStatus.RUNNING && lastHistoryContext == ExposureContext.DIRECT_SUN
+        val doseDelta = doseSed - lastHistoryDoseSed
+        lastHistoryWallMillis = now
+        lastHistoryDoseSed = doseSed
+        // No wall time passed (or the clock went back): any dose goes to the current day.
+        if (now <= from) {
+            addToHistoryDay(historyDate(now), 0L, doseDelta)
+            return
+        }
+        var start = from
+        while (start < now) {
+            val date = historyDate(start)
+            val nextMidnight = date.plusDays(1).atStartOfDay(historyZoneId).toInstant().toEpochMilli()
+            val end = minOf(now, nextMidnight)
+            val share = (end - start).toDouble() / (now - from)
+            addToHistoryDay(date, if (inDirectSun) end - start else 0L, doseDelta * share)
+            start = end
+        }
+    }
+
+    private fun historyDate(millis: Long): LocalDate =
+        Instant.ofEpochMilli(millis).atZone(historyZoneId).toLocalDate()
+
+    private fun addToHistoryDay(date: LocalDate, durationMillis: Long, doseDelta: Double) {
+        if (durationMillis == 0L && doseDelta <= 0.0) return
+        val previous = historyDays[date]
+        if (previous == null) {
+            historyDays[date] = ExposureDayTotal(date, durationMillis, doseDelta)
+        } else {
+            historyDays[date] =
+                ExposureDayTotal(date, previous.activeDurationMillis + durationMillis, previous.doseSed + doseDelta)
+        }
+    }
+
+    /** Builds the record now, then saves it in order behind any earlier save. */
+    private fun saveHistory(status: ExposureRecordStatus, now: Long) {
+        val repository = historyRepository
+        val sessionId = historySessionId
+        if (repository == null || sessionId == null) return
+        // Storage rejects a checkpoint older than the last one, so a wall-clock jump back is held.
+        if (now > lastRecordedThroughMillis) lastRecordedThroughMillis = now
+        lastHistorySaveWallMillis = now
+        val record =
+            ExposureRecord(
+                sessionId = sessionId,
+                startedAtMillis = historyStartedAtMillis,
+                recordedThroughMillis = lastRecordedThroughMillis,
+                zoneId = historyZoneId.id,
+                status = status,
+                days = historyDays.values.sortedBy { it.date },
+            )
+        viewModelScope.launch {
+            // Single attempt: the next checkpoint carries the full cumulative state anyway.
+            val saved = historySaveMutex.withLock { repository.save(record).isSuccess }
+            val callback = onHistorySaved
+            if (saved && callback != null) callback()
+        }
+    }
+
+    private fun toRecordStatus(status: ExposureStatus): ExposureRecordStatus =
+        when (status) {
+            ExposureStatus.PAUSED -> ExposureRecordStatus.PAUSED
+            ExposureStatus.COMPLETE -> ExposureRecordStatus.COMPLETED
+            else -> ExposureRecordStatus.ACTIVE
+        }
+
+    private fun observeSunLogWeek(date: LocalDate) {
+        val repository = historyRepository ?: return
+        sunLogWeekDate = date
+        val weekFlow = repository.observeWeek(date)
+        sunLogWeekJob?.cancel()
+        sunLogWeekJob =
+            viewModelScope.launch {
+                weekFlow.collect { week ->
+                    _state.update { it.copy(sunLogWeek = week) }
+                }
+            }
+    }
+
+    private fun todayDate(): LocalDate =
+        Instant.ofEpochMilli(nowMillis()).atZone(ZoneId.systemDefault()).toLocalDate()
 
     override fun onCleared() {
         monitoringController?.stop()
@@ -776,5 +1018,6 @@ class MainViewModel(
         const val INDOOR_ENTER_LUX = 1_000
         const val INDOOR_EXIT_LUX = 2_000
         const val INDOOR_TRANSITION_DELAY_MILLIS = 10_000L
+        const val HISTORY_CHECKPOINT_MILLIS = 60_000L
     }
 }

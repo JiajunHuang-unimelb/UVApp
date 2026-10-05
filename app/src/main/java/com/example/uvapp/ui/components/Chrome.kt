@@ -110,8 +110,8 @@ fun RefreshButton(isLoading: Boolean, onClick: () -> Unit, modifier: Modifier = 
 }
 
 /**
- * Bottom navigation with the three tabs, active pill and home indicator,
- * matching the high-fi geometry (item centers at 22.3% / 50% / 77.7% of width).
+ * Bottom navigation with the four tabs, active pill and home indicator
+ * (item centers evenly spaced at 12.5% / 37.5% / 62.5% / 87.5% of width).
  */
 @Composable
 fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
@@ -119,9 +119,10 @@ fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
     BoxWithConstraints(modifier.fillMaxWidth().height(64.dp).background(colors.surfaceVariant)) {
         Hairline(Modifier.align(Alignment.TopCenter).fillMaxWidth())
         val w = maxWidth
-        NavItem(centerX = w * 0.2233f, icon = UvIcons.Home, label = "Home", selected = selected == Tab.HOME) { onSelect(Tab.HOME) }
-        NavItem(centerX = w * 0.5f, icon = UvIcons.Forecast, label = "Forecast", selected = selected == Tab.FORECAST) { onSelect(Tab.FORECAST) }
-        NavItem(centerX = w * 0.7767f, icon = UvIcons.Settings, label = "Settings", selected = selected == Tab.SETTINGS) { onSelect(Tab.SETTINGS) }
+        NavItem(centerX = w * 0.125f, icon = UvIcons.Home, label = "Home", selected = selected == Tab.HOME) { onSelect(Tab.HOME) }
+        NavItem(centerX = w * 0.375f, icon = UvIcons.Forecast, label = "Forecast", selected = selected == Tab.FORECAST) { onSelect(Tab.FORECAST) }
+        NavItem(centerX = w * 0.625f, icon = UvIcons.SunLog, label = "Sun log", selected = selected == Tab.SUN_LOG) { onSelect(Tab.SUN_LOG) }
+        NavItem(centerX = w * 0.875f, icon = UvIcons.Settings, label = "Settings", selected = selected == Tab.SETTINGS) { onSelect(Tab.SETTINGS) }
         Box(
             Modifier
                 .align(Alignment.BottomCenter)

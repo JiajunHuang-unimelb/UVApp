@@ -18,4 +18,5 @@
     <string name="exposure_estimates">Exposure estimates</string>
     <string name="exposure_estimate_note">Exposure time is an estimate based on UV, skin type and detected surroundings. It does not guarantee a safe time in the sun.</string>
     <string name="enhanced_sensing_privacy_note">Sound level and camera brightness help classify your surroundings. Microphone and camera sampling runs only while the app is visible. Audio recordings, photos and videos are not saved.</string>
+    <string name="weekly_widget_description">Your time in the sun this week</string>
 </resources>

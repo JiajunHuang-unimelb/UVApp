@@ -2,6 +2,7 @@
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -127,14 +128,29 @@ private fun lightScheme(accent: Color): ColorScheme {
     return lightColorScheme(
         primary = accent,
         onPrimary = Color.White,
+        primaryContainer = c.activePill,
+        onPrimaryContainer = accent,
+        secondary = accent,
+        onSecondary = Color.White,
+        secondaryContainer = c.activePill,
+        onSecondaryContainer = accent,
         background = c.background,
         onBackground = c.onBackground,
         surface = c.surface,
         onSurface = c.onBackground,
         surfaceVariant = c.surfaceVariant,
         onSurfaceVariant = c.textSecondary,
+        surfaceContainerLowest = c.surface,
+        surfaceContainerLow = c.surface,
+        surfaceContainer = c.surfaceVariant,
+        surfaceContainerHigh = c.surfaceVariant,
+        surfaceContainerHighest = c.surfaceVariant,
         outline = c.outline,
+        outlineVariant = c.outline,
         error = c.error,
+        onError = Color.White,
+        errorContainer = c.errorBanner,
+        onErrorContainer = c.error,
     )
 }
 
@@ -143,14 +159,29 @@ private fun darkScheme(accent: Color): ColorScheme {
     return darkColorScheme(
         primary = accent,
         onPrimary = Color(0xFF3A1400),
+        primaryContainer = c.activePill,
+        onPrimaryContainer = accent,
+        secondary = accent,
+        onSecondary = Color(0xFF3A1400),
+        secondaryContainer = c.activePill,
+        onSecondaryContainer = accent,
         background = c.background,
         onBackground = c.onBackground,
         surface = c.surface,
         onSurface = c.onBackground,
         surfaceVariant = c.surfaceVariant,
         onSurfaceVariant = c.textSecondary,
+        surfaceContainerLowest = c.background,
+        surfaceContainerLow = c.surface,
+        surfaceContainer = c.surface,
+        surfaceContainerHigh = c.surfaceVariant,
+        surfaceContainerHighest = c.surfaceVariant,
         outline = c.outline,
+        outlineVariant = c.outline,
         error = c.error,
+        onError = Color(0xFF690005),
+        errorContainer = c.errorBanner,
+        onErrorContainer = c.error,
     )
 }
 
@@ -172,8 +203,11 @@ fun UvAppTheme(
         MaterialTheme(
             colorScheme = if (dark) darkScheme(accentDark) else lightScheme(accentLight),
             typography = UvTypography,
-            content = content,
-        )
+        ) {
+            // The app draws on a plain Box, not a Surface, so without this every Text with no
+            // explicit colour falls back to black and disappears on the dark background.
+            CompositionLocalProvider(LocalContentColor provides colors.onBackground, content = content)
+        }
     }
 }
 
