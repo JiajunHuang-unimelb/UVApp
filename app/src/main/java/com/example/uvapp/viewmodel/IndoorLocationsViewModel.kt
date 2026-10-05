@@ -2,6 +2,7 @@ package com.example.uvapp.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -40,7 +41,15 @@ class IndoorLocationsViewModel(
             main.state.collect { current ->
                 if (current.exposureSessionId != previous.exposureSessionId) asked = false
                 if (current.locationFix != previous.locationFix) { fix = current.locationFix; proximity() }
-                if (previous.exposureRunning && current.pauseReason == com.example.uvapp.domain.exposure.ExposurePauseReason.MANUAL && current.displayLux < 1_000 && !asked && state.value.data.suggestionsEnabled) {
+                if (
+                    previous.exposureRunning &&
+                    current.pauseReason == com.example.uvapp.domain.exposure.ExposurePauseReason.MANUAL &&
+                    current.displayLux < 1_000 &&
+                    current.effectiveAcousticContext == AcousticContext.QUIET_INDOOR_LIKELY &&
+                    current.effectiveIsMoving == false &&
+                    !asked &&
+                    state.value.data.suggestionsEnabled
+                ) {
                     asked = true
                     val candidate = fix?.takeIf { it.usableForIndoor(now()) }
                     if (candidate != null && state.value.data.pending == null && state.value.data.locations.none { it.contains(candidate.latitude, candidate.longitude) }) {
