@@ -99,7 +99,7 @@ fun SettingsScreen(
         SettingsSection("Alerts") {
             SettingsSwitchRow(
                 title = "Notifications",
-                subtitle = "Remind me to reapply sunscreen",
+                subtitle = "Notify me about indoor place suggestions",
                 checked = state.notificationsEnabled,
                 onToggle = { viewModel.setNotificationsEnabled(!state.notificationsEnabled) },
             )
