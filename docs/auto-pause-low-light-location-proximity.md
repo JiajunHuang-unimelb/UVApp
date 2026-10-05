@@ -7,7 +7,7 @@ The exposure countdown identifies a confirmed indoor context from two signals:
 - the ambient light level is low; and
 - the user is within 100 m of a saved indoor location.
 
-When both conditions remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions also read proximity, accelerometer and step-counter data for diagnostics and suggestion context, but those signals do not classify a place as indoors. The optional microphone monitor runs only while the app is visible and Enhanced sensing is enabled.
+When both conditions remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions also read proximity, accelerometer and step-counter data for diagnostics and suggestion context, but those signals do not classify a place as indoors. A covered phone invalidates its low-light shade reading, so the dose model conservatively uses `UNKNOWN` with a 1.0 factor until indoor detection is confirmed. The optional microphone monitor runs only while the app is visible and Enhanced sensing is enabled.
 
 ## Detection rules
 
@@ -102,7 +102,7 @@ The current state does not expose the remaining time in the 10-second debounce. 
 6. Select **Shade** or **Direct sun**, or disable **Near known indoor location**.
 7. Keep the outdoor condition unchanged for 10 seconds. The countdown should resume if it was automatically paused.
 
-The **Simulate occluded (in pocket)** control is diagnostic only and cannot trigger an indoor auto-pause without saved-location proximity.
+The **Simulate occluded (in pocket)** control cannot trigger an indoor auto-pause without saved-location proximity. Outside confirmed indoor state, it also switches the dose context to conservative `UNKNOWN` so pocket darkness is not mistaken for shade.
 
 Before a session starts, the exposure indicator's lux slider can supply a mock light value for previewing the UI. Starting a session clears that override and makes the indicator read-only so live sensor values cannot be replaced accidentally. The explicit developer light-level override remains available for deliberate in-session testing and takes precedence while enabled.
 
@@ -170,7 +170,7 @@ Validation on 23 September 2026: `testDebugUnitTest assembleDebug assembleDebugA
 - Monitoring begins only after the user starts an exposure session and location permission is available.
 - The foreground service uses adaptive 30/60-second fused-location updates with a temporary five-second walking burst rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
 - Saving an indoor place still uses a separate fresh one-shot GPS fix, while active-session proximity uses continuous service updates.
-- Proximity sensors are commonly binary and are retained only as diagnostics that the phone is covered; they do not affect indoor detection.
+- Proximity sensors are commonly binary. They do not affect indoor detection, but a covered reading prevents pocket darkness from reducing the calculated dose rate.
 - Microphone level depends on device gain and is used only as a sustained-loudness veto alongside stationary motion and step inactivity. Quiet and conversational/uncertain levels are accepted; audio is never a UV measurement or definitive indoor classification.
 - Microphone sampling intentionally stops when the app is no longer visible; continuous background access would require an additional foreground-service type and user-facing policy justification.
 - Step-counter hardware is optional and may deliver updates with several seconds of latency.

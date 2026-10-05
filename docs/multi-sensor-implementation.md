@@ -5,7 +5,7 @@
 | Capability | Android API | Runtime behavior |
 | --- | --- | --- |
 | Ambient light | `Sensor.TYPE_LIGHT` | Reads lux while an exposure session is monitored. |
-| Physical proximity | `Sensor.TYPE_PROXIMITY` | Diagnostic indication that the phone is covered; it does not classify an indoor location. |
+| Physical proximity | `Sensor.TYPE_PROXIMITY` | Marks the phone as covered. Covered low-light readings are excluded from shade-dose decisions, but do not classify an indoor location. |
 | Accelerometer | `Sensor.TYPE_ACCELEROMETER` | Classifies posture and movement; stationary state gates indoor-location suggestions but not auto-pause. |
 | Step counter | `Sensor.TYPE_STEP_COUNTER` | Rebases the reboot-scoped counter and classifies recent activity as unknown, walking or stationary. |
 | Location | `FusedLocationProviderClient` | Uses adaptive high-accuracy updates and compares fresh fixes with saved indoor locations. |
@@ -25,7 +25,7 @@ Settings contains an explicit **Enhanced sensing** switch. Turning it on request
 
 Automatic indoor detection requires ambient light below 1,000 lux and a fresh, precise GPS fix within 100 m of a user-saved indoor location for 10 continuous seconds. There is no weighted evidence score.
 
-Physical proximity, posture, movement, step count and microphone context do not affect automatic pause or resume. Leaving the detected state also uses a 10-second debounce and occurs when lux rises above 2,000 or the fresh location fix leaves the saved radius. A manually paused countdown is never automatically resumed.
+Physical proximity, posture, movement, step count and microphone context do not affect automatic pause or resume. However, physical proximity invalidates low-light shade evidence: unless indoor detection has already been confirmed, a covered phone uses `UNKNOWN` exposure with the conservative 1.0 dose factor. Leaving the detected state also uses a 10-second debounce and occurs when lux rises above 2,000 or the fresh location fix leaves the saved radius. A manually paused countdown is never automatically resumed.
 
 An indoor-location suggestion is separate from detection. It requires low light, available audio that is not sustained loud activity, stationary accelerometer state and a `STATIONARY` step state after 60 seconds without steps at the moment the user manually pauses, plus a usable GPS fix outside all saved radii. Quiet and conversational/uncertain audio are accepted; a smoothed level at or above -15 dBFS must persist for five seconds before it blocks. Missing audio and `UNKNOWN` or `WALKING` step states suppress automatic suggestions. The user must explicitly confirm before anything is saved.
 

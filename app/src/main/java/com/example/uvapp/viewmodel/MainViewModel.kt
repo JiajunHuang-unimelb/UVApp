@@ -163,6 +163,19 @@ data class MainUiState(
         else -> LightContext.DIRECT_SUN
     }
 
+    /**
+     * Context used by the dose model. A covered phone cannot provide a trustworthy ambient-light
+     * reading: the user may still be standing in direct sun while the phone is in a pocket or bag.
+     * Treat that case as UNKNOWN, whose conservative dose factor is 1.0, unless saved-location and
+     * low-light evidence has already confirmed that the user is indoors.
+     */
+    val exposureContext: ExposureContext get() = when {
+        indoorDetected -> ExposureContext.INDOOR
+        effectiveDeviceOccluded == true -> ExposureContext.UNKNOWN
+        displayLux < LightContext.SHADE_MAX_LUX -> ExposureContext.SHADE
+        else -> ExposureContext.DIRECT_SUN
+    }
+
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
@@ -245,6 +258,7 @@ class MainViewModel(
             viewModelScope.launch {
                 provider.samples.collect { sample ->
                     latestEnvironmentSample = sample
+                    val previousExposureContext = _state.value.exposureContext
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
@@ -262,6 +276,7 @@ class MainViewModel(
                         )
                     }
                     evaluateIndoorTransition()
+                    if (_state.value.exposureContext != previousExposureContext) syncExposure()
                 }
             }
         }
@@ -440,10 +455,10 @@ class MainViewModel(
     fun onLuxChange(lux: Int) {
         if (_state.value.exposureStarted) return
         val clamped = lux.coerceIn(0, MAX_LUX)
-        val previous = _state.value.displayContext
+        val previous = _state.value.exposureContext
         _state.update { it.copy(luxOverride = clamped) }
         evaluateIndoorTransition()
-        if (_state.value.displayContext != previous) syncExposure()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     // ---- Developer-mode overrides -------------------------------------------
@@ -459,24 +474,26 @@ class MainViewModel(
     }.also { syncExposure() }
 
     fun onOverrideLightToggle() {
-        val previous = _state.value.displayContext
+        val previous = _state.value.exposureContext
         _state.update { it.copy(dev = it.dev.copy(overrideLight = !it.dev.overrideLight)) }
         evaluateIndoorTransition()
-        if (_state.value.displayContext != previous) syncExposure()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     fun onLightOverride(context: LightContext) {
-        val previous = _state.value.displayContext
+        val previous = _state.value.exposureContext
         _state.update { it.copy(dev = it.dev.copy(lightOverride = context)) }
         evaluateIndoorTransition()
-        if (_state.value.displayContext != previous) syncExposure()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
     fun onOccludedToggle() {
+        val previous = _state.value.exposureContext
         _state.update { it.copy(dev = it.dev.copy(simulateOccluded = !it.dev.simulateOccluded)) }
         evaluateIndoorTransition()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
@@ -699,7 +716,7 @@ class MainViewModel(
                 skinType = state.skinType,
                 uvIndex = state.displayUv,
                 nowElapsedMs = exposureClockMillis,
-                context = state.displayContext.toExposureContext(),
+                context = state.exposureContext,
             ),
         )
     }
@@ -786,7 +803,7 @@ class MainViewModel(
         if (snapshot.uvIndex != state.displayUv) {
             snapshot = exposureSession.updateUvIndex(state.displayUv, exposureClockMillis)
         }
-        val exposureContext = state.displayContext.toExposureContext()
+        val exposureContext = state.exposureContext
         if (snapshot.context != exposureContext) {
             exposureSession.updateContext(exposureContext, exposureClockMillis)
         }
@@ -987,13 +1004,6 @@ class MainViewModel(
         monitoringController?.stop()
         super.onCleared()
     }
-
-    private fun LightContext.toExposureContext(): ExposureContext =
-        when (this) {
-            LightContext.INDOOR -> ExposureContext.INDOOR
-            LightContext.SHADE -> ExposureContext.SHADE
-            LightContext.DIRECT_SUN -> ExposureContext.DIRECT_SUN
-        }
 
     private fun LocationFix.coordinateLabel(): String =
         String.format(Locale.ROOT, "%.5f, %.5f", latitude, longitude)
