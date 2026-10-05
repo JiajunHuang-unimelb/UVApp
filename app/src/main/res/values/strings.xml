@@ -2,4 +2,16 @@
 <resources>
     <string name="app_name">UVApp</string>
     <string name="widget_description">Quick Display for UV App</string>
+    <string name="data_sources">Data sources</string>
+    <string name="uv_data_attribution">UV data by Open-Meteo</string>
+    <string name="place_data_attribution">© OpenStreetMap contributors</string>
+    <string name="uv_forecasts_source">UV forecasts</string>
+    <string name="uv_source_description">UV forecasts and sunrise/sunset times are provided by Open-Meteo.</string>
+    <string name="cc_by_license">License: CC BY 4.0</string>
+    <string name="place_names_source">Place names and lookup</string>
+    <string name="place_source_description">Place names are looked up using Nominatim, based on OpenStreetMap data.</string>
+    <string name="nominatim_service">Nominatim geocoding service</string>
+    <string name="odbl_license">License: Open Database License (ODbL)</string>
+    <string name="data_processing_description">UVApp formats and groups forecasts for display and uses UV values to calculate exposure estimates. These estimates are calculated by UVApp, not supplied by the data providers.</string>
+    <string name="close_data_sources">Close</string>
 </resources>

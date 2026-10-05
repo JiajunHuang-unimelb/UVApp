@@ -155,6 +155,8 @@ fun SearchDialogOverlay(
                     )
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            PlaceDataAttribution()
         }
     }
 }

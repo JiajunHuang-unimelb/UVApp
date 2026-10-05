@@ -17,15 +17,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.model.SkinType
+import com.example.uvapp.R
+import com.example.uvapp.ui.components.DataSourcesDialog
 import com.example.uvapp.ui.components.SettingsRadioRow
 import com.example.uvapp.ui.components.SettingsSwitchRow
 import com.example.uvapp.ui.components.SpfSlider
@@ -49,6 +57,10 @@ fun SettingsScreen(
     },
 ) {
     val colors = UvTheme
+    var showDataSources by rememberSaveable { mutableStateOf(false) }
+    if (showDataSources) {
+        DataSourcesDialog(onDismiss = { showDataSources = false })
+    }
     Column(
         modifier
             .fillMaxWidth()
@@ -154,6 +166,10 @@ fun SettingsScreen(
                 onToggle = { viewModel.setDevModeEnabled(!state.devModeEnabled) },
                 onColor = colors.accent,
             )
+        }
+        Spacer(Modifier.height(24.dp))
+        TextButton(onClick = { showDataSources = true }) {
+            Text(stringResource(R.string.data_sources), color = colors.accent)
         }
     }
 }
