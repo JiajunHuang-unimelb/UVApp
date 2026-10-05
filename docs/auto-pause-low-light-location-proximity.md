@@ -45,7 +45,10 @@ data class EnvironmentSample(
     val posture: DevicePosture?,
     val isMoving: Boolean?,
     val stepsSinceStart: Int?,
+    val recentSteps: Int?,
     val stepsPerMinute: Int?,
+    val lastStepElapsedMillis: Long?,
+    val stepActivity: StepActivity,
     val soundLevelDb: Double?,
     val acousticContext: AcousticContext?,
 )
@@ -55,7 +58,7 @@ interface EnvironmentContextProvider {
 }
 ```
 
-The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, requests high-accuracy fused-location updates every five seconds, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. A lifecycle-bound microphone monitor publishes sound context while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
+The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. High-accuracy fused-location updates normally run every 30 seconds. While inside a saved radius with stationary, unknown, or at most 100 session steps of walking activity, the interval becomes 60 seconds. Entering walking activity after more than 100 session steps starts a 30-second burst of five-second updates and requests one fresh fix unless the latest fix is already no more than 15 seconds old or another triggered request occurred within 15 seconds. A lifecycle-bound microphone monitor publishes sound context while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
 
 The foreground service collects facts only. Saved-radius gating, thresholds, debounce, pause ownership and exposure calculations remain in `MainViewModel`. `MockEnvironmentContextProvider` remains available for deterministic unit tests.
 
@@ -112,7 +115,8 @@ Unit coverage includes:
 - physical proximity with low light remaining insufficient;
 - quiet and stationary context with low light remaining insufficient for auto-pause;
 - accelerometer posture and movement classification;
-- step-counter rebasing and rate calculation;
+- step-counter rebasing, rolling recent-step count, rate and `UNKNOWN`/`WALKING`/`STATIONARY` transitions;
+- adaptive 30/60/5-second location cadence, fresh-fix suppression and refresh throttling;
 - microphone RMS/dBFS classification;
 - the full 10-second entry debounce;
 - signal flapping and debounce restart;
@@ -145,17 +149,17 @@ Collect `IndoorLocationsViewModel.state` with `collectAsStateWithLifecycle()`. `
 
 ### Suggestions and notifications
 
-An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, quiet microphone context, a stationary accelerometer classification, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Both quiet and stationary signals are required. Only one eligible automatic opportunity is considered per exposure session. Explicit saving remains available after dismissal. Low light alone and automatic pauses do not prompt.
+An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, available microphone context that is not sustained loud activity, a stationary accelerometer classification, step activity classified as `STATIONARY` after 60 seconds without steps, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Quiet and conversational/uncertain audio are accepted. Audio must remain at or above -15 dBFS for five continuous seconds before it becomes `ACTIVE_OUTDOOR_LIKELY` and blocks a suggestion. Stationary acceleration and step inactivity remain required; missing microphone or step context suppresses only the automatic suggestion. Explicit saving remains available. Only one eligible automatic opportunity is considered per exposure session. Low light alone and automatic pauses do not prompt.
 
 When hidden, a pending suggestion produces **Were you indoors when you paused?** with a tap action opening the app's confirmation dialog. It never opens a screen without a tap or saves automatically. There is only one pending suggestion; notification slot 2002 is reused for it, updated without repeating alerts, and cancelled on confirmation/dismissal. If notifications are denied, the persisted candidate remains available on the next app visit. The present app has no background pause action/service: this notification path handles pending work completing while hidden and is ready for future service integration.
 
 ### Proximity and development testing
 
-`MainUiState.nearIndoorLocation` remains nullable for the one-shot save workflow. During an active exposure session, `ExposureMonitoringService` recalculates proximity from continuous fixes and saved-list edits. A fix must be no more than 30 seconds old and accurate within 50 m; unavailable or stale evidence is treated conservatively as outside so an automatic indoor pause can clear.
+`MainUiState.nearIndoorLocation` remains nullable for the one-shot save workflow. During an active exposure session, `ExposureMonitoringService` recalculates proximity from adaptive fixes and saved-list edits. A service fix must be no more than 75 seconds old (covering the 60-second stationary interval) and accurate within 50 m; unavailable or stale evidence is treated conservatively as outside so an automatic indoor pause can clear. Explicit place saving still requires its separate one-shot fix to be no more than 30 seconds old.
 
 The developer **Near known indoor location** override still forces true while enabled. Disabling it returns to calculated proximity. A separate, explicitly enabled **Demo: University Square radius** uses the university map's marker at -37.7986, 144.9602, with a 100 m radius, held only in memory and never inserted into saved places. This is a campus demonstration marker, not evidence of an indoor building. Coordinate source: [University of Melbourne map](https://maps.unimelb.edu.au/point?poi=1001526284). Leaving developer mode disables it.
 
-For emulator testing, provide a precise location in Extended controls → Location, choose I’m indoors here, name and save it, and use the mock light controls. Use Locate to obtain another fix after changing emulator coordinates. Check rename/delete and cancellation. To exercise automatic suggestions, enable Enhanced sensing and save suggestions, obtain a fresh fix outside all saved radii, then manually pause an exposure in low light while the sound classifier is quiet and the accelerometer is stationary. The timer must remain manually paused after saving. Test notification permission denied and permitted, Activity recreation with a pending dialog, and tapping the notification after backgrounding while a save request finishes.
+For emulator testing, provide a precise location in Extended controls → Location, choose I’m indoors here, name and save it, and use the mock light controls. Use Locate to obtain another fix after changing emulator coordinates. Check rename/delete and cancellation. To exercise automatic suggestions, enable Enhanced sensing and save suggestions, obtain a fresh fix outside all saved radii, then manually pause an exposure in low light while audio is not persistently loud, the accelerometer is stationary and the step state has reached `STATIONARY`. Normal conversation may remain `UNCERTAIN` and is accepted. The timer must remain manually paused after saving. Test notification permission denied and permitted, Activity recreation with a pending dialog, and tapping the notification after backgrounding while a save request finishes.
 
 Automated coverage includes quality/distance boundaries, opt-in saving, duplicate replacement, manual pause eligibility, once-per-session suppression, captured-candidate restoration, and DataStore disk persistence. A Compose instrumentation test exercises saving, rename/delete, empty state, dismissal and visibility restoration. Instrumentation requires a connected emulator/device; compiling the test APK does not mean these device tests have executed.
 
@@ -164,9 +168,9 @@ Validation on 23 September 2026: `testDebugUnitTest assembleDebug assembleDebugA
 ## Current limitations
 
 - Monitoring begins only after the user starts an exposure session and location permission is available.
-- The foreground service uses five-second continuous fused-location updates rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
+- The foreground service uses adaptive 30/60-second fused-location updates with a temporary five-second walking burst rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
 - Saving an indoor place still uses a separate fresh one-shot GPS fix, while active-session proximity uses continuous service updates.
 - Proximity sensors are commonly binary and are retained only as diagnostics that the phone is covered; they do not affect indoor detection.
-- Microphone level depends on device gain and is used only with stationary motion to gate an optional save suggestion, never as a UV measurement or definitive indoor classification.
+- Microphone level depends on device gain and is used only as a sustained-loudness veto alongside stationary motion and step inactivity. Quiet and conversational/uncertain levels are accepted; audio is never a UV measurement or definitive indoor classification.
 - Microphone sampling intentionally stops when the app is no longer visible; continuous background access would require an additional foreground-service type and user-facing policy justification.
 - Step-counter hardware is optional and may deliver updates with several seconds of latency.

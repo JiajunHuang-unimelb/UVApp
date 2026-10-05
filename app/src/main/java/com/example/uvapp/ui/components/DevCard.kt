@@ -28,6 +28,7 @@ import com.example.uvapp.domain.model.ApiStatus
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.DevUiState
 
@@ -44,7 +45,9 @@ fun DevCard(
     devicePosture: DevicePosture?,
     isMoving: Boolean?,
     stepsSinceStart: Int?,
+    recentSteps: Int?,
     stepsPerMinute: Int?,
+    stepActivity: StepActivity,
     soundLevelDb: Double?,
     acousticContext: AcousticContext?,
     nearIndoorLocation: Boolean?,
@@ -92,6 +95,8 @@ fun DevCard(
                         (stepsPerMinute?.let { " ($it / min)" } ?: ""),
                     colors,
                 )
+                MonoLine("Recent steps·  ${recentSteps ?: "unavailable"}", colors)
+                MonoLine("Step state  ·  ${stepActivity.name.lowercase()}", colors)
                 MonoLine(
                     "Audio       ·  ${soundLevelDb?.let { "%.1f dBFS".format(it) } ?: "unavailable"}",
                     colors,

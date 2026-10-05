@@ -9,6 +9,7 @@ import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
+import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -111,7 +112,10 @@ data class MainUiState(
     val devicePosture: DevicePosture? = null,
     val isMoving: Boolean? = null,
     val stepsSinceStart: Int? = null,
+    val recentSteps: Int? = null,
     val stepsPerMinute: Int? = null,
+    val lastStepElapsedMillis: Long? = null,
+    val stepActivity: StepActivity = StepActivity.UNKNOWN,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
     val indoorDetected: Boolean = false,
@@ -249,7 +253,10 @@ class MainViewModel(
                             devicePosture = sample.posture,
                             isMoving = sample.isMoving,
                             stepsSinceStart = sample.stepsSinceStart,
+                            recentSteps = sample.recentSteps,
                             stepsPerMinute = sample.stepsPerMinute,
+                            lastStepElapsedMillis = sample.lastStepElapsedMillis,
+                            stepActivity = sample.stepActivity,
                             soundLevelDb = sample.soundLevelDb,
                             acousticContext = sample.acousticContext,
                         )

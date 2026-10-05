@@ -3,6 +3,7 @@ package com.example.uvapp
 import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
+import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -73,6 +74,7 @@ class IndoorLocationsTest {
         main.onLightOverride(LightContext.INDOOR)
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
         environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         vm.setVisible(false)
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
@@ -89,7 +91,73 @@ class IndoorLocationsTest {
         dispatcher.scheduler.runCurrent()
         assertEquals(candidate, restored.state.value.data.pending)
     }
-    @Test fun `manual pause suggestion requires both quiet audio and stationary motion`() {
+    @Test fun `manual pause requests a fresh fix when the existing fix is unavailable`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        var locationRequests = 0
+        val freshProvider = object : CurrentLocationProvider {
+            override suspend fun getCurrentLocation(): LocationResult {
+                locationRequests++
+                return LocationResult.Success(good)
+            }
+        }
+        val vm = IndoorLocationsViewModel(repo, freshProvider, main, now = { 10_000 })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-50.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(1, locationRequests)
+        assertNotNull(repo.data.value.pending)
+    }
+    @Test fun `failed fresh fix does not suppress a later manual pause retry`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        var locationRequests = 0
+        val retryingProvider = object : CurrentLocationProvider {
+            override suspend fun getCurrentLocation(): LocationResult {
+                locationRequests++
+                return if (locationRequests == 1) {
+                    LocationResult.Success(good.copy(capturedAtMillis = 0L))
+                } else {
+                    LocationResult.Success(good.copy(capturedAtMillis = 40_001L))
+                }
+            }
+        }
+        val vm = IndoorLocationsViewModel(repo, retryingProvider, main, now = { 40_001L })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-50.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onResumeExposure()
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(2, locationRequests)
+        assertNotNull(repo.data.value.pending)
+    }
+    @Test fun `manual pause suggestion allows conversational audio but blocks sustained loud activity`() {
         val repo = Memory()
         repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
         val environment = MockEnvironmentContextProvider()
@@ -104,19 +172,35 @@ class IndoorLocationsTest {
 
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
         environment.setMotion(DevicePosture.FACE_UP, isMoving = true)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNull(repo.data.value.pending)
 
         main.onResumeExposure()
-        environment.setAcoustic(-20.0, AcousticContext.ACTIVE_OUTDOOR_LIKELY)
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
         environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNotNull(repo.data.value.pending)
+        vm.dismiss(); dispatcher.scheduler.runCurrent()
+
+        main.onStartExposure()
+        environment.setAcoustic(-10.0, AcousticContext.ACTIVE_OUTDOOR_LIKELY)
+        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNull(repo.data.value.pending)
 
-        main.onResumeExposure()
-        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        main.onStartExposure()
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
+        environment.setStepActivity(10, 10, recentSteps = 3, activity = StepActivity.WALKING)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onStartExposure()
+        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNotNull(repo.data.value.pending)

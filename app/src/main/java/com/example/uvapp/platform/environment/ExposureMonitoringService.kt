@@ -18,12 +18,15 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.example.uvapp.MainActivity
 import com.example.uvapp.R
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
+import com.example.uvapp.domain.environment.LocationMonitoringPolicy
 import com.example.uvapp.domain.environment.MotionClassifier
 import com.example.uvapp.domain.environment.ProximityClassifier
+import com.example.uvapp.domain.environment.StepActivityReading
 import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.IndoorLocation
 import com.example.uvapp.domain.model.contains
@@ -32,6 +35,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +59,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private val stepCounterSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }
     private val motionClassifier = MotionClassifier()
     private val stepCounterTracker = StepCounterTracker()
+    private val locationMonitoringPolicy = LocationMonitoringPolicy()
     private val wakeLock by lazy {
         getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -64,7 +69,12 @@ class ExposureMonitoringService : Service(), SensorEventListener {
 
     private var savedLocations: List<IndoorLocation> = emptyList()
     private var latestLocation: Location? = null
+    private var latestStepReading: StepActivityReading? = null
+    private var nearIndoorLocation = false
     private var preciseLocationAvailable = false
+    private var locationPermissionAvailable = false
+    private var currentLocationIntervalMillis: Long? = null
+    private var freshLocationCancellation: CancellationTokenSource? = null
     private var repositoryJob: Job? = null
     private var freshnessJob: Job? = null
 
@@ -72,7 +82,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 latestLocation = result.lastLocation
-                publishIndoorProximity()
+                publishIndoorProximity(SystemClock.elapsedRealtime())
             }
         }
 
@@ -87,14 +97,17 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             serviceScope.launch {
                 indoorRepository.data.collectLatest { data ->
                     savedLocations = data.locations
-                    publishIndoorProximity()
+                    publishIndoorProximity(SystemClock.elapsedRealtime())
                 }
             }
         freshnessJob =
             serviceScope.launch {
                 while (isActive) {
                     delay(FRESHNESS_CHECK_MILLIS)
-                    publishIndoorProximity()
+                    val nowElapsedMillis = SystemClock.elapsedRealtime()
+                    latestStepReading = stepCounterTracker.snapshot(nowElapsedMillis)
+                    AndroidEnvironmentContextProvider.updateSteps(latestStepReading)
+                    publishIndoorProximity(nowElapsedMillis)
                 }
             }
     }
@@ -110,6 +123,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     override fun onDestroy() {
         sensorManager?.unregisterListener(this)
         locationClient.removeLocationUpdates(locationCallback)
+        freshLocationCancellation?.cancel()
         repositoryJob?.cancel()
         freshnessJob?.cancel()
         serviceScope.cancel()
@@ -149,7 +163,9 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                     cumulativeSteps?.let {
                         stepCounterTracker.update(it, event.timestamp / NANOS_PER_MILLISECOND)
                     }
+                latestStepReading = reading
                 AndroidEnvironmentContextProvider.updateSteps(reading)
+                applyLocationPolicy(SystemClock.elapsedRealtime())
             }
         }
     }
@@ -197,25 +213,35 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED
         preciseLocationAvailable = hasFine
+        locationPermissionAvailable = hasFine || hasCoarse
         if (!hasFine && !hasCoarse) {
             AndroidEnvironmentContextProvider.updateIndoorProximity(false)
             return
         }
 
+        reconfigureLocationUpdates(LocationMonitoringPolicy.DEFAULT_INTERVAL_MILLIS)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun reconfigureLocationUpdates(intervalMillis: Long) {
+        if (!locationPermissionAvailable || currentLocationIntervalMillis == intervalMillis) return
         val request =
             LocationRequest
-                .Builder(Priority.PRIORITY_HIGH_ACCURACY, LOCATION_INTERVAL_MILLIS)
-                .setMinUpdateIntervalMillis(LOCATION_MIN_INTERVAL_MILLIS)
+                .Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
+                .setMinUpdateIntervalMillis(intervalMillis)
                 .build()
         try {
+            locationClient.removeLocationUpdates(locationCallback)
             locationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
+            currentLocationIntervalMillis = intervalMillis
         } catch (_: SecurityException) {
             preciseLocationAvailable = false
+            locationPermissionAvailable = false
             AndroidEnvironmentContextProvider.updateIndoorProximity(false)
         }
     }
 
-    private fun publishIndoorProximity() {
+    private fun publishIndoorProximity(nowElapsedMillis: Long) {
         val location = latestLocation
         val isUsable =
             preciseLocationAvailable &&
@@ -223,12 +249,52 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                 location.hasAccuracy() &&
                 location.accuracy <= MAX_LOCATION_ACCURACY_METERS &&
                 System.currentTimeMillis() - location.time in 0..MAX_LOCATION_AGE_MILLIS
-        val isNear =
+        nearIndoorLocation =
             isUsable &&
                 savedLocations.any { saved ->
                     saved.contains(location!!.latitude, location.longitude)
                 }
-        AndroidEnvironmentContextProvider.updateIndoorProximity(isNear)
+        AndroidEnvironmentContextProvider.updateIndoorProximity(nearIndoorLocation)
+        applyLocationPolicy(nowElapsedMillis)
+    }
+
+    private fun applyLocationPolicy(nowElapsedMillis: Long) {
+        val latestFixElapsedMillis =
+            latestLocation
+                ?.elapsedRealtimeNanos
+                ?.takeIf { it > 0L }
+                ?.div(NANOS_PER_MILLISECOND)
+        val decision =
+            locationMonitoringPolicy.evaluate(
+                nowElapsedMillis = nowElapsedMillis,
+                nearIndoorLocation = nearIndoorLocation,
+                stepReading = latestStepReading,
+                latestFixElapsedMillis = latestFixElapsedMillis,
+            )
+        reconfigureLocationUpdates(decision.intervalMillis)
+        if (decision.requestFreshFix) requestFreshLocation()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun requestFreshLocation() {
+        if (!preciseLocationAvailable) return
+        freshLocationCancellation?.cancel()
+        val cancellation = CancellationTokenSource()
+        freshLocationCancellation = cancellation
+        try {
+            locationClient
+                .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token)
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        latestLocation = location
+                        publishIndoorProximity(SystemClock.elapsedRealtime())
+                    }
+                }.addOnCompleteListener {
+                    if (freshLocationCancellation === cancellation) freshLocationCancellation = null
+                }
+        } catch (_: SecurityException) {
+            preciseLocationAvailable = false
+        }
     }
 
     private fun createNotification(): Notification {
@@ -262,10 +328,8 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private companion object {
         const val CHANNEL_ID = "exposure_monitoring"
         const val NOTIFICATION_ID = 2003
-        const val LOCATION_INTERVAL_MILLIS = 5_000L
-        const val LOCATION_MIN_INTERVAL_MILLIS = 2_500L
         const val FRESHNESS_CHECK_MILLIS = 5_000L
-        const val MAX_LOCATION_AGE_MILLIS = 30_000L
+        const val MAX_LOCATION_AGE_MILLIS = 75_000L
         const val MAX_LOCATION_ACCURACY_METERS = 50f
         const val NANOS_PER_MILLISECOND = 1_000_000L
     }

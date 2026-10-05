@@ -4,6 +4,7 @@ import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.StepActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,11 +49,17 @@ class MockEnvironmentContextProvider(
     fun setStepActivity(
         stepsSinceStart: Int?,
         stepsPerMinute: Int?,
+        recentSteps: Int? = null,
+        lastStepElapsedMillis: Long? = null,
+        activity: StepActivity = StepActivity.UNKNOWN,
     ) {
         _samples.update {
             it.copy(
                 stepsSinceStart = stepsSinceStart,
+                recentSteps = recentSteps,
                 stepsPerMinute = stepsPerMinute,
+                lastStepElapsedMillis = lastStepElapsedMillis,
+                stepActivity = activity,
             )
         }
     }

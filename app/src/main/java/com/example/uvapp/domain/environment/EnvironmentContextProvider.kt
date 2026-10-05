@@ -11,7 +11,10 @@ data class EnvironmentSample(
     val posture: DevicePosture? = null,
     val isMoving: Boolean? = null,
     val stepsSinceStart: Int? = null,
+    val recentSteps: Int? = null,
     val stepsPerMinute: Int? = null,
+    val lastStepElapsedMillis: Long? = null,
+    val stepActivity: StepActivity = StepActivity.UNKNOWN,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
 )
