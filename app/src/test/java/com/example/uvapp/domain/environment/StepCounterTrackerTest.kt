@@ -37,7 +37,7 @@ class StepCounterTrackerTest {
         tracker.update(105f, 20_000L)
 
         assertEquals(
-            StepActivityReading(0, 0, 0, null, StepActivity.UNKNOWN),
+            StepActivityReading(0, 0, 0, null, StepActivity.STATIONARY),
             tracker.update(106f, 5_000L),
         )
     }
@@ -68,7 +68,7 @@ class StepCounterTrackerTest {
         val reading = tracker.snapshot(25_001L)
 
         assertEquals(3, reading?.recentSteps)
-        assertEquals(StepActivity.UNKNOWN, reading?.activity)
+        assertEquals(StepActivity.STATIONARY, reading?.activity)
     }
 
     @Test
