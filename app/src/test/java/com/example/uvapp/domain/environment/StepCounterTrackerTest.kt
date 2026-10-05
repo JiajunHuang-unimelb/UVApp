@@ -31,6 +31,18 @@ class StepCounterTrackerTest {
     }
 
     @Test
+    fun `elapsed clock rollback starts a new session`() {
+        val tracker = StepCounterTracker()
+        tracker.update(100f, 10_000L)
+        tracker.update(105f, 20_000L)
+
+        assertEquals(
+            StepActivityReading(0, 0, 0, null, StepActivity.UNKNOWN),
+            tracker.update(106f, 5_000L),
+        )
+    }
+
+    @Test
     fun `invalid reading is ignored`() {
         assertNull(StepCounterTracker().update(Float.NaN, 1_000L))
     }
@@ -45,6 +57,40 @@ class StepCounterTrackerTest {
         assertEquals(3, reading?.recentSteps)
         assertEquals(10_000L, reading?.lastStepElapsedMillis)
         assertEquals(StepActivity.WALKING, reading?.activity)
+    }
+
+    @Test
+    fun `walking expires after fifteen seconds while steps remain recent`() {
+        val tracker = StepCounterTracker()
+        tracker.update(100f, 0L)
+        tracker.update(103f, 10_000L)
+
+        val reading = tracker.snapshot(25_001L)
+
+        assertEquals(3, reading?.recentSteps)
+        assertEquals(StepActivity.UNKNOWN, reading?.activity)
+    }
+
+    @Test
+    fun `separate bursts are summed inside recent window`() {
+        val tracker = StepCounterTracker()
+        tracker.update(100f, 0L)
+        tracker.update(102f, 10_000L)
+        val reading = tracker.update(105f, 20_000L)
+
+        assertEquals(5, reading?.stepsSinceStart)
+        assertEquals(5, reading?.recentSteps)
+        assertEquals(StepActivity.WALKING, reading?.activity)
+    }
+
+    @Test
+    fun `unrealistic average rate is capped`() {
+        val tracker = StepCounterTracker()
+        tracker.update(0f, 0L)
+
+        val reading = tracker.update(10_000f, 5_000L)
+
+        assertEquals(300, reading?.averageStepsPerMinute)
     }
 
     @Test
