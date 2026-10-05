@@ -4,12 +4,12 @@
 
 | Capability | Android API | Runtime behavior |
 | --- | --- | --- |
-| Ambient light | `Sensor.TYPE_LIGHT` | Reads lux while an exposure session is monitored. |
+| Ambient light | `Sensor.TYPE_LIGHT` | Reads lux through a five-sample rolling median while an exposure session is monitored. Invalid readings are ignored. |
 | Physical proximity | `Sensor.TYPE_PROXIMITY` | Marks the phone as covered. Covered low-light readings are excluded from shade-dose decisions, but do not classify an indoor location. |
 | Accelerometer | `Sensor.TYPE_ACCELEROMETER` | Classifies posture and movement; stationary state gates indoor-location suggestions but not auto-pause. |
 | Step counter | `Sensor.TYPE_STEP_COUNTER` | Rebases the reboot-scoped counter and classifies available readings as walking (at least three steps in the last 15 seconds) or stationary; missing readings remain unavailable. |
-| Location | `FusedLocationProviderClient` | Uses adaptive high-accuracy updates and compares fresh fixes with saved indoor locations. |
-| Microphone | `AudioRecord` | Calculates smoothed RMS/dBFS and blocks suggestions only after five seconds of sustained loud activity. PCM is discarded immediately; no audio is stored or uploaded. |
+| Location | `FusedLocationProviderClient` | Uses adaptive high-accuracy updates only when saved indoor locations exist and validates fix age with the monotonic elapsed clock. |
+| Microphone | `AudioRecord` | Samples classification at 2 Hz, calculates smoothed RMS/dBFS and blocks suggestions only after five seconds of sustained loud activity. PCM is discarded immediately; no audio is stored or uploaded. |
 | Haptic output | `Vibrator` | Signals automatic indoor pause and exposure-limit alerts. |
 | Audio output | `ToneGenerator` | Signals exposure-limit and developer-preview alerts using the notification stream. |
 
@@ -32,6 +32,7 @@ An indoor-location suggestion is separate from detection. It requires low light,
 ## Adaptive location cadence
 
 - The normal high-accuracy update interval is 30 seconds.
+- With no saved indoor locations, continuous location updates are stopped because they cannot contribute to saved-radius detection.
 - Inside a saved 100 m radius, stationary, unavailable step data, and minimal activity up to 100 session steps use a 60-second interval.
 - Entering `WALKING` after more than 100 session steps starts a 30-second burst of five-second updates.
 - The walking transition requests one fresh precise fix unless the existing fix is at most 15 seconds old.
@@ -51,7 +52,7 @@ An indoor-location suggestion is separate from detection. It requires low light,
 1. Install the debug APK on a physical Android phone.
 2. Grant precise location, then open Settings and enable **Enhanced sensing**.
 3. Grant physical-activity and microphone permissions.
-4. Enable Developer mode to inspect live lux, saved-radius proximity, physical proximity, posture, movement, total/recent steps, step state, dBFS and acoustic context.
+4. Enable Developer mode to inspect filtered lux, saved-radius proximity, physical proximity, posture, movement, total/recent steps, step state, dBFS and acoustic context.
 5. Start an exposure session. Verify step and motion updates while walking and rotating the phone.
 6. In a quiet environment, verify microphone values update while the app is visible.
 7. Enter a saved 100 m radius, hold the light below 1,000 lux for 10 seconds and verify the countdown pauses with one vibration.
