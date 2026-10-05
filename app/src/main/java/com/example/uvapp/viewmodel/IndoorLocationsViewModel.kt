@@ -3,6 +3,7 @@ package com.example.uvapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -47,6 +48,7 @@ class IndoorLocationsViewModel(
                     current.displayLux < 1_000 &&
                     current.effectiveAcousticContext == AcousticContext.QUIET_INDOOR_LIKELY &&
                     current.effectiveIsMoving == false &&
+                    current.stepActivity == StepActivity.STATIONARY &&
                     !asked &&
                     state.value.data.suggestionsEnabled
                 ) {

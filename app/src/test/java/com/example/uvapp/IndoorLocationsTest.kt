@@ -3,6 +3,7 @@ package com.example.uvapp
 import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
+import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -73,6 +74,7 @@ class IndoorLocationsTest {
         main.onLightOverride(LightContext.INDOOR)
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
         environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         vm.setVisible(false)
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
@@ -89,7 +91,7 @@ class IndoorLocationsTest {
         dispatcher.scheduler.runCurrent()
         assertEquals(candidate, restored.state.value.data.pending)
     }
-    @Test fun `manual pause suggestion requires both quiet audio and stationary motion`() {
+    @Test fun `manual pause suggestion requires quiet audio stationary motion and no recent steps`() {
         val repo = Memory()
         repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
         val environment = MockEnvironmentContextProvider()
@@ -104,6 +106,7 @@ class IndoorLocationsTest {
 
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
         environment.setMotion(DevicePosture.FACE_UP, isMoving = true)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNull(repo.data.value.pending)
@@ -117,6 +120,13 @@ class IndoorLocationsTest {
 
         main.onResumeExposure()
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setStepActivity(10, 10, recentSteps = 3, activity = StepActivity.WALKING)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onResumeExposure()
+        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNotNull(repo.data.value.pending)
