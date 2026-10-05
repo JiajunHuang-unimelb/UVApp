@@ -2,7 +2,7 @@ package com.example.uvapp
 
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.AcousticContext
-import com.example.uvapp.domain.environment.CameraLightContext
+import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.ExposureMonitoringController
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
@@ -229,7 +229,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `low light with dark camera and quiet sound pauses exposure`() {
+    fun `low light with quiet stationary motion does not pause outside a saved location`() {
         val environment = MockEnvironmentContextProvider()
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
@@ -237,16 +237,15 @@ class MainViewModelTest {
         vm.onStartExposure()
 
         environment.setLux(500)
-        environment.setCameraLuminance(10, CameraLightContext.DARK)
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_DOWN, isMoving = false)
         mainDispatcher.scheduler.runCurrent()
-        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.advanceTimeBy(12_000)
         mainDispatcher.scheduler.runCurrent()
 
-        assertTrue(vm.state.value.indoorDetected)
-        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
-        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
-        assertEquals(1, alerts.callCount)
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(0, alerts.callCount)
     }
 
     @Test
@@ -268,7 +267,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `stable low light and physical proximity pause then clear proximity resumes`() {
+    fun `low light and physical proximity do not pause outside a saved location`() {
         val environment = MockEnvironmentContextProvider()
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
@@ -278,24 +277,11 @@ class MainViewModelTest {
         environment.setLux(500)
         environment.setDeviceOccluded(true)
         mainDispatcher.scheduler.runCurrent()
-        mainDispatcher.scheduler.advanceTimeBy(9_999)
-        mainDispatcher.scheduler.runCurrent()
-        assertFalse(vm.state.value.indoorDetected)
-
-        mainDispatcher.scheduler.advanceTimeBy(1)
-        mainDispatcher.scheduler.runCurrent()
-        assertTrue(vm.state.value.indoorDetected)
-        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
-        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
-        assertEquals(1, alerts.callCount)
-
-        environment.setDeviceOccluded(false)
-        mainDispatcher.scheduler.runCurrent()
-        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.advanceTimeBy(12_000)
         mainDispatcher.scheduler.runCurrent()
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
-        assertEquals(1, alerts.callCount)
+        assertEquals(0, alerts.callCount)
     }
 
     @Test

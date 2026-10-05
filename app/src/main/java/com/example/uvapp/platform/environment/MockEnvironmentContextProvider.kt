@@ -4,7 +4,6 @@ import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.AcousticContext
-import com.example.uvapp.domain.environment.CameraLightContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,18 +62,6 @@ class MockEnvironmentContextProvider(
         context: AcousticContext?,
     ) {
         _samples.update { it.copy(soundLevelDb = soundLevelDb, acousticContext = context) }
-    }
-
-    fun setCameraLuminance(
-        percent: Int?,
-        context: CameraLightContext?,
-    ) {
-        _samples.update {
-            it.copy(
-                cameraLuminancePercent = percent,
-                cameraLightContext = context,
-            )
-        }
     }
 
     private companion object {

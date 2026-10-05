@@ -4,14 +4,11 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.environment.AcousticContext
+import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
-import com.example.uvapp.domain.environment.EnvironmentEvidence
-import com.example.uvapp.domain.environment.EnvironmentFusion
 import com.example.uvapp.domain.environment.EnvironmentSample
 import com.example.uvapp.domain.environment.ExposureMonitoringController
-import com.example.uvapp.domain.environment.DevicePosture
-import com.example.uvapp.domain.environment.AcousticContext
-import com.example.uvapp.domain.environment.CameraLightContext
 import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureSessionManager
@@ -102,8 +99,6 @@ data class MainUiState(
     val stepsPerMinute: Int? = null,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
-    val cameraLuminancePercent: Int? = null,
-    val cameraLightContext: CameraLightContext? = null,
     val indoorDetected: Boolean = false,
     val apiStatuses: List<ApiStatus> = emptyList(),
     val skinType: SkinType = SkinType.II,
@@ -115,14 +110,14 @@ data class MainUiState(
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
     val band: UvBand get() = UvBand.fromIndex(displayUv)
 
-    /** Lux used by indoor fusion. Explicit developer light simulation wins. */
+    /** Lux used by indoor detection. Explicit developer light simulation wins. */
     val displayLux: Int get() = when {
         dev.overrideLight -> dev.lightOverride.mockLux
         luxOverride != null -> luxOverride
         else -> lux
     }
 
-    /** Light-only classification shown by the lux card before sensor fusion is confirmed. */
+    /** Light-only classification shown by the lux card before saved-location confirmation. */
     val lightReadingContext: LightContext get() = LightContext.fromLux(displayLux)
 
     /** Physical proximity reading; developer simulation wins when enabled. */
@@ -135,19 +130,8 @@ data class MainUiState(
     val effectiveAcousticContext: AcousticContext? get() =
         if (dev.overrideAudio) AcousticContext.ACTIVE_OUTDOOR_LIKELY else acousticContext
 
-    val environmentEvidence: EnvironmentEvidence get() =
-        EnvironmentFusion.evaluate(
-            nearIndoorLocation = nearIndoorLocation,
-            deviceOccluded = effectiveDeviceOccluded,
-            cameraLightContext = cameraLightContext,
-            acousticContext = effectiveAcousticContext,
-            posture = devicePosture,
-            isMoving = effectiveIsMoving,
-        )
-
-    /** Strong evidence or a combination of weak signals can support low-light classification. */
-    val hasIndoorEvidence: Boolean get() =
-        EnvironmentFusion.supportsIndoor(environmentEvidence)
+    /** Auto-pause requires authoritative proximity to a user-confirmed indoor place. */
+    val isWithinSavedIndoorLocation: Boolean get() = nearIndoorLocation == true
 
     /** Low light is only classified as indoor after location-aware debounce confirms it. */
     val displayContext: LightContext get() = when {
@@ -230,8 +214,6 @@ class MainViewModel(
                             stepsPerMinute = sample.stepsPerMinute,
                             soundLevelDb = sample.soundLevelDb,
                             acousticContext = sample.acousticContext,
-                            cameraLuminancePercent = sample.cameraLuminancePercent,
-                            cameraLightContext = sample.cameraLightContext,
                         )
                     }
                     evaluateIndoorTransition()
@@ -617,11 +599,11 @@ class MainViewModel(
         val target =
             when {
                 !state.indoorDetected &&
-                    state.hasIndoorEvidence &&
+                    state.isWithinSavedIndoorLocation &&
                     state.displayLux < INDOOR_ENTER_LUX -> true
 
                 state.indoorDetected &&
-                    (!state.hasIndoorEvidence || state.displayLux > INDOOR_EXIT_LUX) -> false
+                    (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
 
                 else -> null
             }
@@ -647,7 +629,7 @@ class MainViewModel(
 
     private fun confirmIndoorIfStillValid() {
         val state = _state.value
-        if (state.indoorDetected || !state.hasIndoorEvidence || state.displayLux >= INDOOR_ENTER_LUX) return
+        if (state.indoorDetected || !state.isWithinSavedIndoorLocation || state.displayLux >= INDOOR_ENTER_LUX) return
 
         _state.update { it.copy(indoorDetected = true) }
         syncExposure()
@@ -656,7 +638,7 @@ class MainViewModel(
 
     private fun confirmOutdoorIfStillValid() {
         val state = _state.value
-        val exitStillValid = !state.hasIndoorEvidence || state.displayLux > INDOOR_EXIT_LUX
+        val exitStillValid = !state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX
         if (!state.indoorDetected || !exitStillValid) return
 
         val shouldResume = state.pauseReason == ExposurePauseReason.INDOOR_DETECTED
