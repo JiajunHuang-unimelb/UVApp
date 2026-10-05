@@ -85,6 +85,8 @@ fun UVAppRoot(
         remember(applicationContext) { AndroidExposureAlertGateway(applicationContext) }
     val microphoneMonitor =
         remember(applicationContext) { AndroidMicrophoneEnvironmentMonitor(applicationContext) }
+    val historyRepository =
+        remember(applicationContext) { ExposureHistoryRepositoryFactory.create(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
