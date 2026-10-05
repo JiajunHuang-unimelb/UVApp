@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UV Widget Decision Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #FAF7F2;
+    --surface: #FFFFFF;
+    --surface-2: #FDFBF8;
+    --ink: #241C14;
+    --ink-muted: #6B5D4D;
+    --ink-faint: #A79A87;
+    --accent: #E8590C;
+    --accent-ink: #7A2F04;
+    --accent-soft: #FCE4D2;
+    --resolved: #1E7A34;
+    --resolved-soft: #E3F2E6;
+    --border: #E7DFD2;
+    --future: #8A7C68;
+    --future-soft: #EFE9DD;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1B1611;
+      --surface: #241E18;
+      --surface-2: #2B241C;
+      --ink: #F3ECE1;
+      --ink-muted: #B9AC98;
+      --ink-faint: #7A6F5E;
+      --accent: #FF8A50;
+      --accent-ink: #FFD9BE;
+      --accent-soft: #4A2C18;
+      --resolved: #8FE3A0;
+      --resolved-soft: #1E3322;
+      --border: #3A322A;
+      --future: #9C8F7A;
+      --future-soft: #362F25;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", -apple-system, "Segoe UI", sans-serif;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 20px 64px;
+    line-height: 1.6;
+  }
+  h1, h2, .disp { font-family: "Archivo", -apple-system, sans-serif; font-weight: 700; text-wrap: balance; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  header.page { display: flex; flex-direction: column; gap: 6px; margin-bottom: 28px; }
+  .eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
+  h1 { font-size: 30px; margin: 0; color: var(--ink); }
+  .lede { color: var(--ink-muted); font-size: 15px; margin: 2px 0 0; max-width: 62ch; }
+
+  /* build sequence strip */
+  .sequence { margin: 28px 0 32px; }
+  .sequence svg { width: 100%; height: auto; display: block; }
+
+  /* scope summary card */
+  .scope {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 36px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px 24px;
+  }
+  .scope-field .k { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 3px; }
+  .scope-field .v { font-size: 14.5px; color: var(--ink); }
+  .scope-field .v.mono { font-size: 13px; }
+  .scope-full { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--border); }
+  .scope-full .v { font-size: 13.5px; color: var(--ink-muted); }
+  .scope-full code { font-family: "IBM Plex Mono", monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; color: var(--ink); }
+
+  .section-head { font-size: 15px; margin: 40px 0 6px; color: var(--ink); }
+  .section-head:first-of-type { margin-top: 0; }
+  .section-sub { font-size: 13px; color: var(--ink-muted); margin: 0 0 16px; max-width: 62ch; }
+
+  .arch-layout { display: grid; grid-template-columns: 1fr; gap: 24px; align-items: start; }
+  @media (min-width: 760px) {
+    .arch-layout { grid-template-columns: minmax(0, 1fr) 260px; }
+  }
+
+  .diagrams { display: flex; flex-direction: column; gap: 32px; margin-bottom: 0; min-width: 0; }
+  .diagrams figure { margin: 0; }
+  .diagrams svg { width: 100%; height: auto; display: block; max-width: 420px; margin: 0 auto; }
+  .diagrams figcaption { font-size: 12.5px; color: var(--ink-muted); margin-top: 10px; max-width: 56ch; }
+  .diagrams figcaption code { font-family: "IBM Plex Mono", monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; color: var(--ink); }
+
+  .diagrams .node { cursor: pointer; }
+  .diagrams .node rect { transition: stroke 0.12s ease, stroke-width 0.12s ease; }
+  .diagrams .node:hover rect, .diagrams .node:focus-visible rect { stroke: var(--accent); }
+  .diagrams .node:focus-visible { outline: none; }
+  .diagrams .node.active rect { stroke: var(--accent); stroke-width: 2px; }
+
+  .detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 20px;
+    margin: 0;
+    min-height: 22px;
+  }
+  @media (min-width: 760px) {
+    .detail-panel { position: sticky; top: 20px; }
+  }
+  .detail-empty { font-size: 13.5px; color: var(--ink-faint); }
+  .detail-title { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 14.5px; color: var(--accent-ink); margin-bottom: 9px; }
+  .detail-bullets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .detail-bullets li { font-size: 13.5px; color: var(--ink-muted); padding-left: 14px; position: relative; }
+  .detail-bullets li::before { content: "\2022"; position: absolute; left: 0; color: var(--ink-faint); }
+  .detail-bullets code { font-family: "IBM Plex Mono", monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; color: var(--ink); }
+
+  footer.page { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--ink-faint); }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="eyebrow">UVApp - sprint scope review</div>
+  <h1>Home-screen widget: implementation map</h1>
+  <p class="lede">Ten decisions resolved, now spelled out as implementation detail on the architecture itself. Click any box for what it does.</p>
+</header>
+
+<div class="sequence" aria-hidden="false">
+  <svg viewBox="0 0 720 108" role="img">
+    <title>Build sequence</title>
+    <desc>Location and two APIs already built, light-sensor context label next as a must-have, then this widget, with in-pocket auto-pause deferred.</desc>
+    <line x1="60" y1="54" x2="660" y2="54" stroke="var(--border)" stroke-width="2"/>
+    <g font-family="IBM Plex Mono, monospace" font-size="11">
+      <circle cx="60" cy="54" r="7" fill="var(--resolved)"/>
+      <text x="60" y="80" text-anchor="middle" fill="var(--ink-muted)">built</text>
+      <text x="60" y="34" text-anchor="middle" fill="var(--ink-faint)" font-size="10">location + 2 APIs</text>
+
+      <circle cx="260" cy="54" r="7" fill="var(--resolved)"/>
+      <text x="260" y="80" text-anchor="middle" fill="var(--ink-muted)">next, must-have</text>
+      <text x="260" y="34" text-anchor="middle" fill="var(--ink-faint)" font-size="10">light-sensor context (US-08)</text>
+
+      <circle cx="460" cy="54" r="9" fill="var(--accent)"/>
+      <text x="460" y="82" text-anchor="middle" fill="var(--accent-ink)" font-weight="500">you are here</text>
+      <text x="460" y="32" text-anchor="middle" fill="var(--ink)" font-weight="500" font-size="11">home-screen widget</text>
+
+      <circle cx="660" cy="54" r="7" fill="var(--future)" fill-opacity="0.5"/>
+      <text x="660" y="80" text-anchor="middle" fill="var(--ink-faint)">deferred</text>
+      <text x="660" y="34" text-anchor="middle" fill="var(--ink-faint)" font-size="10">in-pocket auto-pause</text>
+    </g>
+  </svg>
+</div>
+
+<div class="scope">
+  <div class="scope-field"><div class="k">Owner</div><div class="v">Frontend + backend, jointly</div></div>
+  <div class="scope-field"><div class="k">Base branch</div><div class="v mono">codex/cleanup-location-repository</div></div>
+  <div class="scope-full">
+    <div class="k">Net scope</div>
+    <div class="v">New <code>widget/</code> package + new <code>domain/widget/</code> package, one dependency (<code>androidx.glance:glance-appwidget</code>), no WorkManager. Reuses <code>UvRepositoryFactory</code>, <code>DataStoreUserPreferencesRepository</code>, <code>BurnCalculator</code> and <code>FusedCurrentLocationProvider</code> as-is - the only touch to existing code is extracting <code>nearestTo</code> out of <code>MainViewModel</code>. <code>ExposureSessionManager</code> is untouched.</div>
+  </div>
+</div>
+
+<h2 class="section-head">Architecture</h2>
+<p class="section-sub">Click any box below for its implementation detail.</p>
+
+<div class="arch-layout">
+<div class="diagrams">
+  <figure>
+    <svg viewBox="0 0 460 730" role="img" aria-label="Existing components the widget reuses as-is, the two files it touches, the new widget and domain widget packages it adds, and two more sensor modules that are planned but not yet built. Every box is clickable for detail.">
+      <rect x="30" y="30" width="400" height="242" rx="14" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="50" y="52" font-size="13" font-weight="600" fill="var(--ink)">Existing app</text>
+
+      <g font-size="12" fill="var(--ink)">
+        <g class="node" data-key="uvrepo" tabindex="0" role="button" aria-label="UvRepositoryFactory, reused as-is">
+          <rect x="50" y="70" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+          <text x="62" y="83" dominant-baseline="central">UvRepositoryFactory.kt</text>
+          <text x="398" y="83" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">reused</text>
+        </g>
+
+        <g class="node" data-key="prefs" tabindex="0" role="button" aria-label="DataStoreUserPreferencesRepository, reused as-is">
+          <rect x="50" y="102" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+          <text x="62" y="115" dominant-baseline="central">DataStoreUserPreferencesRepository.kt</text>
+          <text x="398" y="115" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">reused</text>
+        </g>
+
+        <g class="node" data-key="burncalc" tabindex="0" role="button" aria-label="BurnCalculator, reused as-is">
+          <rect x="50" y="134" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+          <text x="62" y="147" dominant-baseline="central">BurnCalculator.kt</text>
+          <text x="398" y="147" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">reused</text>
+        </g>
+
+        <g class="node" data-key="location" tabindex="0" role="button" aria-label="FusedCurrentLocationProvider, reused as-is">
+          <rect x="50" y="166" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+          <text x="62" y="179" dominant-baseline="central">FusedCurrentLocationProvider.kt</text>
+          <text x="398" y="179" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">reused</text>
+        </g>
+
+        <line x1="50" y1="195" x2="410" y2="195" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>
+
+        <g class="node" data-key="mainviewmodel" tabindex="0" role="button" aria-label="MainViewModel, touched to remove nearestTo">
+          <rect x="50" y="198" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.3"/>
+          <text x="62" y="211" dominant-baseline="central">MainViewModel.kt</text>
+          <text x="398" y="211" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--accent-ink)">-nearestTo</text>
+        </g>
+
+        <g class="node" data-key="nearestto" tabindex="0" role="button" aria-label="UvForecastReading, touched to add shared nearestTo">
+          <rect x="50" y="230" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.3"/>
+          <text x="62" y="243" dominant-baseline="central">UvForecastReading.kt</text>
+          <text x="398" y="243" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--accent-ink)">+nearestTo</text>
+        </g>
+      </g>
+
+      <rect x="30" y="296" width="400" height="286" rx="14" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="50" y="318" font-size="13" font-weight="600" fill="var(--accent-ink)">Widget build</text>
+
+      <g font-size="12" fill="var(--ink)">
+        <g class="node" data-key="snapshot-model" tabindex="0" role="button" aria-label="WidgetUvSnapshot, new file in domain widget">
+          <rect x="50" y="336" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="349" dominant-baseline="central">WidgetUvSnapshot.kt</text>
+          <text x="398" y="349" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">domain/widget/</text>
+        </g>
+
+        <g class="node" data-key="build-snapshot" tabindex="0" role="button" aria-label="BuildWidgetSnapshot, new file in domain widget">
+          <rect x="50" y="368" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="381" dominant-baseline="central">BuildWidgetSnapshot.kt</text>
+          <text x="398" y="381" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">domain/widget/</text>
+        </g>
+
+        <line x1="50" y1="400" x2="410" y2="400" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>
+
+        <g class="node" data-key="uvwidget" tabindex="0" role="button" aria-label="UvWidget, new file in widget package">
+          <rect x="50" y="406" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="419" dominant-baseline="central">UvWidget.kt</text>
+          <text x="398" y="419" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">widget/</text>
+        </g>
+
+        <g class="node" data-key="uvwidgetreceiver" tabindex="0" role="button" aria-label="UvWidgetReceiver, new file in widget package">
+          <rect x="50" y="438" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="451" dominant-baseline="central">UvWidgetReceiver.kt</text>
+          <text x="398" y="451" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">widget/</text>
+        </g>
+
+        <line x1="50" y1="470" x2="410" y2="470" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>
+
+        <g class="node" data-key="widget-info-xml" tabindex="0" role="button" aria-label="uv_widget_info.xml, new resource file">
+          <rect x="50" y="476" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="489" dominant-baseline="central">uv_widget_info.xml</text>
+          <text x="398" y="489" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">res/xml/</text>
+        </g>
+
+        <g class="node" data-key="manifest" tabindex="0" role="button" aria-label="AndroidManifest, touched to register the receiver">
+          <rect x="50" y="508" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="521" dominant-baseline="central">AndroidManifest.xml</text>
+          <text x="398" y="521" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">+receiver</text>
+        </g>
+
+        <g class="node" data-key="gradle" tabindex="0" role="button" aria-label="build.gradle.kts, touched to add the Glance dependency">
+          <rect x="50" y="540" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1"/>
+          <text x="62" y="553" dominant-baseline="central">build.gradle.kts</text>
+          <text x="398" y="553" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--ink-muted)">+1 dependency</text>
+        </g>
+      </g>
+
+      <rect x="30" y="592" width="400" height="114" rx="14" fill="none" stroke="var(--future)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="50" y="614" font-size="13" font-weight="600" fill="var(--future)">Planned, not built (Could-tier)</text>
+
+      <g font-size="12" fill="var(--ink)">
+        <g class="node" data-key="camera" tabindex="0" role="button" aria-label="sensing camera, planned Could-tier, not built">
+          <rect x="50" y="632" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--future)" stroke-width="1"/>
+          <text x="62" y="645" dominant-baseline="central">sensing/camera/</text>
+          <text x="398" y="645" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--future)">US-10, Could</text>
+        </g>
+
+        <g class="node" data-key="stepcounter" tabindex="0" role="button" aria-label="sensing activity, planned Could-tier, not built">
+          <rect x="50" y="664" width="360" height="26" rx="6" fill="var(--surface)" stroke="var(--future)" stroke-width="1"/>
+          <text x="62" y="677" dominant-baseline="central">sensing/activity/</text>
+          <text x="398" y="677" dominant-baseline="central" text-anchor="end" font-size="10.5" fill="var(--future)">US-18, Could</text>
+        </g>
+      </g>
+    </svg>
+    <figcaption>Where the code lives - reused as-is, the two files touched to share <code>nearestTo</code>, the new packages this adds, and two more sensor modules that are planned but not started.</figcaption>
+  </figure>
+
+  <figure>
+    <svg viewBox="0 0 500 680" role="img" aria-label="On a 30-minute timer or a manual refresh tap, the widget receiver calls BuildWidgetSnapshot, which reads location, the UV repository, the shared nearestTo reading picker, preferences and BurnCalculator, then renders the result. Tapping the widget body instead just launches the app normally. Every box is clickable for detail.">
+      <defs>
+        <marker id="figBArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+
+      <g class="node" data-key="timer-trigger" tabindex="0" role="button" aria-label="Timer trigger, every 30 minutes">
+        <rect x="35" y="24" width="95" height="34" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="82.5" y="37" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="500" fill="var(--ink)">Timer</text>
+        <text x="82.5" y="50" text-anchor="middle" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">every 30 min</text>
+      </g>
+
+      <g class="node" data-key="tap-trigger" tabindex="0" role="button" aria-label="Refresh icon trigger, manual tap">
+        <rect x="150" y="24" width="95" height="34" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="197.5" y="37" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="500" fill="var(--ink)">Refresh icon</text>
+        <text x="197.5" y="50" text-anchor="middle" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">manual tap</text>
+      </g>
+
+      <path d="M82.5,58 L140,74" fill="none" stroke="var(--ink-faint)" stroke-width="1"/>
+      <path d="M197.5,58 L140,74" fill="none" stroke="var(--ink-faint)" stroke-width="1"/>
+      <line x1="140" y1="74" x2="140" y2="80" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+
+      <g class="node" data-key="uvwidgetreceiver" tabindex="0" role="button" aria-label="UvWidgetReceiver onUpdate">
+        <rect x="40" y="82" width="200" height="38" rx="8" fill="var(--surface)" stroke="var(--ink)" stroke-width="1"/>
+        <text x="140" y="97" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="var(--ink)">UvWidgetReceiver</text>
+        <text x="140" y="112" text-anchor="middle" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">onUpdate()</text>
+      </g>
+
+      <line x1="140" y1="120" x2="140" y2="130" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+
+      <g class="node" data-key="build-snapshot" tabindex="0" role="button" aria-label="BuildWidgetSnapshot function">
+        <rect x="40" y="132" width="200" height="42" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"/>
+        <text x="140" y="149" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="var(--accent-ink)">BuildWidgetSnapshot()</text>
+        <text x="140" y="163" text-anchor="middle" dominant-baseline="central" font-size="10" fill="var(--accent-ink)">domain/widget/, suspend fun</text>
+      </g>
+
+      <line x1="140" y1="174" x2="140" y2="476" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+
+      <g font-size="12" fill="var(--ink)">
+        <line x1="140" y1="223" x2="280" y2="223" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+        <g class="node" data-key="location" tabindex="0" role="button" aria-label="FusedCurrentLocationProvider getLastLocation">
+          <rect x="280" y="204" width="190" height="38" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="292" y="217" dominant-baseline="central" font-size="12">FusedCurrentLocationProvider</text>
+          <text x="292" y="231" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">getLastLocation()</text>
+        </g>
+
+        <line x1="140" y1="275" x2="280" y2="275" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+        <g class="node" data-key="uvrepo" tabindex="0" role="button" aria-label="DefaultUvRepository refresh and observe">
+          <rect x="280" y="256" width="190" height="38" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="292" y="269" dominant-baseline="central" font-size="12">DefaultUvRepository</text>
+          <text x="292" y="283" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">refresh() + observe()</text>
+        </g>
+
+        <line x1="140" y1="327" x2="280" y2="327" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+        <g class="node" data-key="nearestto" tabindex="0" role="button" aria-label="UvForecastReading nearestTo, shared function">
+          <rect x="280" y="308" width="190" height="38" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"/>
+          <text x="292" y="321" dominant-baseline="central" font-size="12" fill="var(--accent-ink)">UvForecastReading</text>
+          <text x="292" y="335" dominant-baseline="central" font-size="10" fill="var(--accent-ink)">nearestTo(now), shared</text>
+        </g>
+
+        <line x1="140" y1="379" x2="280" y2="379" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+        <g class="node" data-key="prefs" tabindex="0" role="button" aria-label="UserPreferencesRepository preferences">
+          <rect x="280" y="360" width="190" height="38" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="292" y="373" dominant-baseline="central" font-size="12">UserPreferencesRepository</text>
+          <text x="292" y="387" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">preferences.first()</text>
+        </g>
+
+        <line x1="140" y1="431" x2="280" y2="431" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+        <g class="node" data-key="burncalc" tabindex="0" role="button" aria-label="BurnCalculator burnMinutes">
+          <rect x="280" y="412" width="190" height="38" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="292" y="425" dominant-baseline="central" font-size="12">BurnCalculator</text>
+          <text x="292" y="439" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">burnMinutes(&#8230;, DIRECT_SUN)</text>
+        </g>
+      </g>
+
+      <g class="node" data-key="snapshot-model" tabindex="0" role="button" aria-label="WidgetUvSnapshot composed result">
+        <rect x="40" y="480" width="200" height="38" rx="8" fill="var(--surface)" stroke="var(--ink)" stroke-width="1"/>
+        <text x="140" y="495" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="var(--ink)">WidgetUvSnapshot</text>
+        <text x="140" y="510" text-anchor="middle" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">composed result</text>
+      </g>
+
+      <line x1="140" y1="518" x2="140" y2="528" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+
+      <g class="node" data-key="uvwidget" tabindex="0" role="button" aria-label="UvWidget provideGlance, renders the UI">
+        <rect x="40" y="530" width="200" height="42" rx="8" fill="var(--surface)" stroke="var(--ink)" stroke-width="1"/>
+        <text x="140" y="547" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="500" fill="var(--ink)">UvWidget.provideGlance()</text>
+        <text x="140" y="561" text-anchor="middle" dominant-baseline="central" font-size="10" fill="var(--ink-muted)">renders the home-screen UI</text>
+      </g>
+
+      <line x1="20" y1="592" x2="480" y2="592" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="250" y="608" text-anchor="middle" font-size="10.5" letter-spacing="0.05em" fill="var(--ink-faint)">SEPARATE: TAP WIDGET BODY</text>
+
+      <g class="node" data-key="tap-open" tabindex="0" role="button" aria-label="Tap widget body">
+        <rect x="40" y="620" width="190" height="34" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="135" y="637" text-anchor="middle" dominant-baseline="central" font-size="12" fill="var(--ink)">Tap widget body</text>
+      </g>
+
+      <line x1="230" y1="637" x2="270" y2="637" stroke="var(--ink-faint)" stroke-width="1" marker-end="url(#figBArrow)"/>
+      <text x="250" y="627" text-anchor="middle" font-size="9.5" fill="var(--ink-muted)">no deep link</text>
+
+      <g class="node" data-key="mainactivity" tabindex="0" role="button" aria-label="MainActivity, normal launch">
+        <rect x="270" y="620" width="190" height="34" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="365" y="637" text-anchor="middle" dominant-baseline="central" font-size="12" fill="var(--ink)">MainActivity</text>
+      </g>
+    </svg>
+    <figcaption>What calls what - the refresh pipeline on the left spine, the four existing reads plus the shared <code>nearestTo</code> it fans out to, and the separate, simpler tap-to-open path below.</figcaption>
+  </figure>
+</div>
+
+<div class="detail-panel" id="detailPanel">
+  <div class="detail-empty" id="detailEmpty">Click any box in a diagram for its implementation detail.</div>
+  <div id="detailContent" hidden>
+    <div class="detail-title" id="detailTitle"></div>
+    <ul class="detail-bullets" id="detailBullets"></ul>
+  </div>
+</div>
+</div>
+
+<footer class="page">Ten decisions from a structured walkthrough now live on the diagrams above as implementation detail - click a box, not an accordion.</footer>
+
+<script>
+var DETAILS = {
+  "uvrepo": {
+    title: "UvRepositoryFactory / DefaultUvRepository",
+    bullets: [
+      "Reused as-is, zero changes.",
+      "UvRepositoryFactory.create(context) builds a Room-backed repository - Context only, no ViewModel dependency.",
+      "Widget calls refresh(lat, lon) then reads observeForecast(lat, lon) once."
+    ]
+  },
+  "prefs": {
+    title: "DataStoreUserPreferencesRepository",
+    bullets: [
+      "Reused as-is.",
+      "preferences Flow holds skin type and SPF; widget reads .first().",
+      "If onboarding isn't complete, skinType/spf are unset - widget falls back to UV index only, burn-time line hidden."
+    ]
+  },
+  "burncalc": {
+    title: "BurnCalculator",
+    bullets: [
+      "Reused as-is: burnMinutes(skinType, spf, uvIndex, context: LightContext).",
+      "Widget always passes LightContext.DIRECT_SUN.",
+      "Matches the app's own existing default and is the conservative assumption - the widget has no live sensor reading to go on."
+    ]
+  },
+  "location": {
+    title: "FusedCurrentLocationProvider",
+    bullets: [
+      "Reused as-is: wraps client.lastLocation, no GPS fix needed.",
+      "Widget always uses current device location - never the last place searched or viewed in-app."
+    ]
+  },
+  "mainviewmodel": {
+    title: "MainViewModel.kt (touched)",
+    bullets: [
+      "One-line change: the private nearestTo extension is removed, now imports the shared version.",
+      "Reason: this reading-selection logic has already needed two separate bug fixes in git history - one copy, not two."
+    ]
+  },
+  "nearestto": {
+    title: "UvForecastReading.kt (+nearestTo)",
+    bullets: [
+      "List<UvForecastReading>.nearestTo(nowMillis) extracted here, made non-private.",
+      "Both MainViewModel and the widget's BuildWidgetSnapshot call this same function."
+    ]
+  },
+  "snapshot-model": {
+    title: "WidgetUvSnapshot.kt",
+    bullets: [
+      "New data class: UV index, band, burn-time text, isStale, hasLocationPermission, isOnboarded.",
+      "No permission -> prompt-to-grant state.",
+      "Fetch fails with no cache -> error state; fetch fails with a cache -> stale value + indicator.",
+      "Not onboarded -> burn-time stays null, UV index still shows."
+    ]
+  },
+  "build-snapshot": {
+    title: "BuildWidgetSnapshot.kt",
+    bullets: [
+      "New suspend function, plain Kotlin, no Android or Glance imports.",
+      "Lives in domain/widget/, not inline in the Glance UI code.",
+      "Composes location, UV repo, preferences and BurnCalculator into one WidgetUvSnapshot."
+    ]
+  },
+  "uvwidget": {
+    title: "UvWidget.kt",
+    bullets: [
+      "New GlanceAppWidget. One fixed small layout - no resizable variants for v1.",
+      "Renders WidgetUvSnapshot: UV number, band, burn-time line, refresh icon, last-updated time.",
+      "Tap on the body launches MainActivity normally - no deep link, reuses its existing cold-start routing."
+    ]
+  },
+  "uvwidgetreceiver": {
+    title: "UvWidgetReceiver.kt",
+    bullets: [
+      "New GlanceAppWidgetReceiver, registered in the manifest.",
+      "Points at uv_widget_info.xml for its update schedule.",
+      "No WorkManager - the OS's own updatePeriodMillis timer drives refresh."
+    ]
+  },
+  "widget-info-xml": {
+    title: "uv_widget_info.xml",
+    bullets: [
+      "New. android:updatePeriodMillis = 1800000, thirty minutes.",
+      "Balances freshness against battery, given the underlying Open-Meteo data is hourly-resolution anyway.",
+      "Fixed minimum size, no resize flags."
+    ]
+  },
+  "manifest": {
+    title: "AndroidManifest.xml (touched)",
+    bullets: [
+      "One new receiver entry for UvWidgetReceiver.",
+      "APPWIDGET_UPDATE intent-filter, meta-data pointing at uv_widget_info.xml."
+    ]
+  },
+  "gradle": {
+    title: "build.gradle.kts (touched)",
+    bullets: [
+      "One new dependency: androidx.glance:glance-appwidget.",
+      "No WorkManager dependency added."
+    ]
+  },
+  "timer-trigger": {
+    title: "Timer - every 30 min",
+    bullets: [
+      "Native updatePeriodMillis, not WorkManager - zero new dependency for this trigger path.",
+      "Fires UvWidgetReceiver.onUpdate() on the OS's own schedule."
+    ]
+  },
+  "tap-trigger": {
+    title: "Refresh icon - manual tap",
+    bullets: [
+      "Glance actionRunCallback, re-runs BuildWidgetSnapshot on demand.",
+      "On top of the 30-min timer - matters right after walking outside."
+    ]
+  },
+  "tap-open": {
+    title: "Tap widget body",
+    bullets: [
+      "Launches the app with no deep link.",
+      "Same cold-start path as tapping the launcher icon."
+    ]
+  },
+  "mainactivity": {
+    title: "MainActivity (normal launch)",
+    bullets: [
+      "Existing onboarding-gate-then-Home routing handles everything.",
+      "Zero new routing code."
+    ]
+  },
+  "camera": {
+    title: "sensing/camera/ (not built)",
+    bullets: [
+      "Could-tier (US-10), not started - first item on the schedule-pressure cut list.",
+      "CameraX ImageAnalysis, reads only the Y (luminance) plane - no image storage.",
+      "Cross-validates the light sensor's Indoor/Shade/Direct-sun read; a confidence layer, not a primary input.",
+      "Unrelated to the widget - the widget never reads live sensors."
+    ]
+  },
+  "stepcounter": {
+    title: "sensing/activity/ (not built)",
+    bullets: [
+      "Could-tier (US-18), not started - a separate feature area from the light + proximity pipeline.",
+      "TYPE_STEP_COUNTER + ACTIVITY_RECOGNITION permission.",
+      "Feeds the sunscreen-reapply reminder timing (EP-05), not the UV exposure countdown.",
+      "Never presented as a direct measure of sweating or sunscreen effectiveness - only a rough proxy."
+    ]
+  }
+};
+
+var titleEl = document.getElementById("detailTitle");
+var bulletsEl = document.getElementById("detailBullets");
+var contentEl = document.getElementById("detailContent");
+var emptyEl = document.getElementById("detailEmpty");
+var activeEl = null;
+
+function showDetail(key, node) {
+  var detail = DETAILS[key];
+  if (!detail) return;
+  titleEl.textContent = detail.title;
+  bulletsEl.innerHTML = "";
+  detail.bullets.forEach(function (b) {
+    var li = document.createElement("li");
+    li.textContent = b;
+    bulletsEl.appendChild(li);
+  });
+  emptyEl.hidden = true;
+  contentEl.hidden = false;
+  if (activeEl) activeEl.classList.remove("active");
+  if (node) {
+    node.classList.add("active");
+    activeEl = node;
+  }
+}
+
+document.querySelectorAll(".diagrams .node").forEach(function (node) {
+  node.addEventListener("click", function () {
+    showDetail(node.getAttribute("data-key"), node);
+  });
+  node.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      showDetail(node.getAttribute("data-key"), node);
+    }
+  });
+});
+</script>
+</body>
+</html>

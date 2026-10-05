@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "UVApp — Runtime Architecture",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "open_meteo", "type": "external", "label": "Open-Meteo", "sublabel": "UV forecast API", "pos": [40, 90], "size": [160, 70] },
+    { "id": "nominatim", "type": "external", "label": "Nominatim (OSM)", "sublabel": "reverse geocoding", "pos": [40, 300], "size": [160, 70] },
+    { "id": "sensors", "type": "backend", "label": "Sensor fusion", "sublabel": "light · proximity · steps", "pos": [260, 400], "size": [150, 70] },
+    { "id": "backend", "type": "backend", "label": "Backend data layer", "sublabel": "Retrofit · Room (planned)", "pos": [460, 300], "size": [160, 70] },
+    { "id": "room", "type": "database", "label": "Room cache", "sublabel": "hourly UV rows", "pos": [460, 500], "size": [150, 66] },
+    { "id": "repo", "type": "backend", "label": "UvRepository", "sublabel": "data contract · seam", "pos": [690, 300], "size": [150, 70] },
+    { "id": "mock", "type": "backend", "label": "MockUvRepository", "sublabel": "mock data (current)", "pos": [690, 500], "size": [150, 66] },
+    { "id": "forecast_vm", "type": "frontend", "label": "ForecastViewModel", "sublabel": "day · hour selection", "pos": [920, 100], "size": [150, 70] },
+    { "id": "main_vm", "type": "frontend", "label": "MainViewModel", "sublabel": "countdown · refresh · search", "pos": [920, 300], "size": [150, 70] },
+    { "id": "settings_vm", "type": "frontend", "label": "SettingsViewModel", "sublabel": "profile · theme · accent", "pos": [920, 500], "size": [150, 70] },
+    { "id": "ui", "type": "frontend", "label": "Compose UI", "sublabel": "Home · Forecast · Settings", "pos": [1150, 300], "size": [150, 70] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "UVApp · Android device", "wraps": ["ui", "main_vm", "forecast_vm", "settings_vm", "repo", "mock", "backend", "room", "sensors"] },
+    { "kind": "security-group", "label": "Internet · external APIs (trust boundary)", "wraps": ["open_meteo", "nominatim"] }
+  ],
+  "connections": [
+    { "id": "meteo-backend", "from": "open_meteo", "to": "backend", "label": "hourly uv_index · HTTPS", "variant": "emphasis" },
+    { "id": "nominatim-backend", "from": "nominatim", "to": "backend", "label": "place name · HTTPS", "labelAt": [205, 384] },
+    { "id": "room-backend", "from": "room", "to": "backend", "label": "cached rows", "fromSide": "top", "toSide": "bottom" },
+    { "id": "sensors-backend", "from": "sensors", "to": "backend", "label": "context · lux · steps", "fromSide": "top", "toSide": "bottom", "labelAt": [434, 384] },
+    { "id": "backend-repo", "from": "backend", "to": "repo", "label": "real data (planned)", "variant": "emphasis", "labelAt": [655, 384] },
+    { "id": "mock-repo", "from": "mock", "to": "repo", "label": "mock data (current)", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "repo-main", "from": "repo", "to": "main_vm", "label": "UV · place · context", "variant": "emphasis", "labelAt": [880, 384] },
+    { "id": "repo-forecast", "from": "repo", "to": "forecast_vm", "label": "7-day forecast", "fromSide": "top", "toSide": "bottom" },
+    { "id": "main-ui", "from": "main_vm", "to": "ui", "label": "home state", "variant": "emphasis" },
+    { "id": "forecast-ui", "from": "forecast_vm", "to": "ui", "label": "forecast state", "fromSide": "bottom", "toSide": "top" },
+    { "id": "settings-ui", "from": "settings_vm", "to": "ui", "label": "profile · theme · accent", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Front-end (Compose + MVVM)", "items": ["Home · Forecast · Settings · search dialog", "Immutable UiState via StateFlow; user-selectable accent + dark/light theme"] },
+    { "dot": "amber", "title": "Data & domain", "items": ["Mock: UV 8.4 · Southbank · 7-day forecast (30-min) · 38 200 lux", "WHO UV bands; burn minutes = base × SPF ÷ (UV × factor); indoor ⇒ paused"] },
+    { "dot": "emerald", "title": "Backend integration (planned)", "items": ["Implement UvRepository — one-line swap at UvRepositoryProvider", "Retrofit → Open-Meteo + Nominatim; Room caches hourly rows offline"] }
+  ]
+}

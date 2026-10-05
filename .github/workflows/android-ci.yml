@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ Sprint6 ]
   pull_request:
-    branches: [ main ]
+    branches: [ Sprint6 ]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -45,7 +45,6 @@ jobs:
       - name: Build (assemble + test)
         run: ./gradlew build
       - name: Upload APK artifact
-        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-${{ github.sha }}

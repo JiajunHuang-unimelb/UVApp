@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "grounding": "UVApp repo (com.example.uvapp) — code-grounded; sensors/backend/room/external APIs are planned",
+  "components": {
+    "ui": { "source": "ui/screens + ui/components (Compose)", "status": "current" },
+    "forecast_vm": { "source": "viewmodel/ForecastViewModel.kt", "status": "current" },
+    "main_vm": { "source": "viewmodel/MainViewModel.kt", "status": "current" },
+    "settings_vm": { "source": "viewmodel/SettingsViewModel.kt", "status": "current" },
+    "repo": { "source": "data/UvRepository.kt (interface + UvRepositoryProvider)", "status": "current" },
+    "mock": { "source": "data/MockUvRepository.kt", "status": "current" },
+    "backend": { "source": "planned: Retrofit + Room data layer implementing UvRepository", "status": "planned" },
+    "room": { "source": "planned: Room cache (hourly UV rows)", "status": "planned" },
+    "open_meteo": { "source": "external: Open-Meteo UV forecast API", "status": "planned" },
+    "nominatim": { "source": "external: Nominatim (OSM) reverse geocoding", "status": "planned" },
+    "sensors": { "source": "planned: on-device light/proximity/step sensor fusion", "status": "planned" }
+  },
+  "connections": {
+    "meteo-backend": { "payload": "hourly uv_index", "interface": "HTTPS GET /v1/forecast", "status": "planned" },
+    "nominatim-backend": { "payload": "place name", "interface": "HTTPS GET /v1/reverse", "status": "planned" },
+    "room-backend": { "payload": "cached hourly UV rows", "interface": "Room DAO", "status": "planned" },
+    "sensors-backend": { "payload": "context · lux · steps", "interface": "UvRepository.getSensorContext() (faked by MockUvRepository today)", "status": "planned" },
+    "backend-repo": { "payload": "real data", "interface": "UvRepository implementation", "status": "planned" },
+    "mock-repo": { "payload": "mock data", "interface": "UvRepositoryProvider.instance → MockUvRepository", "status": "current" },
+    "repo-main": { "payload": "UV · place · context", "interface": "MainViewModel.refresh() → getCurrentUv/getPlaceName/getSensorContext", "status": "current" },
+    "repo-forecast": { "payload": "7-day forecast", "interface": "ForecastViewModel → getForecastDays", "status": "current" },
+    "main-ui": { "payload": "home state", "interface": "MainUiState StateFlow → collectAsStateWithLifecycle", "status": "current" },
+    "forecast-ui": { "payload": "forecast state", "interface": "ForecastUiState StateFlow", "status": "current" },
+    "settings-ui": { "payload": "profile · theme · accent", "interface": "SettingsUiState StateFlow", "status": "current" }
+  },
+  "constraints": {
+    "ui": { "incomingFrom": ["main_vm", "forecast_vm", "settings_vm"] },
+    "repo": { "incomingFrom": ["backend", "mock"] },
+    "main_vm": { "incomingFrom": ["repo"] },
+    "forecast_vm": { "incomingFrom": ["repo"] }
+  }
+}

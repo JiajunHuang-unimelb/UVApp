@@ -1,47 +1,50 @@
 package com.example.uvapp
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.uvapp.ui.theme.UVAppTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.example.uvapp.ui.UVAppRoot
+import com.example.uvapp.viewmodel.Tab
 
+/**
+ * The Compose root owns the location permission request and loads current data.
+ * singleTop (manifest) makes a widget tap reuse this instance via onNewIntent,
+ * so the running exposure session is never duplicated.
+ */
 class MainActivity : ComponentActivity() {
+    private var requestedTab by mutableStateOf<Tab?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Only a fresh launch honours the extra; a recreated activity keeps its current tab.
+        if (savedInstanceState == null) requestedTab = readRequestedTab(intent)
         setContent {
-            UVAppTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
-            }
+            UVAppRoot(
+                requestedTab = requestedTab,
+                onRequestedTabHandled = { requestedTab = null },
+            )
         }
     }
-}
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        requestedTab = readRequestedTab(intent)
+    }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    UVAppTheme {
-        Greeting("Android")
+    private fun readRequestedTab(intent: Intent): Tab? {
+        val name = intent.getStringExtra(EXTRA_TAB)
+        if (name == null) return null
+        return Tab.entries.firstOrNull { it.name == name }
+    }
+
+    companion object {
+        /** Intent extra naming the [Tab] to open, e.g. from the weekly widget. */
+        const val EXTRA_TAB = "com.example.uvapp.EXTRA_TAB"
     }
 }
