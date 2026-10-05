@@ -87,6 +87,12 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(8.dp))
         SpfSlider(state.spf, viewModel::setSpf)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.spf_countdown_hint),
+            color = colors.textSecondary,
+            fontSize = 12.sp,
+        )
 
         Spacer(Modifier.height(20.dp))
         SettingsSwitchRow(

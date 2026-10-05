@@ -14,4 +14,5 @@
     <string name="odbl_license">License: Open Database License (ODbL)</string>
     <string name="data_processing_description">UVApp formats and groups forecasts for display and uses UV values to calculate exposure estimates. These estimates are calculated by UVApp, not supplied by the data providers.</string>
     <string name="close_data_sources">Close</string>
+    <string name="spf_countdown_hint">SPF is recorded for reference only. It is not used in the exposure countdown and does not extend the estimated exposure time.</string>
 </resources>
