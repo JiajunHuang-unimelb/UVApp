@@ -51,7 +51,7 @@ class MockEnvironmentContextProvider(
         stepsPerMinute: Int?,
         recentSteps: Int? = null,
         lastStepElapsedMillis: Long? = null,
-        activity: StepActivity = StepActivity.UNKNOWN,
+        activity: StepActivity? = null,
     ) {
         _samples.update {
             it.copy(
