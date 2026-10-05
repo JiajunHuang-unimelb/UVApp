@@ -108,7 +108,7 @@ fun SettingsScreen(
         SettingsSection("Sensing") {
             SettingsSwitchRow(
                 title = "Enhanced sensing",
-                subtitle = "Use motion, steps, sound and camera brightness while the app is open",
+                subtitle = "Use motion, steps and sound while the app is open",
                 checked = state.enhancedSensingEnabled,
                 onToggle = onEnhancedSensingToggle,
             )
