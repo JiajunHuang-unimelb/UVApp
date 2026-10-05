@@ -100,7 +100,7 @@ class AndroidEnvironmentContextProviderTest {
         assertNull(sample.recentSteps)
         assertNull(sample.stepsPerMinute)
         assertNull(sample.lastStepElapsedMillis)
-        assertEquals(StepActivity.UNKNOWN, sample.stepActivity)
+        assertNull(sample.stepActivity)
         assertNull(sample.soundLevelDb)
         assertNull(sample.acousticContext)
     }

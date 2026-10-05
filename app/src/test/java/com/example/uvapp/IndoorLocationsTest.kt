@@ -4,6 +4,7 @@ import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.StepActivity
+import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -200,7 +201,10 @@ class IndoorLocationsTest {
         assertNull(repo.data.value.pending)
 
         main.onStartExposure()
-        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
+        val tracker = StepCounterTracker()
+        tracker.update(100f, 0L)
+        val incidentalSteps = tracker.update(102f, 1_000L)!!
+        environment.setStepActivity(incidentalSteps.stepsSinceStart, 0, recentSteps = incidentalSteps.recentSteps, activity = incidentalSteps.activity)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
         assertNotNull(repo.data.value.pending)
@@ -300,6 +304,29 @@ class IndoorLocationsTest {
 
         assertEquals(com.example.uvapp.domain.exposure.ExposurePauseReason.INDOOR_DETECTED, main.state.value.pauseReason)
         assertNull(repo.data.value.pending)
+    }
+
+    @Test fun `unavailable step data suppresses automatic suggestions but allows explicit saving`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        val vm = IndoorLocationsViewModel(repo, provider(), main, now = { 10_000 })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(null, null)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNull(main.state.value.stepActivity)
+        assertNull(repo.data.value.pending)
+
+        vm.requestSave(); dispatcher.scheduler.runCurrent()
+        assertNotNull(repo.data.value.pending)
     }
     @Test fun `bad location never produces candidate and proximity is unknown`() {
         val repo = Memory()

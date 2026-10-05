@@ -4,6 +4,9 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.alerts.SunProtectionAlert
+import com.example.uvapp.domain.alerts.SunProtectionAlertKind
+import com.example.uvapp.domain.alerts.SunProtectionTracker
 import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
@@ -42,6 +45,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -115,7 +119,7 @@ data class MainUiState(
     val recentSteps: Int? = null,
     val stepsPerMinute: Int? = null,
     val lastStepElapsedMillis: Long? = null,
-    val stepActivity: StepActivity = StepActivity.UNKNOWN,
+    val stepActivity: StepActivity? = null,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
     val indoorDetected: Boolean = false,
@@ -128,6 +132,9 @@ data class MainUiState(
     val sunLogWeek: ExposureWeeklySummary? = null,
     /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
     val sunLogShowsTime: Boolean = false,
+    val sunscreenRemindersEnabled: Boolean = true,
+    /** Exposure time left until the reapply reminder; null until the user taps "I've applied". */
+    val sunscreenReapplyRemainingMillis: Long? = null,
 ) {
     /** UV shown on the hero (dev override wins). */
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
@@ -198,12 +205,17 @@ class MainViewModel(
     private val historyRepository: ExposureHistoryRepository? = null,
     /** Called after each successful history save (refreshes the weekly widget). */
     private val onHistorySaved: (suspend () -> Unit)? = null,
+    /** Shows a sun protection notification (US-17 / US-18). */
+    private val onSunProtectionAlert: ((SunProtectionAlert) -> Unit)? = null,
+    /** "I've applied" taps from the notification. */
+    private val sunscreenAppliedEvents: Flow<Unit>? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MainUiState())
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
+    private val sunProtection = SunProtectionTracker()
     private var exposureClockMillis = elapsedRealtimeMillis()
 
     private var lastSkinType: SkinType = SkinType.II
@@ -249,9 +261,20 @@ class MainViewModel(
             settingsViewModel.state.collect { s ->
                 val skinTypeChanged = s.skinType != lastSkinType
                 lastSkinType = s.skinType
-                _state.update { it.copy(skinType = s.skinType, spf = s.spf, devModeEnabled = s.devModeEnabled) }
+                _state.update {
+                    it.copy(
+                        skinType = s.skinType,
+                        spf = s.spf,
+                        devModeEnabled = s.devModeEnabled,
+                        sunscreenRemindersEnabled = s.sunscreenRemindersEnabled,
+                    )
+                }
                 if (skinTypeChanged) syncExposure()
             }
+        }
+
+        sunscreenAppliedEvents?.let { events ->
+            viewModelScope.launch { events.collect { onSunscreenApplied() } }
         }
 
         environmentContextProvider?.let { provider ->
@@ -443,6 +466,15 @@ class MainViewModel(
         syncExposure()
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
+
+    /** Starts (or restarts) the two-hour reapply timer. */
+    fun onSunscreenApplied() {
+        sunProtection.markApplied()
+        _state.update { it.copy(sunscreenReapplyRemainingMillis = sunProtection.reapplyRemainingMillis) }
+    }
+
+    /** The first band alert fires before the permission prompt is answered; let it fire again. */
+    fun onSunscreenNotificationsAllowed() = sunProtection.reset()
 
     fun onResetTimer() {
         restartExposureSession()
@@ -861,6 +893,28 @@ class MainViewModel(
             monitoringController?.stop()
         }
         recordHistory()
+        evaluateSunProtection(snapshot)
+    }
+
+    /** Runs after every publishExposure(), so band changes, pauses and ticks reach the tracker. */
+    private fun evaluateSunProtection(snapshot: ExposureSnapshot) {
+        val state = _state.value
+        val alert =
+            sunProtection.update(
+                nowMillis = exposureClockMillis,
+                sessionActive = state.sunscreenRemindersEnabled && snapshot.isStarted && snapshot.status != ExposureStatus.COMPLETE,
+                running = snapshot.isRunning,
+                uvIndex = state.displayUv,
+                walking = state.stepActivity == StepActivity.WALKING || state.dev.simulateActive,
+                userSpf = state.spf,
+            )
+        val remaining = sunProtection.reapplyRemainingMillis
+        if (remaining != state.sunscreenReapplyRemainingMillis) {
+            _state.update { it.copy(sunscreenReapplyRemainingMillis = remaining) }
+        }
+        if (alert == null) return
+        if (alert.kind == SunProtectionAlertKind.BAND) alertGateway?.previewBandWarning() else alertGateway?.previewReapplyReminder()
+        onSunProtectionAlert?.invoke(alert)
     }
 
     // ---- Exposure history -----------------------------------------------------

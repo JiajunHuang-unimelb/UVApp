@@ -24,7 +24,7 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 recentSteps = null,
                 stepsPerMinute = null,
                 lastStepElapsedMillis = null,
-                stepActivity = com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
+                stepActivity = null,
                 soundLevelDb = null,
                 acousticContext = null,
             ),
@@ -60,7 +60,7 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 recentSteps = reading?.recentSteps,
                 stepsPerMinute = reading?.averageStepsPerMinute,
                 lastStepElapsedMillis = reading?.lastStepElapsedMillis,
-                stepActivity = reading?.activity ?: com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
+                stepActivity = reading?.activity,
             )
         }
     }
@@ -87,7 +87,7 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 recentSteps = null,
                 stepsPerMinute = null,
                 lastStepElapsedMillis = null,
-                stepActivity = com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
+                stepActivity = null,
                 soundLevelDb = null,
                 acousticContext = null,
             )

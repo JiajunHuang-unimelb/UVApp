@@ -16,7 +16,7 @@ import org.junit.Test
 
 class IndoorLocationsUiTest {
     @get:Rule val compose = createComposeRule()
-    @Test fun saveRenameDeleteAndRestoreDialog() {
+    @Test fun saveEditRemoveAndRestoreDialog() {
         val repo = object : IndoorLocationRepository {
             override val data = MutableStateFlow(IndoorLocationsData())
             override suspend fun update(transform: (IndoorLocationsData) -> IndoorLocationsData) { data.value = transform(data.value) }
@@ -45,13 +45,13 @@ class IndoorLocationsUiTest {
         compose.onNodeWithText("Home").performClick()
         compose.onNodeWithText("Save").performClick()
         compose.waitUntil { repo.data.value.locations.size == 1 }
-        compose.onNodeWithText("Rename").performClick()
+        compose.onNodeWithText("Edit").performClick()
         compose.onNodeWithText("Name").performTextReplacement("Workplace")
         compose.onNodeWithText("Save").performClick()
         compose.waitUntil { repo.data.value.locations.single().name == "Workplace" }
-        compose.onNodeWithText("Delete").performClick()
-        compose.onNodeWithText("Delete Workplace?").assertExists()
-        compose.onAllNodesWithText("Delete").onLast().performClick()
+        compose.onNodeWithText("Remove").performClick()
+        compose.onNodeWithText("Remove Workplace?").assertExists()
+        compose.onAllNodesWithText("Remove").onLast().performClick()
         compose.waitUntil { repo.data.value.locations.isEmpty() }
         compose.onNodeWithText("I’m indoors here").performClick()
         compose.waitUntil { repo.data.value.pending != null }

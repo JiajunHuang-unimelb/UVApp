@@ -60,14 +60,12 @@ fun TopChrome(
 ) {
     Column(modifier.fillMaxWidth()) {
         HeroRow(uv, UvBand.fromIndex(uv), skinType, spf, uvAvailable = uvAvailable, uvLabel = uvLabel)
-        UvDataAttribution()
         Spacer(Modifier.height(12.dp))
         AddressBar(
             placeName = placeName,
             onSearchClick = onSearchClick,
             onLocate = onLocate,
         )
-        PlaceDataAttribution()
     }
 }
 
