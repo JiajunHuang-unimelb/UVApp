@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.example.uvapp.MainActivity
 import com.example.uvapp.R
@@ -94,6 +95,9 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             serviceScope.launch {
                 while (isActive) {
                     delay(FRESHNESS_CHECK_MILLIS)
+                    AndroidEnvironmentContextProvider.updateSteps(
+                        stepCounterTracker.snapshot(SystemClock.elapsedRealtime()),
+                    )
                     publishIndoorProximity()
                 }
             }

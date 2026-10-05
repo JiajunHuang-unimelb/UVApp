@@ -21,7 +21,10 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 posture = null,
                 isMoving = null,
                 stepsSinceStart = null,
+                recentSteps = null,
                 stepsPerMinute = null,
+                lastStepElapsedMillis = null,
+                stepActivity = com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
                 soundLevelDb = null,
                 acousticContext = null,
             ),
@@ -54,7 +57,10 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
         mutable.update {
             it.copy(
                 stepsSinceStart = reading?.stepsSinceStart,
+                recentSteps = reading?.recentSteps,
                 stepsPerMinute = reading?.averageStepsPerMinute,
+                lastStepElapsedMillis = reading?.lastStepElapsedMillis,
+                stepActivity = reading?.activity ?: com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
             )
         }
     }
@@ -78,7 +84,10 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 posture = null,
                 isMoving = null,
                 stepsSinceStart = null,
+                recentSteps = null,
                 stepsPerMinute = null,
+                lastStepElapsedMillis = null,
+                stepActivity = com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
                 soundLevelDb = null,
                 acousticContext = null,
             )
