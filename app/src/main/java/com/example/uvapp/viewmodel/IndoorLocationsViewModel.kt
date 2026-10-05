@@ -25,6 +25,7 @@ class IndoorLocationsViewModel(
     val state = mutable.asStateFlow()
     private var fix: LocationFix? = main.state.value.locationFix
     private var request: Job? = null
+    private var suggestionRequest: Job? = null
     private var asked = false
     private var notified: String? = null
     private var notificationsEnabled = true
@@ -42,22 +43,8 @@ class IndoorLocationsViewModel(
             main.state.collect { current ->
                 if (current.exposureSessionId != previous.exposureSessionId) asked = false
                 if (current.locationFix != previous.locationFix) { fix = current.locationFix; proximity() }
-                if (
-                    previous.exposureRunning &&
-                    current.pauseReason == com.example.uvapp.domain.exposure.ExposurePauseReason.MANUAL &&
-                    current.displayLux < 1_000 &&
-                    current.effectiveAcousticContext != null &&
-                    current.effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
-                    current.effectiveIsMoving == false &&
-                    current.stepActivity == StepActivity.STATIONARY &&
-                    !asked &&
-                    state.value.data.suggestionsEnabled
-                ) {
-                    asked = true
-                    val candidate = fix?.takeIf { it.usableForIndoor(now()) }
-                    if (candidate != null && state.value.data.pending == null && state.value.data.locations.none { it.contains(candidate.latitude, candidate.longitude) }) {
-                        try { persistCandidate(candidate) } catch (e: CancellationException) { throw e } catch (_: Exception) { mutable.update { it.copy(error = "Unable to prepare location suggestion.") } }
-                    }
+                if (previous.exposureRunning && isSuggestionContextEligible(current)) {
+                    prepareSuggestion()
                 }
                 previous = current
             }
@@ -85,8 +72,65 @@ class IndoorLocationsViewModel(
         try { repository.update(block) } catch (e: CancellationException) { throw e } catch (_: Exception) { mutable.update { it.copy(error = "Unable to save changes. Please retry.") } }
         finally { mutable.update { it.copy(saving = false) } }
     }
-    private suspend fun persistCandidate(candidate: LocationFix) {
-        repository.update { if (it.pending != null) it else it.copy(pending = IndoorSuggestion(UUID.randomUUID().toString(), candidate.latitude, candidate.longitude, candidate.capturedAtMillis)) }
+    private fun isSuggestionContextEligible(current: MainUiState = main.state.value): Boolean =
+        current.pauseReason == com.example.uvapp.domain.exposure.ExposurePauseReason.MANUAL &&
+            !current.exposureRunning &&
+            current.displayLux < 1_000 &&
+            current.effectiveAcousticContext != null &&
+            current.effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
+            current.effectiveIsMoving == false &&
+            current.stepActivity == StepActivity.STATIONARY &&
+            !asked &&
+            state.value.data.suggestionsEnabled
+
+    private fun prepareSuggestion() {
+        if (suggestionRequest?.isActive == true) return
+        suggestionRequest = viewModelScope.launch {
+            try {
+                val candidate =
+                    fix?.takeIf { it.usableForIndoor(now()) }
+                        ?: (location.getCurrentLocation() as? LocationResult.Success)
+                            ?.fix
+                            ?.takeIf { it.usableForIndoor(now()) }
+                if (candidate == null || !isSuggestionContextEligible()) return@launch
+                fix = candidate
+                proximity()
+                if (
+                    state.value.data.pending != null ||
+                    state.value.data.locations.any {
+                        it.contains(candidate.latitude, candidate.longitude)
+                    }
+                ) {
+                    return@launch
+                }
+                if (persistCandidate(candidate)) asked = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                mutable.update { it.copy(error = "Unable to prepare location suggestion.") }
+            }
+        }
+    }
+
+    private suspend fun persistCandidate(candidate: LocationFix): Boolean {
+        var created = false
+        repository.update { data ->
+            if (data.pending != null) {
+                data
+            } else {
+                created = true
+                data.copy(
+                    pending =
+                        IndoorSuggestion(
+                            UUID.randomUUID().toString(),
+                            candidate.latitude,
+                            candidate.longitude,
+                            candidate.capturedAtMillis,
+                        ),
+                )
+            }
+        }
+        return created
     }
     fun requestSave() {
         if (state.value.data.pending != null || request?.isActive == true) return
