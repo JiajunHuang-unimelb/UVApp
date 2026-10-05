@@ -103,6 +103,12 @@ fun SettingsScreen(
                 checked = state.notificationsEnabled,
                 onToggle = { viewModel.setNotificationsEnabled(!state.notificationsEnabled) },
             )
+            SettingsSwitchRow(
+                title = "Sunscreen reminders",
+                subtitle = "SPF advice for the UV level and reapply reminders",
+                checked = state.sunscreenRemindersEnabled,
+                onToggle = { viewModel.setSunscreenRemindersEnabled(!state.sunscreenRemindersEnabled) },
+            )
         }
 
         Spacer(Modifier.height(12.dp))
