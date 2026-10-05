@@ -76,6 +76,8 @@ View (Compose) ──events──▶ ViewModel ──StateFlow──▶ immutabl
 
 ## Build
 
+Database version 3 uses one `uvapp.db` for UV/place caches and exposure history and supports fresh installations only. Before testing, manually clear app data or uninstall and reinstall without restoring a backup. This deletes history, caches, settings and saved indoor places. Installing over an older database is unsupported; the app does not automatically erase it. Future schema changes require explicit migrations.
+
 ```powershell
 .\gradlew.bat assembleDebug          # APK -> app/build/outputs/apk/debug/
 .\gradlew.bat testDebugUnitTest      # JVM tests (bands, burn math)
