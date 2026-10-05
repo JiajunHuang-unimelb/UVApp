@@ -23,6 +23,8 @@ import androidx.core.content.ContextCompat
 import com.example.uvapp.MainActivity
 import com.example.uvapp.R
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
+import com.example.uvapp.domain.environment.AmbientLightFilter
+import com.example.uvapp.domain.environment.LocationFixValidator
 import com.example.uvapp.domain.environment.LocationMonitoringPolicy
 import com.example.uvapp.domain.environment.MotionClassifier
 import com.example.uvapp.domain.environment.ProximityClassifier
@@ -36,7 +38,6 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
-import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,6 +58,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private val proximitySensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY) }
     private val accelerometerSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
     private val stepCounterSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }
+    private val ambientLightFilter = AmbientLightFilter()
     private val motionClassifier = MotionClassifier()
     private val stepCounterTracker = StepCounterTracker()
     private val locationMonitoringPolicy = LocationMonitoringPolicy()
@@ -97,7 +99,12 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             serviceScope.launch {
                 indoorRepository.data.collectLatest { data ->
                     savedLocations = data.locations
-                    publishIndoorProximity(SystemClock.elapsedRealtime())
+                    if (savedLocations.isEmpty()) {
+                        stopUnusedLocationMonitoring()
+                    } else {
+                        reconfigureLocationUpdates(LocationMonitoringPolicy.DEFAULT_INTERVAL_MILLIS)
+                        publishIndoorProximity(SystemClock.elapsedRealtime())
+                    }
                 }
             }
         freshnessJob =
@@ -135,9 +142,10 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_LIGHT -> {
-                event.values.firstOrNull()?.let { lux ->
-                    AndroidEnvironmentContextProvider.updateLux(lux.roundToInt())
-                }
+                // A rolling median rejects brief shadows from hands, clothing, or sensor noise.
+                event.values.firstOrNull()
+                    ?.let(ambientLightFilter::update)
+                    ?.let(AndroidEnvironmentContextProvider::updateLux)
             }
 
             Sensor.TYPE_PROXIMITY -> {
@@ -219,12 +227,20 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             return
         }
 
-        reconfigureLocationUpdates(LocationMonitoringPolicy.DEFAULT_INTERVAL_MILLIS)
+        if (savedLocations.isNotEmpty()) {
+            reconfigureLocationUpdates(LocationMonitoringPolicy.DEFAULT_INTERVAL_MILLIS)
+        }
     }
 
     @SuppressLint("MissingPermission")
     private fun reconfigureLocationUpdates(intervalMillis: Long) {
-        if (!locationPermissionAvailable || currentLocationIntervalMillis == intervalMillis) return
+        if (
+            !locationPermissionAvailable ||
+            savedLocations.isEmpty() ||
+            currentLocationIntervalMillis == intervalMillis
+        ) {
+            return
+        }
         val request =
             LocationRequest
                 .Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
@@ -237,18 +253,42 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         } catch (_: SecurityException) {
             preciseLocationAvailable = false
             locationPermissionAvailable = false
+            currentLocationIntervalMillis = null
             AndroidEnvironmentContextProvider.updateIndoorProximity(false)
         }
     }
 
+    /** GPS cannot contribute to saved-place detection when the user has no saved places. */
+    private fun stopUnusedLocationMonitoring() {
+        if (currentLocationIntervalMillis != null) {
+            locationClient.removeLocationUpdates(locationCallback)
+        }
+        freshLocationCancellation?.cancel()
+        freshLocationCancellation = null
+        currentLocationIntervalMillis = null
+        latestLocation = null
+        nearIndoorLocation = false
+        AndroidEnvironmentContextProvider.updateIndoorProximity(false)
+    }
+
     private fun publishIndoorProximity(nowElapsedMillis: Long) {
         val location = latestLocation
+        val fixElapsedMillis =
+            location
+                ?.elapsedRealtimeNanos
+                ?.takeIf { it > 0L }
+                ?.div(NANOS_PER_MILLISECOND)
         val isUsable =
             preciseLocationAvailable &&
                 location != null &&
                 location.hasAccuracy() &&
-                location.accuracy <= MAX_LOCATION_ACCURACY_METERS &&
-                System.currentTimeMillis() - location.time in 0..MAX_LOCATION_AGE_MILLIS
+                LocationFixValidator.isUsable(
+                    accuracyMeters = location.accuracy,
+                    fixElapsedMillis = fixElapsedMillis,
+                    nowElapsedMillis = nowElapsedMillis,
+                    maxAccuracyMeters = MAX_LOCATION_ACCURACY_METERS,
+                    maxAgeMillis = MAX_LOCATION_AGE_MILLIS,
+                )
         nearIndoorLocation =
             isUsable &&
                 savedLocations.any { saved ->
@@ -259,6 +299,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     }
 
     private fun applyLocationPolicy(nowElapsedMillis: Long) {
+        if (savedLocations.isEmpty()) return
         val latestFixElapsedMillis =
             latestLocation
                 ?.elapsedRealtimeNanos
@@ -277,7 +318,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
 
     @SuppressLint("MissingPermission")
     private fun requestFreshLocation() {
-        if (!preciseLocationAvailable) return
+        if (!preciseLocationAvailable || savedLocations.isEmpty()) return
         freshLocationCancellation?.cancel()
         val cancellation = CancellationTokenSource()
         freshLocationCancellation = cancellation

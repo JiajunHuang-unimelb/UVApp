@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import com.example.uvapp.domain.environment.SensorSampleGate
 import com.example.uvapp.domain.environment.SoundLevelClassifier
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -72,12 +74,19 @@ class AndroidMicrophoneEnvironmentMonitor(
         task =
             executor.submit {
                 val classifier = SoundLevelClassifier()
-                val samples = ShortArray(minimumBuffer / Short.SIZE_BYTES)
+                val sampleGate =
+                    SensorSampleGate(MICROPHONE_SAMPLE_INTERVAL_MILLIS, SystemClock::elapsedRealtime)
+                val samples = ShortArray((minimumBuffer / Short.SIZE_BYTES).coerceAtLeast(1))
                 try {
                     audioRecord.startRecording()
                     while (!Thread.currentThread().isInterrupted && !recorderSession.isReleased()) {
                         val count = audioRecord.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
-                        if (count > 0) {
+                        if (count < 0) {
+                            // A dead or invalid recorder can otherwise create a CPU-heavy retry loop.
+                            AndroidEnvironmentContextProvider.updateAcoustic(null)
+                            break
+                        }
+                        if (count > 0 && sampleGate.tryAcquire()) {
                             AndroidEnvironmentContextProvider.updateAcoustic(classifier.classify(samples, count))
                         }
                     }
@@ -126,5 +135,6 @@ class AndroidMicrophoneEnvironmentMonitor(
 
     private companion object {
         const val SAMPLE_RATE_HZ = 16_000
+        const val MICROPHONE_SAMPLE_INTERVAL_MILLIS = 500L
     }
 }
