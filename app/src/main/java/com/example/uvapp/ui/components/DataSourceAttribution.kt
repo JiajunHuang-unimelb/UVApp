@@ -75,6 +75,9 @@ fun DataSourcesDialog(onDismiss: () -> Unit) {
                 SourceLink(stringResource(R.string.odbl_license), DataSourceLinks.ODBL)
                 Spacer(Modifier.height(12.dp))
                 Text(stringResource(R.string.data_processing_description))
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.exposure_estimates), fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.exposure_estimate_note))
             }
         },
         confirmButton = {

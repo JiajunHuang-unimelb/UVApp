@@ -109,6 +109,12 @@ fun SettingsScreen(
             checked = state.enhancedSensingEnabled,
             onToggle = onEnhancedSensingToggle,
         )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.enhanced_sensing_privacy_note),
+            color = colors.textSecondary,
+            fontSize = 12.sp,
+        )
 
         Spacer(Modifier.height(24.dp))
         Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
