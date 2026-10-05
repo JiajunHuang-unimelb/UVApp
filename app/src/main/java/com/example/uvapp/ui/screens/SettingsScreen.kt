@@ -36,6 +36,7 @@ import com.example.uvapp.ui.components.DataSourcesDialog
 import com.example.uvapp.ui.components.SettingsRadioRow
 import com.example.uvapp.ui.components.SettingsSection
 import com.example.uvapp.ui.components.SettingsSwitchRow
+import com.example.uvapp.ui.components.SkinTypeHelpDialog
 import com.example.uvapp.ui.components.SpfSlider
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.ui.theme.accentPalette
@@ -57,6 +58,10 @@ fun SettingsScreen(
     },
 ) {
     val colors = UvTheme
+    var showSkinTypeHelp by rememberSaveable { mutableStateOf(false) }
+    if (showSkinTypeHelp) {
+        SkinTypeHelpDialog(onDismiss = { showSkinTypeHelp = false })
+    }
     var showDataSources by rememberSaveable { mutableStateOf(false) }
     if (showDataSources) {
         DataSourcesDialog(onDismiss = { showDataSources = false })
@@ -71,7 +76,18 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
 
         SettingsSection("Profile") {
-            Text("Skin type", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.skin_type_heading),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { showSkinTypeHelp = true }) {
+                    Text(stringResource(R.string.skin_type_help_button), color = colors.accent)
+                }
+            }
             SkinType.entries.forEach { type ->
                 SettingsRadioRow(
                     label = type.displayName(),
