@@ -286,7 +286,6 @@ class MainViewModel(
                     minimumAdvanceMillis = step * 1_000L,
                     forceMinimumAdvance = step > 1L,
                 )
-                recordHistory()
             }
         }
 
@@ -797,25 +796,28 @@ class MainViewModel(
         if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
             monitoringController?.stop()
         }
+        recordHistory()
     }
 
     // ---- Exposure history -----------------------------------------------------
 
     /**
-     * Runs once per ticker iteration, right after syncExposure(). Each sync settles exactly
-     * one constant-condition segment, so the dose delta since the last call is added whole
-     * to the local date it ended on. Saves on any status change and every minute while running.
+     * Runs after every publishExposure(), so each start, pause, resume, context change and
+     * tick settles the segment before it under that segment's own status and context.
+     * Saves on start, on any status change and every minute while running.
      */
     private fun recordHistory() {
         if (historyRepository == null) return
         val snapshot = exposureSession.snapshot()
         val now = nowMillis()
-        if (historySessionId == null) {
+        val opened = historySessionId == null
+        if (opened) {
             if (snapshot.status == ExposureStatus.NOT_STARTED) return
-            openHistorySession(snapshot.status, snapshot.context, now)
+            openHistorySession(now)
+        } else {
+            addHistoryDelta(snapshot.accumulatedDoseSed, now)
         }
-        addHistoryDelta(snapshot.accumulatedDoseSed, now)
-        val statusChanged = snapshot.status != lastHistoryStatus
+        val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =
             snapshot.status == ExposureStatus.RUNNING &&
                 now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
@@ -824,13 +826,11 @@ class MainViewModel(
         if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
     }
 
-    private fun openHistorySession(status: ExposureStatus, context: ExposureContext, now: Long) {
+    private fun openHistorySession(now: Long) {
         historySessionId = UUID.randomUUID().toString()
         historyStartedAtMillis = now
         historyZoneId = ZoneId.systemDefault()
         historyDays.clear()
-        lastHistoryStatus = status
-        lastHistoryContext = context
         lastHistoryWallMillis = now
         lastHistoryDoseSed = 0.0
         lastHistorySaveWallMillis = now
@@ -849,18 +849,36 @@ class MainViewModel(
     /**
      * Duration uses wall time (never more than real time, even in 60x dev mode) and only
      * counts direct sun, so "time in the sun" excludes shade; shade still adds its dose.
+     * A segment that crosses local midnight is split, with dose shared by time on each day.
      */
     private fun addHistoryDelta(doseSed: Double, now: Long) {
-        var durationMillis = now - lastHistoryWallMillis
+        val from = lastHistoryWallMillis
         val inDirectSun =
             lastHistoryStatus == ExposureStatus.RUNNING && lastHistoryContext == ExposureContext.DIRECT_SUN
-        if (durationMillis < 0L || !inDirectSun) durationMillis = 0L
         val doseDelta = doseSed - lastHistoryDoseSed
         lastHistoryWallMillis = now
         lastHistoryDoseSed = doseSed
-        if (durationMillis == 0L && doseDelta <= 0.0) return
+        // No wall time passed (or the clock went back): any dose goes to the current day.
+        if (now <= from) {
+            addToHistoryDay(historyDate(now), 0L, doseDelta)
+            return
+        }
+        var start = from
+        while (start < now) {
+            val date = historyDate(start)
+            val nextMidnight = date.plusDays(1).atStartOfDay(historyZoneId).toInstant().toEpochMilli()
+            val end = minOf(now, nextMidnight)
+            val share = (end - start).toDouble() / (now - from)
+            addToHistoryDay(date, if (inDirectSun) end - start else 0L, doseDelta * share)
+            start = end
+        }
+    }
 
-        val date = Instant.ofEpochMilli(now).atZone(historyZoneId).toLocalDate()
+    private fun historyDate(millis: Long): LocalDate =
+        Instant.ofEpochMilli(millis).atZone(historyZoneId).toLocalDate()
+
+    private fun addToHistoryDay(date: LocalDate, durationMillis: Long, doseDelta: Double) {
+        if (durationMillis == 0L && doseDelta <= 0.0) return
         val previous = historyDays[date]
         if (previous == null) {
             historyDays[date] = ExposureDayTotal(date, durationMillis, doseDelta)

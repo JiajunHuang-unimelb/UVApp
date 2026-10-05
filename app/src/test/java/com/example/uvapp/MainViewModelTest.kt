@@ -631,9 +631,23 @@ class MainViewModelTest {
             onHistorySaved = onSaved,
         )
 
-    private fun tick(seconds: Int) {
-        mainDispatcher.scheduler.advanceTimeBy(seconds * 1_000L)
+    private fun tick(seconds: Int) = advance(seconds * 1_000L)
+
+    /** Advances virtual time, running every ticker iteration up to and including the end. */
+    private fun advance(millis: Long) {
+        mainDispatcher.scheduler.advanceTimeBy(millis)
         mainDispatcher.scheduler.runCurrent()
+    }
+
+    /** Moves to the next whole virtual second, so a session starts exactly on a ticker iteration. */
+    /** Runs saves launched by the last action without moving virtual time. */
+    private fun flush() = mainDispatcher.scheduler.runCurrent()
+
+    private fun alignToTick() = advance(1_000L - mainDispatcher.scheduler.currentTime % 1_000L)
+
+    /** Shifts the wall clock so that "now" is [millisBefore] ms before [midnight]. */
+    private fun wallClockBefore(midnight: Long, millisBefore: Long) {
+        wallOffsetMillis = midnight - millisBefore - NOW_MILLIS - mainDispatcher.scheduler.currentTime
     }
 
     @Test
@@ -649,9 +663,63 @@ class MainViewModelTest {
         vm.onResumeExposure()
         tick(1)
 
-        assertEquals(listOf(ExposureRecordStatus.PAUSED, ExposureRecordStatus.ACTIVE), history.saved.map { it.status })
-        assertEquals(history.saved[0].sessionId, history.saved[1].sessionId)
-        assertTrue(history.saved[1].doseSed > 0.0)
+        assertEquals(
+            listOf(ExposureRecordStatus.ACTIVE, ExposureRecordStatus.PAUSED, ExposureRecordStatus.ACTIVE),
+            history.saved.map { it.status },
+        )
+        assertEquals(1, history.saved.map { it.sessionId }.distinct().size)
+        assertTrue(history.saved.last().doseSed > 0.0)
+    }
+
+    @Test
+    fun `starting a session saves it as active straight away`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        flush()
+
+        val saved = history.saved.single()
+        assertEquals(ExposureRecordStatus.ACTIVE, saved.status)
+        assertEquals(0L, saved.activeDurationMillis)
+    }
+
+    @Test
+    fun `pause and resume between ticks keep the exact direct-sun time`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        // Virtual time is 701 ms here, so none of these steps lines up with a ticker iteration.
+        vm.onStartExposure()
+        advance(2_000L)
+        vm.onPauseExposure()
+        advance(500L)
+        vm.onResumeExposure()
+        advance(500L)
+        vm.onResetTimer()
+        flush()
+
+        val completed = history.saved.first { it.status == ExposureRecordStatus.COMPLETED }
+        assertEquals(2_500L, completed.activeDurationMillis)
+    }
+
+    @Test
+    fun `a light change between ticks closes the sun segment at that moment`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        advance(1_500L)
+        vm.onOverrideLightToggle()
+        vm.onLightOverride(LightContext.SHADE)
+        tick(2)
+        vm.onPauseExposure()
+        flush()
+
+        assertEquals(1_500L, history.saved.last().activeDurationMillis)
     }
 
     @Test
@@ -667,10 +735,18 @@ class MainViewModelTest {
         vm.onPauseExposure()
         tick(1)
 
-        assertEquals(2, history.saved.size)
-        assertEquals(ExposureRecordStatus.COMPLETED, history.saved[0].status)
-        assertTrue(history.saved[0].doseSed > 0.0)
-        assertNotEquals(history.saved[0].sessionId, history.saved[1].sessionId)
+        assertEquals(
+            listOf(
+                ExposureRecordStatus.ACTIVE,
+                ExposureRecordStatus.COMPLETED,
+                ExposureRecordStatus.ACTIVE,
+                ExposureRecordStatus.PAUSED,
+            ),
+            history.saved.map { it.status },
+        )
+        assertTrue(history.saved[1].doseSed > 0.0)
+        assertEquals(history.saved[0].sessionId, history.saved[1].sessionId)
+        assertNotEquals(history.saved[1].sessionId, history.saved[2].sessionId)
     }
 
     @Test
@@ -678,15 +754,16 @@ class MainViewModelTest {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
+        alignToTick()
 
         vm.onStartExposure()
         tick(59)
-        assertTrue(history.saved.isEmpty())
-
-        tick(2)
         assertEquals(1, history.saved.size)
-        assertEquals(ExposureRecordStatus.ACTIVE, history.saved[0].status)
-        assertEquals(60_000L, history.saved[0].activeDurationMillis)
+
+        tick(1)
+        assertEquals(2, history.saved.size)
+        assertEquals(ExposureRecordStatus.ACTIVE, history.saved[1].status)
+        assertEquals(60_000L, history.saved[1].activeDurationMillis)
     }
 
     @Test
@@ -705,25 +782,68 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `time after local midnight lands on the new date`() {
-        val zone = ZoneId.systemDefault()
+    fun `a session across local midnight is split between the two days`() {
         val firstDay = LocalDate.of(2026, 10, 2)
-        val midnight = firstDay.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        // Ticks at virtual 1s/2s/3s/4s become midnight -2s/-1s/0s/+1s.
-        wallOffsetMillis = midnight - NOW_MILLIS - 3_000L
+        val midnight = firstDay.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
+        alignToTick()
+        wallClockBefore(midnight, 3_000L)
+
+        // Start 3 s before midnight, pause 1 s after it; a tick lands exactly on midnight.
+        vm.onStartExposure()
+        tick(4)
+        vm.onPauseExposure()
+        flush()
+
+        val days = history.saved.last().days
+        assertEquals(listOf(firstDay, firstDay.plusDays(1)), days.map { it.date })
+        assertEquals(3_000L, days[0].activeDurationMillis)
+        assertEquals(1_000L, days[1].activeDurationMillis)
+        assertEquals(3.0, days[0].doseSed / days[1].doseSed, 1e-9)
+    }
+
+    @Test
+    fun `a session ending exactly at local midnight adds nothing to the next day`() {
+        val firstDay = LocalDate.of(2026, 10, 2)
+        val midnight = firstDay.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 3_000L)
 
         vm.onStartExposure()
         tick(3)
-        vm.onPauseExposure()
-        tick(1)
+        vm.onResetTimer()
+        flush()
 
-        val days = history.saved.single().days
+        val completed = history.saved.first { it.status == ExposureRecordStatus.COMPLETED }
+        assertEquals(listOf(firstDay), completed.days.map { it.date })
+        assertEquals(3_000L, completed.days.single().activeDurationMillis)
+    }
+
+    @Test
+    fun `a segment between ticks is split at midnight by time on each side`() {
+        val firstDay = LocalDate.of(2026, 10, 2)
+        val midnight = firstDay.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 1_250L)
+
+        // Ticks land at midnight -0.25 s and +0.75 s, so that tick segment is split 250/750 ms.
+        vm.onStartExposure()
+        advance(2_500L)
+        vm.onPauseExposure()
+        flush()
+
+        val days = history.saved.last().days
         assertEquals(listOf(firstDay, firstDay.plusDays(1)), days.map { it.date })
-        assertEquals(1_000L, days[0].activeDurationMillis)
-        assertEquals(2_000L, days[1].activeDurationMillis)
+        assertEquals(1_250L, days[0].activeDurationMillis)
+        assertEquals(1_250L, days[1].activeDurationMillis)
     }
 
     @Test
@@ -740,9 +860,9 @@ class MainViewModelTest {
         vm.onResumeExposure()
         tick(1)
 
-        assertEquals(2, history.saved.size)
-        assertTrue(history.saved[1].recordedThroughMillis >= history.saved[0].recordedThroughMillis)
-        assertTrue(history.saved[1].days.all { it.activeDurationMillis >= 0L })
+        assertEquals(3, history.saved.size)
+        assertTrue(history.saved[2].recordedThroughMillis >= history.saved[1].recordedThroughMillis)
+        assertTrue(history.saved[2].days.all { it.activeDurationMillis >= 0L })
     }
 
     @Test
@@ -756,14 +876,14 @@ class MainViewModelTest {
         tick(2)
         vm.onPauseExposure()
         tick(1)
-        assertEquals(1, history.saveAttempts)
-        assertEquals(1, notified)
+        assertEquals(2, history.saveAttempts)
+        assertEquals(2, notified)
 
         history.failSaves = true
         vm.onResumeExposure()
         tick(5)
-        assertEquals(2, history.saveAttempts)
-        assertEquals(1, notified)
+        assertEquals(3, history.saveAttempts)
+        assertEquals(2, notified)
     }
 
     @Test
@@ -798,8 +918,8 @@ class MainViewModelTest {
         vm.onPauseExposure()
         tick(1)
 
-        val saved = history.saved.single()
-        // Ticks at 2 s and 3 s close sun segments; the 4 s, 5 s and pause ticks close shade ones.
+        val saved = history.saved.last()
+        // The override settles the sun segment when it happens; everything after it is shade.
         assertEquals(2_000L, saved.activeDurationMillis)
         assertTrue(saved.doseSed > doseAtShadeStart)
     }

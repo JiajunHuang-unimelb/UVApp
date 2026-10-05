@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -101,6 +104,9 @@ fun SunLogScreen(
             WeekArrow(rotation = -90f, description = "Next week", enabled = !isCurrentWeek, onClick = onNextWeek)
         }
 
+        // Swipe right on the chart = earlier week, swipe left = later week (the ViewModel ignores
+        // "next" on the current week). The arrows above stay as the tap alternative.
+        val swipeThresholdPx = 80f * LocalDensity.current.density
         Spacer(Modifier.height(12.dp))
         WeekChartCard(
             days = week.days,
@@ -108,6 +114,21 @@ fun SunLogScreen(
             today = today,
             showTime = state.sunLogShowsTime,
             onShowTime = onShowTime,
+            modifier =
+                Modifier.pointerInput(Unit) {
+                    var dragTotal = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragTotal = 0f },
+                        onDragEnd = {
+                            if (dragTotal > swipeThresholdPx) {
+                                onPreviousWeek()
+                            } else if (dragTotal < -swipeThresholdPx) {
+                                onNextWeek()
+                            }
+                        },
+                        onHorizontalDrag = { _, dragAmount -> dragTotal += dragAmount },
+                    )
+                },
         )
     }
 }
@@ -168,10 +189,11 @@ private fun WeekChartCard(
     today: LocalDate,
     showTime: Boolean,
     onShowTime: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
     SunCard(
-        Modifier.fillMaxWidth(),
+        modifier.fillMaxWidth(),
         containerColor = colors.surface,
         borderColor = colors.outline,
         shape = RoundedCornerShape(12.dp),
