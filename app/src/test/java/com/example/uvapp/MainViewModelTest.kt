@@ -9,12 +9,18 @@ import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.Coordinates
+import com.example.uvapp.domain.model.ExposureDailySummary
+import com.example.uvapp.domain.model.ExposureRecord
+import com.example.uvapp.domain.model.ExposureRecordStatus
+import com.example.uvapp.domain.model.ExposureWeeklySummary
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.LocationFix
 import com.example.uvapp.domain.model.PlaceName
+import com.example.uvapp.domain.model.PlaceSearchResult
 import com.example.uvapp.domain.model.UvDataSource
 import com.example.uvapp.domain.model.UvForecastReading
 import com.example.uvapp.domain.model.UvForecastState
+import com.example.uvapp.domain.repository.ExposureHistoryRepository
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
@@ -25,12 +31,16 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import java.time.LocalDate
+import java.time.ZoneId
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -526,6 +536,74 @@ class MainViewModelTest {
         assertEquals(approximateFix, vm.state.value.locationFix)
     }
 
+    private fun buildSearchViewModel(
+        placeRepository: PlaceRepository,
+        forecastRepository: FakeForecastRepository = FakeForecastRepository(),
+    ) = MainViewModel(
+        settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+        locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
+        forecastRepository = forecastRepository,
+        placeRepository = placeRepository,
+        nowMillis = { NOW_MILLIS },
+    )
+
+    @Test
+    fun `submitted search shows place results`() {
+        val vm = buildSearchViewModel(FakePlaceRepository(listOf(CARLTON)))
+        settle()
+
+        vm.onSearchClick()
+        vm.onQueryChange("Carlton")
+        vm.onSearchSubmit()
+        settle()
+
+        assertEquals(listOf(CARLTON), vm.state.value.searchResults)
+        assertEquals(null, vm.state.value.searchStatus)
+    }
+
+    @Test
+    fun `empty or failed search shows a status line`() {
+        val empty = buildSearchViewModel(FakePlaceRepository())
+        settle()
+        empty.onQueryChange("Nowhere")
+        empty.onSearchSubmit()
+        settle()
+        assertEquals("No places found", empty.state.value.searchStatus)
+
+        val failing = buildSearchViewModel(FailingPlaceRepository())
+        settle()
+        failing.onQueryChange("Carlton")
+        failing.onSearchSubmit()
+        settle()
+        assertEquals("Search failed. Check your connection.", failing.state.value.searchStatus)
+        assertTrue(failing.state.value.searchResults.isEmpty())
+    }
+
+    @Test
+    fun `selecting a place loads its forecast with an approximate fix`() {
+        val forecastRepository = FakeForecastRepository()
+        val vm = buildSearchViewModel(FakePlaceRepository(listOf(CARLTON)), forecastRepository)
+        settle()
+
+        vm.onSearchClick()
+        vm.onQueryChange("Carlton")
+        vm.onSearchSubmit()
+        settle()
+        vm.onPlaceSelected(CARLTON)
+        settle()
+
+        val state = vm.state.value
+        assertEquals("Carlton", state.placeName)
+        assertFalse(state.showSearchDialog)
+        assertEquals("", state.searchQuery)
+        assertTrue(state.searchResults.isEmpty())
+        assertEquals(CARLTON.coordinates.latitude, state.locationFix!!.latitude, 0.0)
+        assertEquals(CARLTON.coordinates.longitude, state.locationFix!!.longitude, 0.0)
+        assertTrue(state.locationFix!!.isApproximate)
+        assertEquals(CARLTON.coordinates.latitude, forecastRepository.latitude, 0.0)
+        assertEquals(CARLTON.coordinates.longitude, forecastRepository.longitude, 0.0)
+    }
+
     @Test
     fun `location timeout surfaces an error without touching the forecast repository`() {
         val forecastRepository = FakeForecastRepository()
@@ -588,6 +666,366 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
         assertEquals(remaining, vm.state.value.remainingSeconds)
         assertEquals(vm.state.value.totalBurnSeconds - 3, remaining)
+    }
+
+    // ---- Exposure history ----------------------------------------------------
+
+    /** Shifts the injected wall clock without moving virtual (ticker) time. */
+    private var wallOffsetMillis = 0L
+
+    private fun buildHistoryViewModel(
+        history: FakeExposureHistoryRepository,
+        onSaved: (suspend () -> Unit)? = null,
+    ) =
+        MainViewModel(
+            settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+            locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
+            forecastRepository = FakeForecastRepository(),
+            nowMillis = { NOW_MILLIS + mainDispatcher.scheduler.currentTime + wallOffsetMillis },
+            historyRepository = history,
+            onHistorySaved = onSaved,
+        )
+
+    private fun tick(seconds: Int) = advance(seconds * 1_000L)
+
+    /** Advances virtual time, running every ticker iteration up to and including the end. */
+    private fun advance(millis: Long) {
+        mainDispatcher.scheduler.advanceTimeBy(millis)
+        mainDispatcher.scheduler.runCurrent()
+    }
+
+    /** Moves to the next whole virtual second, so a session starts exactly on a ticker iteration. */
+    /** Runs saves launched by the last action without moving virtual time. */
+    private fun flush() = mainDispatcher.scheduler.runCurrent()
+
+    private fun alignToTick() = advance(1_000L - mainDispatcher.scheduler.currentTime % 1_000L)
+
+    /** Shifts the wall clock so that "now" is [millisBefore] ms before [midnight]. */
+    private fun wallClockBefore(midnight: Long, millisBefore: Long) {
+        wallOffsetMillis = midnight - millisBefore - NOW_MILLIS - mainDispatcher.scheduler.currentTime
+    }
+
+    @Test
+    fun `history session id is stable across pause and resume`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        tick(2)
+        vm.onPauseExposure()
+        tick(1)
+        vm.onResumeExposure()
+        tick(1)
+
+        assertEquals(
+            listOf(ExposureRecordStatus.ACTIVE, ExposureRecordStatus.PAUSED, ExposureRecordStatus.ACTIVE),
+            history.saved.map { it.status },
+        )
+        assertEquals(1, history.saved.map { it.sessionId }.distinct().size)
+        assertTrue(history.saved.last().doseSed > 0.0)
+    }
+
+    @Test
+    fun `starting a session saves it as active straight away`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        flush()
+
+        val saved = history.saved.single()
+        assertEquals(ExposureRecordStatus.ACTIVE, saved.status)
+        assertEquals(0L, saved.activeDurationMillis)
+    }
+
+    @Test
+    fun `pause and resume between ticks keep the exact direct-sun time`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        // Virtual time is 701 ms here, so none of these steps lines up with a ticker iteration.
+        vm.onStartExposure()
+        advance(2_000L)
+        vm.onPauseExposure()
+        advance(500L)
+        vm.onResumeExposure()
+        advance(500L)
+        vm.onResetTimer()
+        flush()
+
+        val completed = history.saved.first { it.status == ExposureRecordStatus.COMPLETED }
+        assertEquals(2_500L, completed.activeDurationMillis)
+    }
+
+    @Test
+    fun `a light change between ticks closes the sun segment at that moment`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        advance(1_500L)
+        vm.onOverrideLightToggle()
+        vm.onLightOverride(LightContext.SHADE)
+        tick(2)
+        vm.onPauseExposure()
+        flush()
+
+        assertEquals(1_500L, history.saved.last().activeDurationMillis)
+    }
+
+    @Test
+    fun `restart saves the old session as completed before a new one starts`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        tick(2)
+        vm.onResetTimer()
+        tick(1)
+        vm.onPauseExposure()
+        tick(1)
+
+        assertEquals(
+            listOf(
+                ExposureRecordStatus.ACTIVE,
+                ExposureRecordStatus.COMPLETED,
+                ExposureRecordStatus.ACTIVE,
+                ExposureRecordStatus.PAUSED,
+            ),
+            history.saved.map { it.status },
+        )
+        assertTrue(history.saved[1].doseSed > 0.0)
+        assertEquals(history.saved[0].sessionId, history.saved[1].sessionId)
+        assertNotEquals(history.saved[1].sessionId, history.saved[2].sessionId)
+    }
+
+    @Test
+    fun `running session is checkpointed once a minute`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+
+        vm.onStartExposure()
+        tick(59)
+        assertEquals(1, history.saved.size)
+
+        tick(1)
+        assertEquals(2, history.saved.size)
+        assertEquals(ExposureRecordStatus.ACTIVE, history.saved[1].status)
+        assertEquals(60_000L, history.saved[1].activeDurationMillis)
+    }
+
+    @Test
+    fun `reaching the dose limit is saved as completed`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onSpeedToggle()
+        vm.onStartExposure()
+        tick(20)
+
+        assertEquals(ExposureStatus.COMPLETE, vm.state.value.exposureStatus)
+        assertEquals(ExposureRecordStatus.COMPLETED, history.saved.last().status)
+        assertEquals(vm.state.value.accumulatedDoseSed, history.saved.last().doseSed, 1e-9)
+    }
+
+    @Test
+    fun `a session across local midnight is split between the two days`() {
+        val firstDay = LocalDate.of(2026, 10, 2)
+        val midnight = firstDay.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 3_000L)
+
+        // Start 3 s before midnight, pause 1 s after it; a tick lands exactly on midnight.
+        vm.onStartExposure()
+        tick(4)
+        vm.onPauseExposure()
+        flush()
+
+        val days = history.saved.last().days
+        assertEquals(listOf(firstDay, firstDay.plusDays(1)), days.map { it.date })
+        assertEquals(3_000L, days[0].activeDurationMillis)
+        assertEquals(1_000L, days[1].activeDurationMillis)
+        assertEquals(3.0, days[0].doseSed / days[1].doseSed, 1e-9)
+    }
+
+    @Test
+    fun `a session ending exactly at local midnight adds nothing to the next day`() {
+        val firstDay = LocalDate.of(2026, 10, 2)
+        val midnight = firstDay.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 3_000L)
+
+        vm.onStartExposure()
+        tick(3)
+        vm.onResetTimer()
+        flush()
+
+        val completed = history.saved.first { it.status == ExposureRecordStatus.COMPLETED }
+        assertEquals(listOf(firstDay), completed.days.map { it.date })
+        assertEquals(3_000L, completed.days.single().activeDurationMillis)
+    }
+
+    @Test
+    fun `a segment between ticks is split at midnight by time on each side`() {
+        val firstDay = LocalDate.of(2026, 10, 2)
+        val midnight = firstDay.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 1_250L)
+
+        // Ticks land at midnight -0.25 s and +0.75 s, so that tick segment is split 250/750 ms.
+        vm.onStartExposure()
+        advance(2_500L)
+        vm.onPauseExposure()
+        flush()
+
+        val days = history.saved.last().days
+        assertEquals(listOf(firstDay, firstDay.plusDays(1)), days.map { it.date })
+        assertEquals(1_250L, days[0].activeDurationMillis)
+        assertEquals(1_250L, days[1].activeDurationMillis)
+    }
+
+    @Test
+    fun `recorded-through time never goes backwards when the wall clock does`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        tick(2)
+        vm.onPauseExposure()
+        tick(1)
+        wallOffsetMillis -= 600_000L
+        vm.onResumeExposure()
+        tick(1)
+
+        assertEquals(3, history.saved.size)
+        assertTrue(history.saved[2].recordedThroughMillis >= history.saved[1].recordedThroughMillis)
+        assertTrue(history.saved[2].days.all { it.activeDurationMillis >= 0L })
+    }
+
+    @Test
+    fun `successful saves notify the widget and failed saves are not retried`() {
+        val history = FakeExposureHistoryRepository()
+        var notified = 0
+        val vm = buildHistoryViewModel(history, onSaved = { notified++ })
+        settle()
+
+        vm.onStartExposure()
+        tick(2)
+        vm.onPauseExposure()
+        tick(1)
+        assertEquals(2, history.saveAttempts)
+        assertEquals(2, notified)
+
+        history.failSaves = true
+        vm.onResumeExposure()
+        tick(5)
+        assertEquals(3, history.saveAttempts)
+        assertEquals(2, notified)
+    }
+
+    @Test
+    fun `sun log paging moves by a week and stops at the current week`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        val today = history.weekRequests.single()
+
+        vm.onSunLogNextWeek()
+        vm.onSunLogPreviousWeek()
+        vm.onSunLogNextWeek()
+        settle()
+
+        assertEquals(listOf(today, today.minusDays(7), today), history.weekRequests)
+        assertEquals(today, vm.state.value.sunLogWeek?.weekStart)
+    }
+
+    @Test
+    fun `only direct sun counts as time in the sun while shade still adds dose`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        tick(2)
+        vm.onOverrideLightToggle()
+        vm.onLightOverride(LightContext.SHADE)
+        tick(1)
+        val doseAtShadeStart = vm.state.value.accumulatedDoseSed
+        tick(2)
+        vm.onPauseExposure()
+        tick(1)
+
+        val saved = history.saved.last()
+        // The override settles the sun segment when it happens; everything after it is shade.
+        assertEquals(2_000L, saved.activeDurationMillis)
+        assertTrue(saved.doseSed > doseAtShadeStart)
+    }
+
+    @Test
+    fun `sun log numbers default to percent and switch to time`() {
+        val vm = buildHistoryViewModel(FakeExposureHistoryRepository())
+        settle()
+        assertFalse(vm.state.value.sunLogShowsTime)
+
+        vm.onSunLogShowTime(true)
+        vm.onTabSelected(com.example.uvapp.viewmodel.Tab.HOME)
+        assertTrue(vm.state.value.sunLogShowsTime)
+    }
+
+    private class FakeExposureHistoryRepository : ExposureHistoryRepository {
+        val saved = mutableListOf<ExposureRecord>()
+        val weekRequests = mutableListOf<LocalDate>()
+        var saveAttempts = 0
+            private set
+        var failSaves = false
+
+        override suspend fun save(record: ExposureRecord): Result<Unit> {
+            saveAttempts++
+            if (failSaves) return Result.failure(IllegalStateException("write failed"))
+            saved += record
+            return Result.success(Unit)
+        }
+
+        override suspend fun getSession(sessionId: String): ExposureRecord? =
+            saved.lastOrNull { it.sessionId == sessionId }
+
+        override fun observeHistory(
+            limit: Int,
+            offset: Int,
+        ): Flow<List<ExposureRecord>> = flowOf(saved.toList())
+
+        override fun observeDaily(
+            start: LocalDate,
+            endExclusive: LocalDate,
+        ): Flow<List<ExposureDailySummary>> = flowOf(emptyList())
+
+        // weekStart echoes the requested date so tests can see which week is shown.
+        override fun observeWeek(containingDate: LocalDate): Flow<ExposureWeeklySummary> {
+            weekRequests += containingDate
+            return flowOf(ExposureWeeklySummary(containingDate, emptyList()))
+        }
+
+        override suspend fun deleteSession(sessionId: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun clearHistory(): Result<Unit> = Result.success(Unit)
     }
 
     private class FakeLocationProvider(
@@ -698,9 +1136,10 @@ class MainViewModelTest {
         }
     }
 
-    private class FakePlaceRepository : PlaceRepository {
-        override suspend fun searchPlaces(query: String) =
-            Result.success(emptyList<com.example.uvapp.domain.model.PlaceSearchResult>())
+    private class FakePlaceRepository(
+        private val searchResults: List<PlaceSearchResult> = emptyList(),
+    ) : PlaceRepository {
+        override suspend fun searchPlaces(query: String) = Result.success(searchResults)
 
         var coordinates: Coordinates? = null
             private set
@@ -730,6 +1169,12 @@ class MainViewModelTest {
 
     private companion object {
         const val NOW_MILLIS = 1_800_000L
+        val CARLTON =
+            PlaceSearchResult(
+                name = "Carlton",
+                displayName = "Carlton, Melbourne, City of Melbourne, Victoria, 3053, Australia",
+                coordinates = Coordinates(latitude = -37.8001, longitude = 144.9671),
+            )
         val PRECISE_FIX =
             LocationFix(
                 latitude = -37.8136,

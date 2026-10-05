@@ -5,10 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -142,7 +144,7 @@ fun SettingsSwitchRow(
     Row(
         modifier
             .fillMaxWidth()
-            .height(48.dp),
+            .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -152,6 +154,35 @@ fun SettingsSwitchRow(
                 Text(subtitle, color = colors.textSecondary, fontSize = 12.sp)
             }
         }
+        Spacer(Modifier.width(12.dp))
         UvSwitch(checked = checked, onToggle = onToggle, onColor = onColor)
+    }
+}
+
+/** One settings group: an accent-tinted band holding the title, then the rows on a card. */
+@Composable
+fun SettingsSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = UvTheme
+    SunCard(
+        modifier.fillMaxWidth(),
+        containerColor = colors.surface,
+        borderColor = colors.outline,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.activePill)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Text(title, color = colors.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(Modifier.fillMaxWidth().padding(16.dp), content = content)
+        }
     }
 }

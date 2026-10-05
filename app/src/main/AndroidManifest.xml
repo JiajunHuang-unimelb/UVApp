@@ -40,6 +40,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -59,6 +60,18 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/my_app_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".WeeklyExposureWidgetReceiver"
+            android:exported="true"
+            android:label="Weekly sun time">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/weekly_exposure_widget_info" />
         </receiver>
     </application>
 
