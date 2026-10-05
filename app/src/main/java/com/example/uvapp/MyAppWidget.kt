@@ -10,6 +10,8 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.text.Text
 import androidx.glance.GlanceModifier
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.glance.text.FontWeight
@@ -51,6 +53,7 @@ import com.example.uvapp.domain.model.UvBand
 import com.example.uvapp.ui.theme.BandPalettes
 
 import com.example.uvapp.ui.theme.UvTheme
+import com.example.uvapp.ui.components.DataSourceLinks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.take
 
@@ -74,7 +77,7 @@ class MyAppWidget : GlanceAppWidget() {
 
     @Composable
     private fun MyContent() {
-
+        val context = androidx.glance.LocalContext.current
         val data = currentState<Preferences>()
         val uv = data[doublePreferencesKey("uv")] ?: -1.0
         //instead of val band = data[stringPreferencesKey("band")] ?: "NBand"
@@ -153,6 +156,16 @@ class MyAppWidget : GlanceAppWidget() {
                     style = TextStyle(color = ColorProvider(uvColor),
                         fontSize = midFont,
                         fontWeight = FontWeight.Bold)
+                )
+
+                Text(
+                    text = context.getString(R.string.uv_data_attribution),
+                    modifier = GlanceModifier.padding(vertical = 4.dp).clickable(
+                        androidx.glance.appwidget.action.actionStartActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(DataSourceLinks.OPEN_METEO)),
+                        ),
+                    ),
+                    style = TextStyle(color = ColorProvider(Color.LightGray), fontSize = 10.sp),
                 )
 
 

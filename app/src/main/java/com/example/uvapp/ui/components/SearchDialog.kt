@@ -15,47 +15,43 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uvapp.domain.model.PlaceSearchResult
 import com.example.uvapp.ui.icons.UvIcons
 import com.example.uvapp.ui.theme.UvTheme
 
-/** Demo suburb list (backend team will replace with Nominatim autocomplete). */
-val DEMO_SUBURBS = listOf("Melbourne CBD", "Southbank", "Carlton", "Fitzroy", "St Kilda")
-
 /**
  * Address-search overlay: scrim over the page content (bottom nav stays
- * visible, per the high-fi drawing), then the dialog with a live-filtered
- * suggestion list and a highlighted exact match.
+ * visible, per the high-fi drawing), then the dialog. The keyboard Search key
+ * submits the query; results come from Nominatim via the ViewModel.
  */
 @Composable
 fun SearchDialogOverlay(
     query: String,
+    results: List<PlaceSearchResult>,
+    status: String?,
     onQueryChange: (String) -> Unit,
+    onSubmit: () -> Unit,
     onDismiss: () -> Unit,
-    onSelectPlace: (String) -> Unit,
+    onSelectPlace: (PlaceSearchResult) -> Unit,
     onUseCurrentLocation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
-    val filtered = remember(query) {
-        if (query.isBlank()) {
-            DEMO_SUBURBS
-        } else {
-            DEMO_SUBURBS.filter { it.contains(query.trim(), ignoreCase = true) }
-        }
-    }
     Box(modifier.fillMaxSize()) {
         // Scrim (tap to dismiss)
         Box(
@@ -102,6 +98,8 @@ fun SearchDialogOverlay(
                     modifier = Modifier.weight(1f),
                     textStyle = TextStyle(color = colors.onBackground, fontSize = 15.sp),
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
                     cursorBrush = SolidColor(colors.accent),
                 )
                 if (query.isNotEmpty()) {
@@ -131,30 +129,31 @@ fun SearchDialogOverlay(
             Hairline(Modifier.fillMaxWidth())
             Spacer(Modifier.height(2.dp))
 
-            // Live-filtered suggestion list
-            if (filtered.isEmpty()) {
+            // Search status or results
+            if (status != null) {
                 Spacer(Modifier.height(24.dp))
-                Text("No matching suburbs", color = colors.textSecondary, fontSize = 14.sp)
+                Text(status, color = colors.textSecondary, fontSize = 14.sp)
             }
-            filtered.forEach { suburb ->
-                val highlighted = query.isNotBlank() && suburb.equals(query.trim(), ignoreCase = true)
+            results.forEach { place ->
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (highlighted) colors.accent.copy(alpha = 0.08f) else Color.Transparent)
-                        .clickable { onSelectPlace(suburb) },
+                        .clickable { onSelectPlace(place) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        suburb,
+                        place.displayName,
                         fontSize = 15.sp,
-                        fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal,
-                        color = if (highlighted) colors.accent else colors.onBackground,
+                        color = colors.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            PlaceDataAttribution()
         }
     }
 }

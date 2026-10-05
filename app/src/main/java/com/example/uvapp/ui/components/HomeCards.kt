@@ -68,6 +68,15 @@ fun formatUv(uv: Double): String = String.format(Locale.US, "%.1f", uv)
 fun formatThousands(value: Int): String =
     value.toString().reversed().chunked(3).joinToString(" ").reversed()
 
+/** "3h 05m" / "45m" / "0m" - time in the sun; shared by the Sun log tab and weekly widget. */
+fun formatSunTime(millis: Long): String {
+    val totalMinutes = millis / 60_000L
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    if (hours == 0L) return "${minutes}m"
+    return String.format(Locale.US, "%dh %02dm", hours, minutes)
+}
+
 /** Card with rounded (M3 Medium) corners and an optional border. No shadow. */
 @Composable
 fun SunCard(

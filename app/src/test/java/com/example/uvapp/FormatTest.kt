@@ -1,5 +1,6 @@
 ﻿package com.example.uvapp
 
+import com.example.uvapp.ui.components.formatSunTime
 import com.example.uvapp.ui.components.formatThousands
 import com.example.uvapp.ui.components.formatUv
 import com.example.uvapp.ui.components.minutesToHhMm
@@ -30,5 +31,14 @@ class FormatTest {
         assertEquals("06:30", minutesToHhMm(390))
         assertEquals("09:05", minutesToHhMm(545))
         assertEquals("20:30", minutesToHhMm(1230))
+    }
+
+    @Test
+    fun formatSunTime_showsHoursOnlyWhenNeeded() {
+        assertEquals("0m", formatSunTime(0L))
+        assertEquals("0m", formatSunTime(59_999L))
+        assertEquals("45m", formatSunTime(45 * 60_000L))
+        assertEquals("1h 00m", formatSunTime(60 * 60_000L))
+        assertEquals("3h 05m", formatSunTime(185 * 60_000L))
     }
 }
