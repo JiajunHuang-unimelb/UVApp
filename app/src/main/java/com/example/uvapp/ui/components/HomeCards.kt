@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.uvapp.domain.advisor.BurnCalculator
+import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.model.LightContext
 import com.example.uvapp.domain.model.SkinType
@@ -531,6 +532,40 @@ fun ErrorBanner(message: String, modifier: Modifier = Modifier) {
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Start,
+        )
+    }
+}
+
+/**
+ * Status line for the indoor feature, or null when there is nothing to say.
+ * pauseReason says why the timer is paused, so a manual pause made indoors is not called automatic.
+ */
+fun indoorStatusMessage(pauseReason: ExposurePauseReason?, indoorDetected: Boolean): String? {
+    if (pauseReason == ExposurePauseReason.INDOOR_DETECTED) {
+        return "Indoors detected - exposure timer paused automatically"
+    }
+    if (indoorDetected) {
+        return "Indoors detected"
+    }
+    return null
+}
+
+/** Neutral info banner under the timer (same shape as ErrorBanner, accent tint instead of error). */
+@Composable
+fun IndoorStatusBanner(message: String, modifier: Modifier = Modifier) {
+    val colors = UvTheme
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.activePill)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            message,
+            color = colors.accent,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

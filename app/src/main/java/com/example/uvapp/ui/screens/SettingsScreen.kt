@@ -51,6 +51,7 @@ fun SettingsScreen(
     state: SettingsUiState,
     modifier: Modifier = Modifier,
     indoorContent: @Composable () -> Unit = {},
+    developerContent: @Composable () -> Unit = {},
     onEnhancedSensingToggle: () -> Unit = {
         viewModel.setEnhancedSensingEnabled(!state.enhancedSensingEnabled)
     },
@@ -172,6 +173,10 @@ fun SettingsScreen(
                 checked = state.devModeEnabled,
                 onToggle = { viewModel.setDevModeEnabled(!state.devModeEnabled) },
             )
+            if (state.devModeEnabled) {
+                Spacer(Modifier.height(8.dp))
+                developerContent()
+            }
         }
         Spacer(Modifier.height(24.dp))
         TextButton(onClick = { showDataSources = true }) {

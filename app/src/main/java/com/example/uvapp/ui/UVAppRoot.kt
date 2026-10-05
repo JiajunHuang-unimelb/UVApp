@@ -10,6 +10,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
 import com.example.uvapp.platform.alerts.IndoorSuggestionNotifier
 import com.example.uvapp.viewmodel.IndoorLocationsViewModel
+import com.example.uvapp.ui.components.IndoorDemoToggle
 import com.example.uvapp.ui.components.IndoorLocationsPanel
 import com.example.uvapp.ui.components.IndoorSuggestionDialog
 import androidx.compose.foundation.background
@@ -235,7 +236,7 @@ fun UVAppRoot(
                         viewModel = mainViewModel,
                         state = mainState,
                         onLocate = requestCurrentLocation,
-                        indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions, developerMode = mainState.devModeEnabled) },
+                        indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions) },
                     )
                     Tab.FORECAST -> ForecastScreen(
                         state = forecastState,
@@ -263,6 +264,7 @@ fun UVAppRoot(
                                 settings = true,
                             )
                         },
+                        developerContent = { IndoorDemoToggle(indoorViewModel, indoorState) },
                         onEnhancedSensingToggle = toggleEnhancedSensing,
                     )
                 }

@@ -21,6 +21,8 @@ import com.example.uvapp.ui.components.CachedIndicator
 import com.example.uvapp.ui.components.ContextCard
 import com.example.uvapp.ui.components.DevCard
 import com.example.uvapp.ui.components.ErrorBanner
+import com.example.uvapp.ui.components.IndoorStatusBanner
+import com.example.uvapp.ui.components.indoorStatusMessage
 import com.example.uvapp.ui.components.SafeTimerCard
 import com.example.uvapp.ui.components.TopChrome
 import com.example.uvapp.ui.theme.UvTheme
@@ -80,6 +82,12 @@ fun HomeScreen(
                 fontSize = 12.sp,
             )
 
+            val indoorMessage = indoorStatusMessage(state.pauseReason, state.indoorDetected)
+            if (indoorMessage != null) {
+                Spacer(Modifier.height(10.dp))
+                IndoorStatusBanner(indoorMessage)
+            }
+
             Spacer(Modifier.height(12.dp))
             ContextCard(
                 context = state.lightReadingContext,
@@ -88,6 +96,7 @@ fun HomeScreen(
                 interactive = !state.exposureStarted,
             )
 
+            Spacer(Modifier.height(12.dp))
             indoorContent()
             if (state.isCached) {
                 Spacer(Modifier.height(10.dp))

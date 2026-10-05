@@ -1,30 +1,53 @@
 package com.example.uvapp.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.example.uvapp.domain.model.*
+import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.*
 
+/**
+ * Saved indoor places. Settings (settings = true) shows the full list inside its Sensing card;
+ * Home shows a compact card with the status line and the "I'm indoors here" button.
+ */
 @Composable
-fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiState, requestSave: () -> Unit, enableSuggestions: () -> Unit, settings: Boolean = false, developerMode: Boolean = false) {
+fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiState, requestSave: () -> Unit, enableSuggestions: () -> Unit, settings: Boolean = false) {
+    val colors = UvTheme
     var editing by remember { mutableStateOf<IndoorLocation?>(null) }
     var deleting by remember { mutableStateOf<IndoorLocation?>(null) }
     var name by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text("Indoor locations", style = MaterialTheme.typography.titleMedium)
-        if (developerMode) {
-            Row { Checkbox(checked = state.demoEnabled, onCheckedChange = vm::setDemoEnabled); Text("Demo: University Square radius") }
-            if (state.demoEnabled) Text("Demonstration coordinates only; not a saved indoor building.")
+    val panelModifier =
+        if (settings) {
+            Modifier.fillMaxWidth()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.outline, RoundedCornerShape(12.dp))
+                .padding(16.dp)
         }
-        if (state.data.locations.isEmpty()) Text("Automatic indoor detection needs a saved location. Manual tracking is available.")
+    Column(panelModifier) {
+        Text("Indoor locations", style = MaterialTheme.typography.titleMedium)
+        if (state.data.locations.isEmpty()) {
+            Text("Automatic indoor detection needs a saved location. Manual tracking is available.", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+        } else if (!settings) {
+            Text("Saved: " + state.data.locations.joinToString(", ") { it.name }, color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+        }
         if (!state.data.invitationDismissed && state.data.locations.isEmpty()) {
-            Text("Save Home, University or Work to get started.")
+            Text("Save Home, University or Work to get started.", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
             TextButton(onClick = { vm.dismissInvitation() }) { Text("Not now") }
         }
-        Button(onClick = requestSave, enabled = !state.loading && !state.saving) { Text(if (state.loading) "Finding location…" else "I’m indoors here") }
+        Spacer(Modifier.height(8.dp))
+        FilledTonalButton(onClick = requestSave, enabled = !state.loading && !state.saving) { Text(if (state.loading) "Finding location…" else "I’m indoors here") }
         if (settings) {
             Row { Checkbox(checked = state.data.suggestionsEnabled, onCheckedChange = { if (it) enableSuggestions() else vm.enableSuggestions(false) }); Text("Suggest saving after I pause in low light") }
             state.data.locations.forEach { place ->
@@ -39,6 +62,20 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
     }
     editing?.let { place -> AlertDialog(onDismissRequest = { editing = null }, title = { Text("Rename location") }, text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }) }, confirmButton = { TextButton(onClick = { vm.rename(place.id, name); editing = null }, enabled = name.isNotBlank()) { Text("Save") } }, dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } }) }
     deleting?.let { place -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Delete ${place.name}?") }, confirmButton = { TextButton(onClick = { vm.delete(place.id); deleting = null }) { Text("Delete") } }, dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } }) }
+}
+
+/** Developer-only switch for the in-memory demo radius; lives in the Settings Developer card. */
+@Composable
+fun IndoorDemoToggle(vm: IndoorLocationsViewModel, state: IndoorLocationsUiState) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = state.demoEnabled, onCheckedChange = vm::setDemoEnabled)
+            Text("Demo: University Square radius")
+        }
+        if (state.demoEnabled) {
+            Text("Demonstration coordinates only; not a saved indoor building.", color = UvTheme.textSecondary, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
 
 @Composable
