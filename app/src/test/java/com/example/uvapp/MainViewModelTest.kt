@@ -783,6 +783,28 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `only direct sun counts as time in the sun while shade still adds dose`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+
+        vm.onStartExposure()
+        tick(2)
+        vm.onOverrideLightToggle()
+        vm.onLightOverride(LightContext.SHADE)
+        tick(1)
+        val doseAtShadeStart = vm.state.value.accumulatedDoseSed
+        tick(2)
+        vm.onPauseExposure()
+        tick(1)
+
+        val saved = history.saved.single()
+        // Ticks at 2 s and 3 s close sun segments; the 4 s, 5 s and pause ticks close shade ones.
+        assertEquals(2_000L, saved.activeDurationMillis)
+        assertTrue(saved.doseSed > doseAtShadeStart)
+    }
+
+    @Test
     fun `sun log numbers default to percent and switch to time`() {
         val vm = buildHistoryViewModel(FakeExposureHistoryRepository())
         settle()

@@ -218,6 +218,7 @@ class MainViewModel(
     private var historyZoneId: ZoneId = ZoneId.systemDefault()
     private val historyDays = mutableMapOf<LocalDate, ExposureDayTotal>()
     private var lastHistoryStatus = ExposureStatus.NOT_STARTED
+    private var lastHistoryContext = ExposureContext.UNKNOWN
     private var lastHistoryWallMillis = 0L
     private var lastHistoryDoseSed = 0.0
     private var lastHistorySaveWallMillis = 0L
@@ -811,7 +812,7 @@ class MainViewModel(
         val now = nowMillis()
         if (historySessionId == null) {
             if (snapshot.status == ExposureStatus.NOT_STARTED) return
-            openHistorySession(snapshot.status, now)
+            openHistorySession(snapshot.status, snapshot.context, now)
         }
         addHistoryDelta(snapshot.accumulatedDoseSed, now)
         val statusChanged = snapshot.status != lastHistoryStatus
@@ -819,15 +820,17 @@ class MainViewModel(
             snapshot.status == ExposureStatus.RUNNING &&
                 now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
         lastHistoryStatus = snapshot.status
+        lastHistoryContext = snapshot.context
         if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
     }
 
-    private fun openHistorySession(status: ExposureStatus, now: Long) {
+    private fun openHistorySession(status: ExposureStatus, context: ExposureContext, now: Long) {
         historySessionId = UUID.randomUUID().toString()
         historyStartedAtMillis = now
         historyZoneId = ZoneId.systemDefault()
         historyDays.clear()
         lastHistoryStatus = status
+        lastHistoryContext = context
         lastHistoryWallMillis = now
         lastHistoryDoseSed = 0.0
         lastHistorySaveWallMillis = now
@@ -843,10 +846,15 @@ class MainViewModel(
         historySessionId = null
     }
 
-    /** Duration uses wall time (never more than real time, even in 60x dev mode). */
+    /**
+     * Duration uses wall time (never more than real time, even in 60x dev mode) and only
+     * counts direct sun, so "time in the sun" excludes shade; shade still adds its dose.
+     */
     private fun addHistoryDelta(doseSed: Double, now: Long) {
         var durationMillis = now - lastHistoryWallMillis
-        if (durationMillis < 0L || lastHistoryStatus != ExposureStatus.RUNNING) durationMillis = 0L
+        val inDirectSun =
+            lastHistoryStatus == ExposureStatus.RUNNING && lastHistoryContext == ExposureContext.DIRECT_SUN
+        if (durationMillis < 0L || !inDirectSun) durationMillis = 0L
         val doseDelta = doseSed - lastHistoryDoseSed
         lastHistoryWallMillis = now
         lastHistoryDoseSed = doseSed
