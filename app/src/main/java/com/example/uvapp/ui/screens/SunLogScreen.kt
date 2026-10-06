@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -189,6 +190,7 @@ private fun WeekArrow(
     val colors = UvTheme
     Box(
         modifier
+            .minimumInteractiveComponentSize()
             .size(40.dp)
             .clip(CircleShape)
             .background(colors.surface)
@@ -302,6 +304,7 @@ private fun ViewToggle(showTime: Boolean, onShowTime: (Boolean) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .minimumInteractiveComponentSize()
             .height(36.dp)
             .clip(shape)
             .border(1.dp, colors.accent, shape),

@@ -1,7 +1,6 @@
 ﻿package com.example.uvapp.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,39 +52,6 @@ fun UvSwitch(
                 .size(18.dp)
                 .clip(CircleShape)
                 .background(Color.White),
-        )
-    }
-}
-
-/** Radio row (Fitzpatrick types, theme choice). */
-@Composable
-fun SettingsRadioRow(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = UvTheme
-    Row(
-        modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clickable(onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .border(1.5.dp, if (selected) colors.accent else colors.outline, CircleShape),
-            )
-            if (selected) {
-                Box(Modifier.size(9.dp).clip(CircleShape).background(colors.accent))
-            }
-        }
-        Spacer(Modifier.width(14.dp))
-        Text(
-            label,
-            color = colors.onBackground,
-            fontSize = 15.sp,
-            lineHeight = 20.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )
     }
 }
@@ -142,10 +108,12 @@ fun SettingsSwitchRow(
     onColor: Color = UvTheme.accent,
 ) {
     val colors = UvTheme
+    // The whole row toggles, not just the small switch, so the touch area is the full 48 dp row.
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp),
+            .heightIn(min = 48.dp)
+            .clickable(onClick = onToggle),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
