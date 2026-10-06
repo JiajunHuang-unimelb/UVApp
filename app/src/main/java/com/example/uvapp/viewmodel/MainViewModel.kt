@@ -83,7 +83,7 @@ data class MainUiState(
     val activeSessionId: String? = null,
     val activeSessionStartedAt: Long? = null,
     val activeSessionZoneId: String? = null,
-    
+
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
@@ -172,7 +172,7 @@ data class MainUiState(
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
-    
+
 }
 
 /**
@@ -194,7 +194,23 @@ class MainViewModel(
     private val onHistorySaved: (suspend () -> Unit)? = null,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(MainUiState())
+    private val _state = MutableStateFlow(
+        MainUiState(
+            exposureSnapshot = ExposureSnapshot(
+                status = ExposureStatus.NOT_STARTED,
+                skinType = SkinType.II,
+                uvIndex = 0.0,
+                context = ExposureContext.UNKNOWN,
+                accumulatedDoseSed = 0.0,
+                doseLimitSed = 1.0,
+                remainingDoseSed = 1.0,
+                exposureFraction = 0.0,
+                estimatedRemainingMinutes = null,
+                estimatedRemainingSeconds = null,
+                estimatedTotalSeconds = null
+            )
+        )
+    )
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
@@ -435,29 +451,26 @@ class MainViewModel(
         syncExposure()
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
+
     fun onResetSession(save: Boolean) {
         viewModelScope.launch {
-            
             val currentSnapshot = exposureSession.snapshot()
-            
             val sessionId = _state.value.activeSessionId
             val startedAt = _state.value.activeSessionStartedAt
             val zoneId = _state.value.activeSessionZoneId
-    
+
             if (save && sessionId != null && startedAt != null && zoneId != null) {
-                
                 if (currentSnapshot.accumulatedDoseSed > 0.001) {
-                    val recordedThroughMs = System.currentTimeMillis()
+                    val recordedThroughMs = exposureClockMillis
                     val totalActiveMs = recordedThroughMs - startedAt
                     val totalSed = currentSnapshot.accumulatedDoseSed
-    
-                    // simplify:only today
+
                     val dayTotal = ExposureDayTotal(
                         date = LocalDate.now(),
                         activeDurationMillis = totalActiveMs,
                         doseSed = totalSed
                     )
-    
+
                     val record = ExposureRecord(
                         sessionId = sessionId,
                         startedAtMillis = startedAt,
@@ -466,15 +479,15 @@ class MainViewModel(
                         status = ExposureRecordStatus.COMPLETED,
                         days = listOf(dayTotal)
                     )
-    
+
                     val saveResult = historyRepository?.save(record)
-                    if (saveResult.isFailure) {
-                        // 
+                    if (saveResult?.isFailure == true) {
+                        // log saveResult.exceptionOrNull()
                     }
                 }
             }
-    
-            val newSnapshot = exposureSession.clear(System.currentTimeMillis())
+
+            val newSnapshot = exposureSession.clear(exposureClockMillis)
             _state.update {
                 it.copy(
                     exposureSnapshot = newSnapshot,
@@ -483,8 +496,10 @@ class MainViewModel(
                     activeSessionZoneId = null
                 )
             }
+            publishExposure(newSnapshot)
         }
     }
+
     fun onResetTimer() {
         restartExposureSession()
         pauseNewSessionIfAlreadyIndoor()
@@ -742,11 +757,11 @@ class MainViewModel(
     private fun restartExposureSession() {
         closeHistorySession()
         monitoringController?.start()
-    
+
         val dbSessionId = java.util.UUID.randomUUID().toString()
         val sessionStartMs = exposureClockMillis
         val zoneId = java.time.ZoneId.systemDefault().id
-    
+
         _state.update {
             it.copy(
                 exposureSessionId = it.exposureSessionId + 1,
@@ -773,11 +788,11 @@ class MainViewModel(
         val target =
             when {
                 !state.indoorDetected &&
-                    state.isWithinSavedIndoorLocation &&
-                    state.displayLux < INDOOR_ENTER_LUX -> true
+                        state.isWithinSavedIndoorLocation &&
+                        state.displayLux < INDOOR_ENTER_LUX -> true
 
                 state.indoorDetected &&
-                    (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+                        (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
 
                 else -> null
             }
@@ -930,7 +945,7 @@ class MainViewModel(
         val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =
             snapshot.status == ExposureStatus.RUNNING &&
-                now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
+                    now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
         lastHistoryStatus = snapshot.status
         lastHistoryContext = snapshot.context
         if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
