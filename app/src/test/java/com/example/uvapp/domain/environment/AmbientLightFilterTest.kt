@@ -49,6 +49,16 @@ class AmbientLightFilterTest {
     }
 
     @Test
+    fun `reset removes samples from an earlier sensor session`() {
+        val filter = AmbientLightFilter(windowSize = 3)
+        repeat(3) { filter.update(100f) }
+
+        filter.reset()
+
+        assertEquals(20_000, filter.update(20_000f))
+    }
+
+    @Test
     fun `window must be positive and odd`() {
         assertThrows(IllegalArgumentException::class.java) { AmbientLightFilter(0) }
         assertThrows(IllegalArgumentException::class.java) { AmbientLightFilter(4) }

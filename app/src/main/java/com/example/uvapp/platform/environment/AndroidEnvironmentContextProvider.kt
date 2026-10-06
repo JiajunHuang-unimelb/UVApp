@@ -36,6 +36,11 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
         mutable.update { it.copy(lux = lux.coerceIn(0, MAX_LUX)) }
     }
 
+    /** Missing light evidence must not reduce the calculated UV dose. */
+    fun markLuxUnavailable() {
+        mutable.update { it.copy(lux = UNAVAILABLE_LUX) }
+    }
+
     fun updateIndoorProximity(isNear: Boolean) {
         mutable.update { it.copy(nearIndoorLocation = isNear) }
     }

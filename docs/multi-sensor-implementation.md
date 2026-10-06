@@ -5,7 +5,7 @@
 | Capability | Android API | Runtime behavior |
 | --- | --- | --- |
 | Ambient light | `Sensor.TYPE_LIGHT` | Reads lux through a five-sample rolling median while an exposure session is monitored. Invalid readings are ignored. |
-| Physical proximity | `Sensor.TYPE_PROXIMITY` | Marks the phone as covered. Covered low-light readings are excluded from shade-dose decisions, but do not classify an indoor location. |
+| Physical proximity | `Sensor.TYPE_PROXIMITY` | Marks the phone as covered immediately and delays the clear transition by one second to reject near/far flapping. Covered low-light readings are excluded from shade-dose decisions, but do not classify an indoor location. |
 | Accelerometer | `Sensor.TYPE_ACCELEROMETER` | Classifies posture and movement; stationary state gates indoor-location suggestions but not auto-pause. |
 | Step counter | `Sensor.TYPE_STEP_COUNTER` | Rebases the reboot-scoped counter and classifies available readings as walking (at least three steps in the last 15 seconds) or stationary; missing readings remain unavailable. |
 | Location | `FusedLocationProviderClient` | Uses adaptive high-accuracy updates only when saved indoor locations exist and validates fix age with the monotonic elapsed clock. |
@@ -37,6 +37,7 @@ An indoor-location suggestion is separate from detection. It requires low light,
 - Entering `WALKING` after more than 100 session steps starts a 30-second burst of five-second updates.
 - The walking transition requests one fresh precise fix unless the existing fix is at most 15 seconds old.
 - Triggered fresh fixes are throttled to one per 15 seconds.
+- Failed continuous or one-shot location requests clear old indoor evidence. Ordinary failures retry after a 30-second backoff; permission failures stop protected requests until monitoring restarts with permission.
 - A GPS fix outside the saved radius publishes outside immediately, which starts the existing 10-second outdoor debounce in `MainViewModel`; steps never clear the indoor state directly.
 - Active-session fixes remain usable for 75 seconds so the 60-second cadence does not falsely clear a saved-radius match. Explicit place-saving fixes retain their stricter 30-second limit.
 

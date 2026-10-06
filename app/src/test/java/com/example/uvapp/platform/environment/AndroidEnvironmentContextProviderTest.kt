@@ -74,6 +74,15 @@ class AndroidEnvironmentContextProviderTest {
     }
 
     @Test
+    fun `light registration failure replaces stale lux with conservative fallback`() {
+        AndroidEnvironmentContextProvider.updateLux(500)
+
+        AndroidEnvironmentContextProvider.markLuxUnavailable()
+
+        assertEquals(100_000, AndroidEnvironmentContextProvider.samples.value.lux)
+    }
+
+    @Test
     fun `unavailable state clears stale sensor evidence conservatively`() {
         AndroidEnvironmentContextProvider.updateLux(500)
         AndroidEnvironmentContextProvider.updateIndoorProximity(true)
