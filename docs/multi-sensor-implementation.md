@@ -37,6 +37,7 @@ An indoor-location suggestion is separate from detection. It requires low light,
 - Entering `WALKING` after more than 100 session steps starts a 30-second burst of five-second updates.
 - The walking transition requests one fresh precise fix unless the existing fix is at most 15 seconds old.
 - Triggered fresh fixes are throttled to one per 15 seconds.
+- Failed continuous or one-shot location requests clear old indoor evidence. Ordinary failures retry after a 30-second backoff; permission failures stop protected requests until monitoring restarts with permission.
 - A GPS fix outside the saved radius publishes outside immediately, which starts the existing 10-second outdoor debounce in `MainViewModel`; steps never clear the indoor state directly.
 - Active-session fixes remain usable for 75 seconds so the 60-second cadence does not falsely clear a saved-radius match. Explicit place-saving fixes retain their stricter 30-second limit.
 
