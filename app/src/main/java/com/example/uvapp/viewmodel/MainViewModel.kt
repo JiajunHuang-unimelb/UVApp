@@ -428,7 +428,22 @@ class MainViewModel(
         syncExposure()
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
-
+    fun onResetSession(save: Boolean) {
+        monitoringController.stop()
+    
+        if (save) {
+            saveCurrentExposureToHistory()
+        }
+    
+        _state.update {
+            it.copy(
+                exposureStatus = ExposureStatus.NOT_STARTED,
+                remainingSeconds = it.totalBurnSeconds,
+                accumulatedDose = 0.0,
+                isWarning = false
+            )
+        }
+    }
     fun onResetTimer() {
         restartExposureSession()
         pauseNewSessionIfAlreadyIndoor()
