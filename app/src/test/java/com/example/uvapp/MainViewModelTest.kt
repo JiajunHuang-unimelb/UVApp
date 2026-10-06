@@ -27,6 +27,7 @@ import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
 import com.example.uvapp.viewmodel.MainViewModel
+import com.example.uvapp.viewmodel.SUN_LOG_WEEK_COUNT
 import com.example.uvapp.viewmodel.SettingsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.After
@@ -1034,19 +1036,33 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `sun log paging moves by a week and stops at the current week`() {
+    fun `sun log loads this week and the three before it and opens on this week`() {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
-        val today = history.weekRequests.single()
+        val today = Instant.ofEpochMilli(NOW_MILLIS).atZone(ZoneId.systemDefault()).toLocalDate()
+        val thisMonday = today.minusDays((today.dayOfWeek.value - 1).toLong())
 
-        vm.onSunLogNextWeek()
-        vm.onSunLogPreviousWeek()
-        vm.onSunLogNextWeek()
+        // One daily query covers all four weeks, so every pager page is ready up front.
+        assertEquals(listOf(thisMonday.minusWeeks(3) to thisMonday.plusWeeks(1)), history.dailyRequests)
+        val weeks = vm.state.value.sunLogWeeks
+        assertEquals(
+            listOf(thisMonday.minusWeeks(3), thisMonday.minusWeeks(2), thisMonday.minusWeeks(1), thisMonday),
+            weeks.map { it.weekStart },
+        )
+        assertTrue(weeks.all { it.days.size == 7 })
+        assertEquals(SUN_LOG_WEEK_COUNT - 1, vm.state.value.sunLogPage)
+    }
+
+    @Test
+    fun `sun log remembers the settled week across tab switches`() {
+        val vm = buildHistoryViewModel(FakeExposureHistoryRepository())
         settle()
 
-        assertEquals(listOf(today, today.minusDays(7), today), history.weekRequests)
-        assertEquals(today, vm.state.value.sunLogWeek?.weekStart)
+        vm.onSunLogPageSettled(1)
+        vm.onTabSelected(com.example.uvapp.viewmodel.Tab.HOME)
+        vm.onTabSelected(com.example.uvapp.viewmodel.Tab.SUN_LOG)
+        assertEquals(1, vm.state.value.sunLogPage)
     }
 
     @Test
@@ -1084,7 +1100,7 @@ class MainViewModelTest {
 
     private class FakeExposureHistoryRepository : ExposureHistoryRepository {
         val saved = mutableListOf<ExposureRecord>()
-        val weekRequests = mutableListOf<LocalDate>()
+        val dailyRequests = mutableListOf<Pair<LocalDate, LocalDate>>()
         var saveAttempts = 0
             private set
         var failSaves = false
@@ -1104,16 +1120,23 @@ class MainViewModelTest {
             offset: Int,
         ): Flow<List<ExposureRecord>> = flowOf(saved.toList())
 
+        // Like the Room repository, every day in the range is present (zero when no exposure).
         override fun observeDaily(
             start: LocalDate,
             endExclusive: LocalDate,
-        ): Flow<List<ExposureDailySummary>> = flowOf(emptyList())
-
-        // weekStart echoes the requested date so tests can see which week is shown.
-        override fun observeWeek(containingDate: LocalDate): Flow<ExposureWeeklySummary> {
-            weekRequests += containingDate
-            return flowOf(ExposureWeeklySummary(containingDate, emptyList()))
+        ): Flow<List<ExposureDailySummary>> {
+            dailyRequests += start to endExclusive
+            val days = mutableListOf<ExposureDailySummary>()
+            var date = start
+            while (date.isBefore(endExclusive)) {
+                days += ExposureDailySummary(date)
+                date = date.plusDays(1)
+            }
+            return flowOf(days)
         }
+
+        override fun observeWeek(containingDate: LocalDate): Flow<ExposureWeeklySummary> =
+            flowOf(ExposureWeeklySummary(containingDate, emptyList()))
 
         override suspend fun deleteSession(sessionId: String): Result<Unit> = Result.success(Unit)
 

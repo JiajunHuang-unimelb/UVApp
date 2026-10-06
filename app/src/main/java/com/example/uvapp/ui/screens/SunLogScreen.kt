@@ -1,10 +1,10 @@
 package com.example.uvapp.ui.screens
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +26,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,8 +37,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,28 +50,29 @@ import com.example.uvapp.ui.components.formatSunTime
 import com.example.uvapp.ui.icons.UvIcons
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.MainUiState
+import com.example.uvapp.viewmodel.SUN_LOG_WEEK_COUNT
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToLong
+import kotlinx.coroutines.launch
 
 private val dayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
 private val weekLabelFormat = DateTimeFormatter.ofPattern("d MMM", Locale.US)
 
 /**
- * Sun log tab: same top layout as Home/Forecast (hero row without the address bar),
- * then one Mon-Sun week of exposure as % of the personal daily limit.
+ * Sun log tab: same top layout as Home/Forecast (hero row without the address bar), then a
+ * pager over the last [SUN_LOG_WEEK_COUNT] Mon-Sun weeks. Each page (week label + chart card)
+ * follows the finger; the arrows and the %/Time pill stay fixed.
  */
 @Composable
 fun SunLogScreen(
     state: MainUiState,
-    onPreviousWeek: () -> Unit,
-    onNextWeek: () -> Unit,
+    onPageSettled: (Int) -> Unit,
     onShowTime: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = UvTheme
-    val week = state.sunLogWeek
+    val weeks = state.sunLogWeeks
     Column(
         modifier
             .fillMaxWidth()
@@ -77,62 +81,71 @@ fun SunLogScreen(
     ) {
         // Same geometry as HeroRow: 132 dp tall, 224 dp left card, skin card fills the rest.
         Row(Modifier.fillMaxWidth().height(132.dp), verticalAlignment = Alignment.Top) {
-            SunTimeCard(week?.activeDurationMillis, Modifier.width(224.dp).fillMaxHeight())
+            SunTimeCard(weeks.getOrNull(state.sunLogPage)?.activeDurationMillis, Modifier.width(224.dp).fillMaxHeight())
             Spacer(Modifier.width(8.dp))
             SkinSpfCard(state.skinType, state.spf, Modifier.weight(1f).fillMaxHeight())
         }
-        if (week == null) return@Column
+        if (weeks.isEmpty()) return@Column
 
         val today = LocalDate.now()
-        val isCurrentWeek = week.weekStart.plusDays(7).isAfter(today)
-        val weekLabel =
-            if (isCurrentWeek) {
-                "This week"
-            } else {
-                week.weekStart.format(weekLabelFormat) + " - " + week.weekStart.plusDays(6).format(weekLabelFormat)
-            }
+        val limitSed = ExposureCalculator.calculatePersonalDoseLimit(state.skinType)
+        val pagerState = rememberPagerState(initialPage = state.sunLogPage, pageCount = { weeks.size })
+        val scope = rememberCoroutineScope()
 
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            WeekArrow(rotation = 90f, description = "Previous week", enabled = true, onClick = onPreviousWeek)
-            Text(
-                weekLabel,
-                color = colors.onBackground,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f),
-            )
-            WeekArrow(rotation = -90f, description = "Next week", enabled = !isCurrentWeek, onClick = onNextWeek)
+        // Settled page -> ViewModel, so the week survives tab switches.
+        LaunchedEffect(pagerState) {
+            snapshotFlow { pagerState.settledPage }.collect { page -> onPageSettled(page) }
+        }
+        // ViewModel -> pager, for a widget tap that resets to this week while the page is open.
+        LaunchedEffect(state.sunLogPage) {
+            if (pagerState.settledPage != state.sunLogPage && !pagerState.isScrollInProgress) {
+                pagerState.animateScrollToPage(state.sunLogPage)
+            }
         }
 
-        // Swipe right on the chart = earlier week, swipe left = later week (the ViewModel ignores
-        // "next" on the current week). The arrows above stay as the tap alternative.
-        val swipeThresholdPx = 80f * LocalDensity.current.density
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth()) {
+            HorizontalPager(state = pagerState, verticalAlignment = Alignment.Top) { page ->
+                val week = weeks[page]
+                Column(Modifier.fillMaxWidth()) {
+                    Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            weekLabel(week.weekStart, today),
+                            color = UvTheme.onBackground,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    WeekChartCard(days = week.days, limitSed = limitSed, today = today, showTime = state.sunLogShowsTime)
+                }
+            }
+            // Drawn over the pager's label row so they stay put while the weeks slide.
+            WeekArrow(
+                rotation = 90f,
+                description = "Previous week",
+                enabled = pagerState.currentPage > 0,
+                onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } },
+                modifier = Modifier.align(Alignment.TopStart),
+            )
+            WeekArrow(
+                rotation = -90f,
+                description = "Next week",
+                enabled = pagerState.currentPage < weeks.size - 1,
+                onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } },
+                modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
+
         Spacer(Modifier.height(12.dp))
-        WeekChartCard(
-            days = week.days,
-            limitSed = ExposureCalculator.calculatePersonalDoseLimit(state.skinType),
-            today = today,
-            showTime = state.sunLogShowsTime,
-            onShowTime = onShowTime,
-            modifier =
-                Modifier.pointerInput(Unit) {
-                    var dragTotal = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dragTotal = 0f },
-                        onDragEnd = {
-                            if (dragTotal > swipeThresholdPx) {
-                                onPreviousWeek()
-                            } else if (dragTotal < -swipeThresholdPx) {
-                                onNextWeek()
-                            }
-                        },
-                        onHorizontalDrag = { _, dragAmount -> dragTotal += dragAmount },
-                    )
-                },
-        )
+        ViewToggle(showTime = state.sunLogShowsTime, onShowTime = onShowTime)
     }
+}
+
+private fun weekLabel(weekStart: LocalDate, today: LocalDate): String {
+    if (weekStart.plusDays(7).isAfter(today)) return "This week"
+    return weekStart.format(weekLabelFormat) + " - " + weekStart.plusDays(6).format(weekLabelFormat)
 }
 
 /** Takes the UV hero card's place: the week's total time in the sun, in accent tint. */
@@ -146,13 +159,19 @@ private fun SunTimeCard(activeDurationMillis: Long?, modifier: Modifier) {
         ) {
             Text("WEEKLY TOTAL", color = colors.accent.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            Text(
-                if (activeDurationMillis == null) "--" else formatSunTime(activeDurationMillis),
-                color = colors.accent,
-                fontSize = 40.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-            )
+            // Crossfades when the settled week changes, so the new total is noticed.
+            Crossfade(
+                targetState = if (activeDurationMillis == null) "--" else formatSunTime(activeDurationMillis),
+                label = "weeklyTotal",
+            ) { total ->
+                Text(
+                    total,
+                    color = colors.accent,
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                )
+            }
             Spacer(Modifier.weight(1f))
             Text("in the sun", color = colors.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
@@ -160,10 +179,16 @@ private fun SunTimeCard(activeDurationMillis: Long?, modifier: Modifier) {
 }
 
 @Composable
-private fun WeekArrow(rotation: Float, description: String, enabled: Boolean, onClick: () -> Unit) {
+private fun WeekArrow(
+    rotation: Float,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = UvTheme
     Box(
-        Modifier
+        modifier
             .size(40.dp)
             .clip(CircleShape)
             .background(colors.surface)
@@ -183,7 +208,7 @@ private fun WeekArrow(rotation: Float, description: String, enabled: Boolean, on
 /**
  * Seven bars, Monday to Sunday; height = share of the daily limit, capped at 100%.
  * The number row above shows either that share (uncapped) or the time in the sun,
- * chosen with the segmented pill at the top of the card.
+ * chosen with the segmented pill below the pager.
  */
 @Composable
 private fun WeekChartCard(
@@ -191,20 +216,15 @@ private fun WeekChartCard(
     limitSed: Double,
     today: LocalDate,
     showTime: Boolean,
-    onShowTime: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
     SunCard(
-        modifier.fillMaxWidth(),
+        Modifier.fillMaxWidth(),
         containerColor = colors.surface,
         borderColor = colors.outline,
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            ViewToggle(showTime = showTime, onShowTime = onShowTime)
-
-            Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth()) {
                 for (day in days) {
                     var label = ""
@@ -270,15 +290,6 @@ private fun WeekChartCard(
                     )
                 }
             }
-            // The pill only changes the numbers, so the bars' meaning is stated in both views.
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Bar height = share of your daily limit",
-                color = colors.textSecondary,
-                fontSize = 11.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
