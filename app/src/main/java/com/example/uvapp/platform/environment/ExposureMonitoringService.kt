@@ -30,6 +30,7 @@ import com.example.uvapp.domain.environment.MotionClassifier
 import com.example.uvapp.domain.environment.ProximityClassifier
 import com.example.uvapp.domain.environment.SensorRegistrationPolicy
 import com.example.uvapp.domain.environment.SensorRegistrationStatus
+import com.example.uvapp.domain.environment.SensorFreshnessTracker
 import com.example.uvapp.domain.environment.StepActivityReading
 import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.IndoorLocation
@@ -62,6 +63,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private val stepCounterSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }
     private val ambientLightFilter = AmbientLightFilter()
     private val motionClassifier = MotionClassifier()
+    private val motionFreshnessTracker = SensorFreshnessTracker(MOTION_STALE_AFTER_MILLIS)
     private val stepCounterTracker = StepCounterTracker()
     private val locationMonitoringPolicy = LocationMonitoringPolicy()
     private val wakeLock by lazy {
@@ -116,6 +118,11 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                     val nowElapsedMillis = SystemClock.elapsedRealtime()
                     latestStepReading = stepCounterTracker.snapshot(nowElapsedMillis)
                     AndroidEnvironmentContextProvider.updateSteps(latestStepReading)
+                    if (motionFreshnessTracker.consumeExpiration(nowElapsedMillis)) {
+                        // Accelerometer is continuous; silence means its listener is no longer trustworthy.
+                        AndroidEnvironmentContextProvider.updateMotion(null)
+                        restartAccelerometerMonitoring()
+                    }
                     publishIndoorProximity(nowElapsedMillis)
                 }
             }
@@ -165,6 +172,9 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                         null
                     }
                 AndroidEnvironmentContextProvider.updateMotion(reading)
+                if (reading != null) {
+                    motionFreshnessTracker.onSample(event.timestamp / NANOS_PER_MILLISECOND)
+                }
             }
 
             Sensor.TYPE_STEP_COUNTER -> {
@@ -194,7 +204,10 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             }
 
             Sensor.TYPE_PROXIMITY -> AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
-            Sensor.TYPE_ACCELEROMETER -> AndroidEnvironmentContextProvider.updateMotion(null)
+            Sensor.TYPE_ACCELEROMETER -> {
+                motionFreshnessTracker.markUnavailable()
+                AndroidEnvironmentContextProvider.updateMotion(null)
+            }
             Sensor.TYPE_STEP_COUNTER -> {
                 latestStepReading = null
                 AndroidEnvironmentContextProvider.updateSteps(null)
@@ -210,9 +223,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         registerSensor(proximitySensor) {
             AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
         }
-        registerSensor(accelerometerSensor) {
-            AndroidEnvironmentContextProvider.updateMotion(null)
-        }
+        registerAccelerometer()
         if (hasActivityRecognitionPermission()) {
             registerSensor(stepCounterSensor) {
                 latestStepReading = null
@@ -226,6 +237,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
 
     private fun registerSensor(
         sensor: Sensor?,
+        onRegistered: () -> Unit = {},
         onUnavailable: () -> Unit,
     ): Boolean {
         val registered =
@@ -237,8 +249,25 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                 ) == true
             } == true
         val status = SensorRegistrationPolicy.status(sensor != null, registered)
-        if (status != SensorRegistrationStatus.REGISTERED) onUnavailable()
+        if (status == SensorRegistrationStatus.REGISTERED) onRegistered() else onUnavailable()
         return status == SensorRegistrationStatus.REGISTERED
+    }
+
+    private fun registerAccelerometer(): Boolean =
+        registerSensor(
+            sensor = accelerometerSensor,
+            onUnavailable = {
+                motionFreshnessTracker.markUnavailable()
+                AndroidEnvironmentContextProvider.updateMotion(null)
+            },
+            onRegistered = {
+                motionFreshnessTracker.monitoringStarted(SystemClock.elapsedRealtime())
+            },
+        )
+
+    private fun restartAccelerometerMonitoring() {
+        accelerometerSensor?.let { sensor -> sensorManager?.unregisterListener(this, sensor) }
+        registerAccelerometer()
     }
 
     private fun hasActivityRecognitionPermission(): Boolean =
@@ -409,6 +438,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         const val CHANNEL_ID = "exposure_monitoring"
         const val NOTIFICATION_ID = 2003
         const val FRESHNESS_CHECK_MILLIS = 5_000L
+        const val MOTION_STALE_AFTER_MILLIS = 30_000L
         const val MAX_LOCATION_AGE_MILLIS = 75_000L
         const val MAX_LOCATION_ACCURACY_METERS = 50f
         const val NANOS_PER_MILLISECOND = 1_000_000L
