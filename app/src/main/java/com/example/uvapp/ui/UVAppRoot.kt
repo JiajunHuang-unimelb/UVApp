@@ -152,11 +152,12 @@ fun UVAppRoot(
     // Enhanced Sensing rationale dialog state
     var showEnhanceSensingRationale by remember { mutableStateOf(false) }
     // -------- Serial permission chain: Mic -> Camera -> Activity Recognition --------
-    // Step 1: Microphone
-    val requestMicrophone = rememberMicrophonePermissionRequester(
+    
+    // Step 3: Activity Recognition (Android 10+)
+    val requestActivityRecognition = rememberActivityRecognitionPermissionRequester(
         onPermissionGranted = {
-            // Mic OK, move on to camera
-            requestCamera()
+            // All permissions granted, finally enable enhanced sensing
+            settingsViewModel.setEnhancedSensingEnabled(true)
         },
         onPermissionDenied = {
             settingsViewModel.setEnhancedSensingEnabled(false)
@@ -177,11 +178,11 @@ fun UVAppRoot(
             settingsViewModel.setEnhancedSensingEnabled(false)
         }
     )
-    // Step 3: Activity Recognition (Android 10+)
-    val requestActivityRecognition = rememberActivityRecognitionPermissionRequester(
+    // Step 1: Microphone
+    val requestMicrophone = rememberMicrophonePermissionRequester(
         onPermissionGranted = {
-            // All permissions granted, finally enable enhanced sensing
-            settingsViewModel.setEnhancedSensingEnabled(true)
+            // Mic OK, move on to camera
+            requestCamera()
         },
         onPermissionDenied = {
             settingsViewModel.setEnhancedSensingEnabled(false)
