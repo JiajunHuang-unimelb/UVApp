@@ -5,7 +5,7 @@
 | Capability | Android API | Runtime behavior |
 | --- | --- | --- |
 | Ambient light | `Sensor.TYPE_LIGHT` | Reads lux through a five-sample rolling median while an exposure session is monitored. Invalid readings are ignored. |
-| Physical proximity | `Sensor.TYPE_PROXIMITY` | Marks the phone as covered. Covered low-light readings are excluded from shade-dose decisions, but do not classify an indoor location. |
+| Physical proximity | `Sensor.TYPE_PROXIMITY` | Marks the phone as covered immediately and delays the clear transition by one second to reject near/far flapping. Covered low-light readings are excluded from shade-dose decisions, but do not classify an indoor location. |
 | Accelerometer | `Sensor.TYPE_ACCELEROMETER` | Classifies posture and movement; stationary state gates indoor-location suggestions but not auto-pause. |
 | Step counter | `Sensor.TYPE_STEP_COUNTER` | Rebases the reboot-scoped counter and classifies available readings as walking (at least three steps in the last 15 seconds) or stationary; missing readings remain unavailable. |
 | Location | `FusedLocationProviderClient` | Uses adaptive high-accuracy updates only when saved indoor locations exist and validates fix age with the monotonic elapsed clock. |

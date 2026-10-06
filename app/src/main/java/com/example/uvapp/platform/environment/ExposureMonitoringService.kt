@@ -29,6 +29,7 @@ import com.example.uvapp.domain.environment.LocationMonitoringPolicy
 import com.example.uvapp.domain.environment.LocationRequestFailurePolicy
 import com.example.uvapp.domain.environment.MotionClassifier
 import com.example.uvapp.domain.environment.ProximityClassifier
+import com.example.uvapp.domain.environment.ProximityDebouncer
 import com.example.uvapp.domain.environment.SensorRegistrationPolicy
 import com.example.uvapp.domain.environment.SensorRegistrationStatus
 import com.example.uvapp.domain.environment.SensorFreshnessTracker
@@ -63,6 +64,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private val accelerometerSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
     private val stepCounterSensor by lazy { sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) }
     private val ambientLightFilter = AmbientLightFilter()
+    private val proximityDebouncer = ProximityDebouncer(PROXIMITY_CLEAR_DELAY_MILLIS)
     private val motionClassifier = MotionClassifier()
     private val motionFreshnessTracker = SensorFreshnessTracker(MOTION_STALE_AFTER_MILLIS)
     private val stepCounterTracker = StepCounterTracker()
@@ -88,6 +90,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private var freshLocationCancellation: CancellationTokenSource? = null
     private var repositoryJob: Job? = null
     private var freshnessJob: Job? = null
+    private var proximityClearJob: Job? = null
 
     private val locationCallback =
         object : LocationCallback() {
@@ -149,6 +152,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         freshLocationCancellation?.cancel()
         repositoryJob?.cancel()
         freshnessJob?.cancel()
+        proximityClearJob?.cancel()
         serviceScope.cancel()
         if (wakeLock.isHeld) wakeLock.release()
         AndroidEnvironmentContextProvider.markUnavailable()
@@ -167,7 +171,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             Sensor.TYPE_PROXIMITY -> {
                 val distance = event.values.firstOrNull()
                 val isOccluded = ProximityClassifier.isOccluded(distance, event.sensor.maximumRange)
-                AndroidEnvironmentContextProvider.updateDeviceOcclusion(isOccluded)
+                updateProximity(isOccluded, event.timestamp / NANOS_PER_MILLISECOND)
             }
 
             Sensor.TYPE_ACCELEROMETER -> {
@@ -210,7 +214,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                 AndroidEnvironmentContextProvider.markLuxUnavailable()
             }
 
-            Sensor.TYPE_PROXIMITY -> AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
+            Sensor.TYPE_PROXIMITY -> markProximityUnavailable()
             Sensor.TYPE_ACCELEROMETER -> {
                 motionFreshnessTracker.markUnavailable()
                 AndroidEnvironmentContextProvider.updateMotion(null)
@@ -228,7 +232,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             AndroidEnvironmentContextProvider.markLuxUnavailable()
         }
         registerSensor(proximitySensor) {
-            AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
+            markProximityUnavailable()
         }
         registerAccelerometer()
         if (hasActivityRecognitionPermission()) {
@@ -275,6 +279,41 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private fun restartAccelerometerMonitoring() {
         accelerometerSensor?.let { sensor -> sensorManager?.unregisterListener(this, sensor) }
         registerAccelerometer()
+    }
+
+    private fun updateProximity(
+        isOccluded: Boolean?,
+        sampleElapsedMillis: Long,
+    ) {
+        if (isOccluded == null) {
+            markProximityUnavailable()
+            return
+        }
+
+        if (isOccluded) {
+            proximityClearJob?.cancel()
+            proximityClearJob = null
+        }
+
+        val debounced = proximityDebouncer.update(isOccluded, sampleElapsedMillis)
+        AndroidEnvironmentContextProvider.updateDeviceOcclusion(debounced)
+        if (!isOccluded && debounced == true && proximityClearJob?.isActive != true) {
+            proximityClearJob =
+                serviceScope.launch {
+                    delay(PROXIMITY_CLEAR_DELAY_MILLIS)
+                    AndroidEnvironmentContextProvider.updateDeviceOcclusion(
+                        proximityDebouncer.currentValue(SystemClock.elapsedRealtime()),
+                    )
+                    proximityClearJob = null
+                }
+        }
+    }
+
+    private fun markProximityUnavailable() {
+        proximityClearJob?.cancel()
+        proximityClearJob = null
+        proximityDebouncer.reset()
+        AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
     }
 
     private fun hasActivityRecognitionPermission(): Boolean =
@@ -512,6 +551,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         const val NOTIFICATION_ID = 2003
         const val FRESHNESS_CHECK_MILLIS = 5_000L
         const val MOTION_STALE_AFTER_MILLIS = 30_000L
+        const val PROXIMITY_CLEAR_DELAY_MILLIS = 1_000L
         const val MAX_LOCATION_AGE_MILLIS = 75_000L
         const val MAX_LOCATION_ACCURACY_METERS = 50f
         const val NANOS_PER_MILLISECOND = 1_000_000L
