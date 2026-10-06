@@ -123,7 +123,7 @@ fun TimeRow(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "Current",
+                "Now",
                 color = colors.accent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,

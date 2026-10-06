@@ -79,6 +79,7 @@ fun SettingsScreen(
                 Text(
                     stringResource(R.string.skin_type_heading),
                     fontSize = 16.sp,
+                    lineHeight = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
@@ -87,6 +88,7 @@ fun SettingsScreen(
                 Text(
                     stringResource(R.string.skin_type_help_button),
                     color = colors.accent,
+                    lineHeight = 20.sp,
                     modifier = Modifier.clickable { showSkinTypeHelp = true }.padding(vertical = 14.dp),
                 )
             }
@@ -100,8 +102,8 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("SPF", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, modifier = Modifier.weight(1f))
-                Text(state.spf.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.accent)
+                Text("SPF", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, modifier = Modifier.weight(1f))
+                Text(state.spf.toString(), fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.accent)
             }
             Spacer(Modifier.height(8.dp))
             SpfSlider(state.spf, viewModel::setSpf)
@@ -110,6 +112,7 @@ fun SettingsScreen(
                 text = stringResource(R.string.spf_countdown_hint),
                 color = colors.textSecondary,
                 fontSize = 12.sp,
+                lineHeight = 17.sp,
             )
         }
 
@@ -142,14 +145,15 @@ fun SettingsScreen(
                 text = stringResource(R.string.enhanced_sensing_privacy_note),
                 color = colors.textSecondary,
                 fontSize = 12.sp,
+                lineHeight = 17.sp,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
             indoorContent()
         }
 
         Spacer(Modifier.height(12.dp))
         SettingsSection("Appearance") {
-            Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+            Text("Theme", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
             ThemeMode.entries.forEach { mode ->
                 SettingsRadioRow(
                     label = mode.label,
@@ -159,7 +163,7 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("Theme colour", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+            Text("Theme colour", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 AccentColor.entries.forEach { preset ->
@@ -206,6 +210,7 @@ fun SettingsScreen(
         Text(
             stringResource(R.string.data_sources),
             color = colors.accent,
+            lineHeight = 20.sp,
             modifier = Modifier.clickable { showDataSources = true }.padding(vertical = 14.dp),
         )
     }

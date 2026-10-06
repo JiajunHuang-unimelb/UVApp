@@ -151,7 +151,7 @@ class ForecastViewModel(
         _state.update { it.copy(selectedTimeMinutes = clampToWindow(minutes, it.selectedDay)) }
     }
 
-    /** "Current": back to today's chip at the current time, then keep following the clock. */
+    /** "Now": back to today's chip at the current time, then keep following the clock. */
     fun selectCurrentTime() {
         followsClock = true
         followsToday = true

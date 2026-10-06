@@ -64,7 +64,7 @@ fun SettingsRadioRow(label: String, selected: Boolean, onClick: () -> Unit, modi
     Row(
         modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .heightIn(min = 48.dp)
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -84,6 +84,7 @@ fun SettingsRadioRow(label: String, selected: Boolean, onClick: () -> Unit, modi
             label,
             color = colors.onBackground,
             fontSize = 15.sp,
+            lineHeight = 20.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )
     }
@@ -148,10 +149,10 @@ fun SettingsSwitchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = colors.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = colors.onBackground, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
             if (subtitle != null) {
-                Spacer(Modifier.height(1.dp))
-                Text(subtitle, color = colors.textSecondary, fontSize = 12.sp)
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, color = colors.textSecondary, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
         Spacer(Modifier.width(12.dp))

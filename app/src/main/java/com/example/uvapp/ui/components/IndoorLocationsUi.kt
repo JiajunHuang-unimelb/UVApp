@@ -42,13 +42,14 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
     Column(panelModifier) {
         if (settings) {
-            Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(2.dp))
             Text(
                 if (state.data.locations.isEmpty()) "Automatic indoor detection needs a saved location. Manual tracking is available."
                 else "Used to pause tracking when you're inside.",
                 color = colors.textSecondary,
                 fontSize = 12.sp,
+                lineHeight = 17.sp,
             )
         } else {
             Text("Indoor locations", style = MaterialTheme.typography.titleMedium)
@@ -64,6 +65,7 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
             Text(
                 "Not now",
                 color = if (settings) colors.accent else Color.Unspecified,
+                lineHeight = 20.sp,
                 modifier = Modifier.clickable { vm.dismissInvitation() }.padding(vertical = 14.dp),
             )
         }
