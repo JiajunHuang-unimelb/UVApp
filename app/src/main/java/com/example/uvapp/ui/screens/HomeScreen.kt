@@ -1,4 +1,4 @@
-﻿package com.example.uvapp.ui.screens
+package com.example.uvapp.ui.screens
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,8 +9,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -22,9 +28,9 @@ import com.example.uvapp.ui.components.ContextCard
 import com.example.uvapp.ui.components.DevCard
 import com.example.uvapp.ui.components.ErrorBanner
 import com.example.uvapp.ui.components.IndoorStatusBanner
-import com.example.uvapp.ui.components.indoorStatusMessage
 import com.example.uvapp.ui.components.SafeTimerCard
 import com.example.uvapp.ui.components.TopChrome
+import com.example.uvapp.ui.components.indoorStatusMessage
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.MainUiState
 import com.example.uvapp.viewmodel.MainViewModel
@@ -38,13 +44,30 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     indoorContent: @Composable () -> Unit = {},
 ) {
-    val onTimerAction: () -> Unit =
-        when (state.exposureStatus) {
-            ExposureStatus.NOT_STARTED -> viewModel::onStartExposure
-            ExposureStatus.RUNNING -> viewModel::onPauseExposure
-            ExposureStatus.PAUSED -> viewModel::onResumeExposure
-            ExposureStatus.COMPLETE -> viewModel::onResetTimer
+    var showResetConfirm by rememberSaveable { mutableStateOf(false) }
+
+    val onPrimaryAction: () -> Unit
+    val onResetClick: (() -> Unit)?
+
+    when (state.exposureStatus) {
+        ExposureStatus.NOT_STARTED -> {
+            onPrimaryAction = viewModel::onStartExposure
+            onResetClick = null
         }
+        ExposureStatus.RUNNING -> {
+            onPrimaryAction = viewModel::onPauseExposure
+            onResetClick = null
+        }
+        ExposureStatus.PAUSED -> {
+            onPrimaryAction = viewModel::onResumeExposure
+            // PAUSED点击Reset，打开弹窗，不直接重置
+            onResetClick = { showResetConfirm = true }
+        }
+        ExposureStatus.COMPLETE -> {
+            onPrimaryAction = viewModel::onResetTimer
+            onResetClick = null
+        }
+    }
 
     Box(modifier.fillMaxSize()) {
         Column(
@@ -73,7 +96,8 @@ fun HomeScreen(
                 totalBurnSeconds = state.totalBurnSeconds,
                 isWarning = state.isWarning,
                 exposureStatus = state.exposureStatus,
-                onPrimaryAction = onTimerAction,
+                onPrimaryAction = onPrimaryAction,
+                onReset = onResetClick,
             )
             Spacer(Modifier.height(8.dp))
             Text(
@@ -133,6 +157,27 @@ fun HomeScreen(
                     onTestBandWarning = viewModel::onTestBandWarning,
                 )
             }
+        }
+
+        if (showResetConfirm) {
+            AlertDialog(
+                onDismissRequest = { showResetConfirm = false },
+                title = { Text(stringResource(R.string.reset_timer_title)) },
+                text = { Text(stringResource(R.string.reset_timer_message)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showResetConfirm = false
+                        viewModel.onResetTimer()
+                    }) {
+                        Text(stringResource(R.string.reset))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showResetConfirm = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
         }
     }
 }
