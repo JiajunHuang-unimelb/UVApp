@@ -948,9 +948,9 @@ class MainViewModel(
     /** Saves the session being replaced; called before start() resets the dose. */
     private fun closeHistorySession() {
         if (historySessionId == null) return
-        val now = nowMillis()
-        addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
-        saveHistory(ExposureRecordStatus.COMPLETED, now)
+        //val now = nowMillis()
+        //addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
+        //saveHistory(ExposureRecordStatus.COMPLETED, now)
         historySessionId = null
     }
 
