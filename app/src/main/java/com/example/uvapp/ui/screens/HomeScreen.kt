@@ -162,19 +162,19 @@ fun HomeScreen(
         if (showResetConfirm) {
             AlertDialog(
                 onDismissRequest = { showResetConfirm = false },
-                title = { Text(stringResource(R.string.reset_timer_title)) },
-                text = { Text(stringResource(R.string.reset_timer_message)) },
+                title = { Text("Reset timer?") },
+                text = { Text("This will discard your current exposure session and reset the timer. This action cannot be undone.") },
                 confirmButton = {
                     TextButton(onClick = {
                         showResetConfirm = false
                         viewModel.onResetTimer()
                     }) {
-                        Text(stringResource(R.string.reset))
+                        Text("Reset")
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showResetConfirm = false }) {
-                        Text(stringResource(R.string.cancel))
+                        Text("Cancel")
                     }
                 }
             )
