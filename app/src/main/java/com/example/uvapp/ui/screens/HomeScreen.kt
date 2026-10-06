@@ -1,4 +1,3 @@
-```kotlin
 package com.example.uvapp.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
