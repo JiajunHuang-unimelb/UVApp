@@ -418,6 +418,7 @@ fun SafeTimerCard(
     isWarning: Boolean,
     exposureStatus: ExposureStatus,
     onPrimaryAction: () -> Unit,
+    onReset: (() -> Unit)? = null, 
     modifier: Modifier = Modifier,
 ) {
     val colors = UvTheme
@@ -484,27 +485,103 @@ fun SafeTimerCard(
                 }
             }
             Spacer(Modifier.weight(1f))
-            Box(
-                Modifier
-                    .width(148.dp)
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
-                    .clickable(onClick = onPrimaryAction),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    when (exposureStatus) {
-                        ExposureStatus.NOT_STARTED -> "Start"
-                        ExposureStatus.RUNNING -> "Pause"
-                        ExposureStatus.PAUSED -> "Resume"
-                        ExposureStatus.COMPLETE -> "Reset"
-                    },
-                    color = if (isWarning) colors.error else colors.accent,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+            
+            when (exposureStatus) {
+                ExposureStatus.NOT_STARTED -> {
+                    Box(
+                        Modifier
+                            .width(148.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
+                            .clickable(onClick = onPrimaryAction),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Start",
+                            color = if (isWarning) colors.error else colors.accent,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                ExposureStatus.RUNNING -> {
+                    Box(
+                        Modifier
+                            .width(148.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
+                            .clickable(onClick = onPrimaryAction),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Pause",
+                            color = if (isWarning) colors.error else colors.accent,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                ExposureStatus.PAUSED -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
+                            Modifier
+                                .width(100.dp)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(colors.surfaceVariant)
+                                .clickable(onClick = onPrimaryAction),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "Resume",
+                                color = colors.accent,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        if (onReset != null) {
+                            Box(
+                                Modifier
+                                    .width(100.dp)
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .border(1.dp, colors.outline, RoundedCornerShape(22.dp))
+                                    .clickable(onClick = onReset),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "Reset",
+                                    color = colors.onBackground,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+                ExposureStatus.COMPLETE -> {
+                    Box(
+                        Modifier
+                            .width(148.dp)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
+                            .clickable(onClick = onPrimaryAction),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Reset",
+                            color = if (isWarning) colors.error else colors.accent,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
+            // =======================================
+
             Spacer(Modifier.height(10.dp))
         }
     }
