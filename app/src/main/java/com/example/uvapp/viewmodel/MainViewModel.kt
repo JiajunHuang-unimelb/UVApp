@@ -740,22 +740,29 @@ class MainViewModel(
     private fun restartExposureSession() {
         closeHistorySession()
         monitoringController?.start()
+    
+        val dbSessionId = java.util.UUID.randomUUID().toString()
+        val sessionStartMs = exposureClockMillis
+        val zoneId = java.time.ZoneId.systemDefault().id
+    
         _state.update {
             it.copy(
                 exposureSessionId = it.exposureSessionId + 1,
                 luxOverride = null,
+                activeSessionId = dbSessionId,
+                activeSessionStartedAt = sessionStartMs,
+                activeSessionZoneId = zoneId
             )
         }
         advanceExposureClock()
         val state = _state.value
-        publishExposure(
-            exposureSession.start(
-                skinType = state.skinType,
-                uvIndex = state.displayUv,
-                nowElapsedMs = exposureClockMillis,
-                context = state.displayContext.toExposureContext(),
-            ),
+        val snapshot = exposureSession.start(
+            skinType = state.skinType,
+            uvIndex = state.displayUv,
+            nowElapsedMs = exposureClockMillis,
+            context = state.displayContext.toExposureContext(),
         )
+        publishExposure(snapshot)
     }
 
     /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
