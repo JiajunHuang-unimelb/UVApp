@@ -52,9 +52,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     indoorContent: @Composable () -> Unit = {},
     developerContent: @Composable () -> Unit = {},
-    onEnhancedSensingToggle: () -> Unit = {
-        viewModel.setEnhancedSensingEnabled(!state.enhancedSensingEnabled)
-    },
+    onEnhancedSensingToggle: () -> Unit,
 ) {
     val colors = UvTheme
     var showDataSources by rememberSaveable { mutableStateOf(false) }
