@@ -969,6 +969,7 @@ class MainViewModel(
         //addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
         //saveHistory(ExposureRecordStatus.COMPLETED, now)
         historySessionId = null
+        exposureSession.reset()
     }
 
     /**
