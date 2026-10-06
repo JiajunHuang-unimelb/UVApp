@@ -23,6 +23,11 @@ class AmbientLightFilter(
         return samples.sorted()[samples.size / 2]
     }
 
+    /** Prevents readings from a failed sensor session affecting a later recovery. */
+    fun reset() {
+        samples.clear()
+    }
+
     private companion object {
         const val DEFAULT_WINDOW_SIZE = 5
     }

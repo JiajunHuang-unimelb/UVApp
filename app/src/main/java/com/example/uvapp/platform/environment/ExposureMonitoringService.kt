@@ -28,6 +28,8 @@ import com.example.uvapp.domain.environment.LocationFixValidator
 import com.example.uvapp.domain.environment.LocationMonitoringPolicy
 import com.example.uvapp.domain.environment.MotionClassifier
 import com.example.uvapp.domain.environment.ProximityClassifier
+import com.example.uvapp.domain.environment.SensorRegistrationPolicy
+import com.example.uvapp.domain.environment.SensorRegistrationStatus
 import com.example.uvapp.domain.environment.StepActivityReading
 import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.IndoorLocation
@@ -181,25 +183,62 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     override fun onAccuracyChanged(
         sensor: Sensor?,
         accuracy: Int,
-    ) = Unit
+    ) {
+        if (sensor == null || accuracy != SensorManager.SENSOR_STATUS_UNRELIABLE) return
+
+        // Do not retain a value after Android reports that its source is unreliable.
+        when (sensor.type) {
+            Sensor.TYPE_LIGHT -> {
+                ambientLightFilter.reset()
+                AndroidEnvironmentContextProvider.markLuxUnavailable()
+            }
+
+            Sensor.TYPE_PROXIMITY -> AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
+            Sensor.TYPE_ACCELEROMETER -> AndroidEnvironmentContextProvider.updateMotion(null)
+            Sensor.TYPE_STEP_COUNTER -> {
+                latestStepReading = null
+                AndroidEnvironmentContextProvider.updateSteps(null)
+            }
+        }
+    }
 
     private fun startSensorMonitoring() {
-        lightSensor?.let { sensor ->
-            sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        registerSensor(lightSensor) {
+            ambientLightFilter.reset()
+            AndroidEnvironmentContextProvider.markLuxUnavailable()
         }
-        proximitySensor?.let { sensor ->
-            sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-        } ?: AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
-        accelerometerSensor?.let { sensor ->
-            sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-        } ?: AndroidEnvironmentContextProvider.updateMotion(null)
+        registerSensor(proximitySensor) {
+            AndroidEnvironmentContextProvider.updateDeviceOcclusion(null)
+        }
+        registerSensor(accelerometerSensor) {
+            AndroidEnvironmentContextProvider.updateMotion(null)
+        }
         if (hasActivityRecognitionPermission()) {
-            stepCounterSensor?.let { sensor ->
-                sensorManager?.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-            } ?: AndroidEnvironmentContextProvider.updateSteps(null)
+            registerSensor(stepCounterSensor) {
+                latestStepReading = null
+                AndroidEnvironmentContextProvider.updateSteps(null)
+            }
         } else {
+            latestStepReading = null
             AndroidEnvironmentContextProvider.updateSteps(null)
         }
+    }
+
+    private fun registerSensor(
+        sensor: Sensor?,
+        onUnavailable: () -> Unit,
+    ): Boolean {
+        val registered =
+            sensor?.let { availableSensor ->
+                sensorManager?.registerListener(
+                    this,
+                    availableSensor,
+                    SensorManager.SENSOR_DELAY_NORMAL,
+                ) == true
+            } == true
+        val status = SensorRegistrationPolicy.status(sensor != null, registered)
+        if (status != SensorRegistrationStatus.REGISTERED) onUnavailable()
+        return status == SensorRegistrationStatus.REGISTERED
     }
 
     private fun hasActivityRecognitionPermission(): Boolean =
