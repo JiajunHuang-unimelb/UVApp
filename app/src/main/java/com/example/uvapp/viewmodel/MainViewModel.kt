@@ -166,6 +166,11 @@ data class MainUiState(
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
+    /**exposure record */
+    val exposureSnapshot: ExposureSnapshot,
+    val activeSessionId: String? = null,
+    val activeSessionStartedAt: Long? = null,
+    val activeSessionZoneId: String? = null,
 }
 
 /**
@@ -429,19 +434,53 @@ class MainViewModel(
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
     fun onResetSession(save: Boolean) {
-        monitoringController.stop()
+        viewModelScope.launch {
+            
+            val currentSnapshot = sessionManager.snapshot()
+            
+            val sessionId = _state.value.activeSessionId
+            val startedAt = _state.value.activeSessionStartedAt
+            val zoneId = _state.value.activeSessionZoneId
     
-        if (save) {
-            saveCurrentExposureToHistory()
-        }
+            if (save && sessionId != null && startedAt != null && zoneId != null) {
+                
+                if (currentSnapshot.accumulatedDoseSed > 0.001) {
+                    val recordedThroughMs = System.currentTimeMillis()
+                    val totalActiveMs = recordedThroughMs - startedAt
+                    val totalSed = currentSnapshot.accumulatedDoseSed
     
-        _state.update {
-            it.copy(
-                exposureStatus = ExposureStatus.NOT_STARTED,
-                remainingSeconds = it.totalBurnSeconds,
-                accumulatedDose = 0.0,
-                isWarning = false
-            )
+                    // simplify:only today
+                    val dayTotal = ExposureDayTotal(
+                        date = LocalDate.now(),
+                        activeDurationMillis = totalActiveMs,
+                        doseSed = totalSed
+                    )
+    
+                    val record = ExposureRecord(
+                        sessionId = sessionId,
+                        startedAtMillis = startedAt,
+                        recordedThroughMillis = recordedThroughMs,
+                        zoneId = zoneId,
+                        status = ExposureRecordStatus.COMPLETED,
+                        days = listOf(dayTotal)
+                    )
+    
+                    val saveResult = historyRepository.save(record)
+                    if (saveResult.isFailure) {
+                        // 
+                    }
+                }
+            }
+    
+            val newSnapshot = sessionManager.clear(System.currentTimeMillis())
+            _state.update {
+                it.copy(
+                    exposureSnapshot = newSnapshot,
+                    activeSessionId = null,
+                    activeSessionStartedAt = null,
+                    activeSessionZoneId = null
+                )
+            }
         }
     }
     fun onResetTimer() {
