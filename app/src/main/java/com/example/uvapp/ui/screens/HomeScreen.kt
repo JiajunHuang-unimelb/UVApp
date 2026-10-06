@@ -45,10 +45,10 @@ fun HomeScreen(
     indoorContent: @Composable () -> Unit = {},
 ) {
     var showResetConfirm by rememberSaveable { mutableStateOf(false) }
-
+    
     val onPrimaryAction: () -> Unit
     val onResetClick: (() -> Unit)?
-
+    
     when (state.exposureStatus) {
         ExposureStatus.NOT_STARTED -> {
             onPrimaryAction = viewModel::onStartExposure
@@ -60,11 +60,11 @@ fun HomeScreen(
         }
         ExposureStatus.PAUSED -> {
             onPrimaryAction = viewModel::onResumeExposure
-            // PAUSED点击Reset，打开弹窗，不直接重置
             onResetClick = { showResetConfirm = true }
         }
         ExposureStatus.COMPLETE -> {
-            onPrimaryAction = viewModel::onResetTimer
+            //Save/Discard
+            onPrimaryAction = { showResetConfirm = true }
             onResetClick = null
         }
     }
@@ -162,19 +162,31 @@ fun HomeScreen(
         if (showResetConfirm) {
             AlertDialog(
                 onDismissRequest = { showResetConfirm = false },
-                title = { Text("Reset timer?") },
-                text = { Text("This will discard your current exposure session and reset the timer. This action cannot be undone.") },
+                title = { Text("End exposure session?") },
+                text = {
+                    Text(
+                        "Save this session to your sun log, or discard it?"
+                    )
+                },
                 confirmButton = {
                     TextButton(onClick = {
                         showResetConfirm = false
-                        viewModel.onResetTimer()
+                        viewModel.onResetSession(save = true)
                     }) {
-                        Text("Reset")
+                        Text("Save")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showResetConfirm = false }) {
-                        Text("Cancel")
+                    Row {
+                        TextButton(onClick = {
+                            showResetConfirm = false
+                            viewModel.onResetSession(save = false)
+                        }) {
+                            Text("Discard")
+                        }
+                        TextButton(onClick = { showResetConfirm = false }) {
+                            Text("Cancel")
+                        }
                     }
                 }
             )
