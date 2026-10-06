@@ -777,19 +777,26 @@ class MainViewModelTest {
         assertEquals(1_500L, history.saved.last().activeDurationMillis)
     }
 
+    ```kotlin
     @Test
-    fun `restart saves the old session as completed before a new one starts`() {
+    fun `restart completes the old session before starting a new session`() {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
-
+    
+        // First exposure session
         vm.onStartExposure()
         tick(2)
+    
+        // Restart: old session should be completed,
+        // then a new session should start with a new sessionId.
         vm.onResetTimer()
         tick(1)
+    
+        // Pause the new session.
         vm.onPauseExposure()
         tick(1)
-
+    
         assertEquals(
             listOf(
                 ExposureRecordStatus.ACTIVE,
@@ -799,9 +806,24 @@ class MainViewModelTest {
             ),
             history.saved.map { it.status },
         )
-        assertTrue(history.saved[1].doseSed > 0.0)
-        assertEquals(history.saved[0].sessionId, history.saved[1].sessionId)
-        assertNotEquals(history.saved[1].sessionId, history.saved[2].sessionId)
+    
+        val oldActive = history.saved[0]
+        val oldCompleted = history.saved[1]
+        val newActive = history.saved[2]
+        val newPaused = history.saved[3]
+    
+        // Restart must complete the original session.
+        assertEquals(oldActive.sessionId, oldCompleted.sessionId)
+    
+        // The completed session must contain the exposure accumulated
+        // before the restart.
+        assertTrue(oldCompleted.doseSed > 0.0)
+    
+        // Restart must create a genuinely new session.
+        assertNotEquals(oldCompleted.sessionId, newActive.sessionId)
+    
+        // Pausing the new session must not create another session.
+        assertEquals(newActive.sessionId, newPaused.sessionId)
     }
 
     @Test
