@@ -150,7 +150,7 @@ fun UVAppRoot(
     }
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
     // Enhanced Sensing rationale dialog state
-    var showEnhanceSensingRationale by remember { mutableStateOf(false) }
+    var showEnhanceSensingRationale: Boolean by remember { mutableStateOf(false) }
     // -------- Serial permission chain: Mic -> Camera -> Activity Recognition --------
     
     // Step 3: Activity Recognition (Android 10+)
