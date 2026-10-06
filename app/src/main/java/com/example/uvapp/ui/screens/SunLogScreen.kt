@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -30,8 +31,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -40,7 +43,6 @@ import com.example.uvapp.domain.exposure.ExposureCalculator
 import com.example.uvapp.domain.model.ExposureDailySummary
 import com.example.uvapp.ui.components.SkinSpfCard
 import com.example.uvapp.ui.components.SunCard
-import com.example.uvapp.ui.components.UvSwitch
 import com.example.uvapp.ui.components.formatSunTime
 import com.example.uvapp.ui.icons.UvIcons
 import com.example.uvapp.ui.theme.UvTheme
@@ -180,7 +182,8 @@ private fun WeekArrow(rotation: Float, description: String, enabled: Boolean, on
 
 /**
  * Seven bars, Monday to Sunday; height = share of the daily limit, capped at 100%.
- * The number row above shows either that share (uncapped) or the time in the sun.
+ * The number row above shows either that share (uncapped) or the time in the sun,
+ * chosen with the segmented pill at the top of the card.
  */
 @Composable
 private fun WeekChartCard(
@@ -199,26 +202,7 @@ private fun WeekChartCard(
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "% OF DAILY LIMIT",
-                    color = colors.textSecondary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                ToggleLabel("%", selected = !showTime, onClick = { onShowTime(false) })
-                Spacer(Modifier.width(8.dp))
-                // Both sides are valid views, so the track keeps the accent colour either way.
-                UvSwitch(
-                    checked = showTime,
-                    onToggle = { onShowTime(!showTime) },
-                    onColor = colors.accent,
-                    offColor = colors.accent,
-                )
-                Spacer(Modifier.width(8.dp))
-                ToggleLabel("Time", selected = showTime, onClick = { onShowTime(true) })
-            }
+            ViewToggle(showTime = showTime, onShowTime = onShowTime)
 
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth()) {
@@ -286,19 +270,66 @@ private fun WeekChartCard(
                     )
                 }
             }
+            // The pill only changes the numbers, so the bars' meaning is stated in both views.
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Bar height = share of your daily limit",
+                color = colors.textSecondary,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
 
-/** One side of the %/Time slider; the selected side is bold accent. */
+/** Segmented pill choosing what the number row shows: % of the daily limit or time in the sun. */
 @Composable
-private fun ToggleLabel(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun ViewToggle(showTime: Boolean, onShowTime: (Boolean) -> Unit) {
     val colors = UvTheme
-    Text(
-        text,
-        color = if (selected) colors.accent else colors.textSecondary,
-        fontSize = 13.sp,
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        modifier = Modifier.clickable(onClick = onClick),
-    )
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .clip(shape)
+            .border(1.dp, colors.accent, shape),
+    ) {
+        ViewToggleSegment(
+            text = "% of daily limit",
+            selected = !showTime,
+            onClick = { onShowTime(false) },
+            modifier = Modifier.weight(1f),
+        )
+        ViewToggleSegment(
+            text = "Time in sun",
+            selected = showTime,
+            onClick = { onShowTime(true) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * One half of [ViewToggle]. The selected half is filled with the accent; its text uses the
+ * surface colour so it stays readable on both the light and the brighter dark-theme accent.
+ */
+@Composable
+private fun ViewToggleSegment(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val colors = UvTheme
+    Box(
+        modifier
+            .fillMaxHeight()
+            .background(if (selected) colors.accent else Color.Transparent)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (selected) colors.surface else colors.accent,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+        )
+    }
 }
