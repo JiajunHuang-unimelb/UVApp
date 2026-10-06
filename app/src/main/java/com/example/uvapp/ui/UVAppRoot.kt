@@ -151,7 +151,6 @@ fun UVAppRoot(
         onDispose { lifecycle.removeObserver(observer); indoorViewModel.setVisible(false) }
     }
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
-    var optionalPermissionRevision by remember { mutableIntStateOf(0) }
     // Enhanced Sensing rationale dialog state
     var showEnhanceSensingRationale by remember { mutableStateOf(false) }
     // -------- Serial permission chain: Mic -> Camera -> Activity Recognition --------
@@ -208,7 +207,6 @@ fun UVAppRoot(
         lifecycle,
         microphoneMonitor,
         settingsState.enhancedSensingEnabled,
-        optionalPermissionRevision,
     ) {
         fun updateOptionalSensors() {
             if (
