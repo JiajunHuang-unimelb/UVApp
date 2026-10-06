@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,7 +69,7 @@ fun SettingsScreen(
         modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 88.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
         Spacer(Modifier.height(16.dp))
@@ -84,9 +83,12 @@ fun SettingsScreen(
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { showSkinTypeHelp = true }) {
-                    Text(stringResource(R.string.skin_type_help_button), color = colors.accent)
-                }
+                // Plain clickable text (not TextButton) so it ends on the same edge as the SPF value.
+                Text(
+                    stringResource(R.string.skin_type_help_button),
+                    color = colors.accent,
+                    modifier = Modifier.clickable { showSkinTypeHelp = true }.padding(vertical = 14.dp),
+                )
             }
             SkinType.entries.forEach { type ->
                 SettingsRadioRow(
@@ -201,8 +203,10 @@ fun SettingsScreen(
             }
         }
         Spacer(Modifier.height(24.dp))
-        TextButton(onClick = { showDataSources = true }) {
-            Text(stringResource(R.string.data_sources), color = colors.accent)
-        }
+        Text(
+            stringResource(R.string.data_sources),
+            color = colors.accent,
+            modifier = Modifier.clickable { showDataSources = true }.padding(vertical = 14.dp),
+        )
     }
 }

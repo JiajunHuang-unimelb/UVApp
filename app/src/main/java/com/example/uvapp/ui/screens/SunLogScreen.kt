@@ -77,7 +77,7 @@ fun SunLogScreen(
         modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 80.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp),
     ) {
         // Same geometry as HeroRow: 132 dp tall, 224 dp left card, skin card fills the rest.
         Row(Modifier.fillMaxWidth().height(132.dp), verticalAlignment = Alignment.Top) {

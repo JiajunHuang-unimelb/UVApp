@@ -2,6 +2,7 @@ package com.example.uvapp.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -59,7 +60,12 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
         if (!state.data.invitationDismissed && state.data.locations.isEmpty()) {
             Text("Save Home, University or Work to get started.", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = { vm.dismissInvitation() }) { Text("Not now", color = if (settings) colors.accent else Color.Unspecified) }
+            // Plain clickable text (not TextButton) so it lines up with the text above it.
+            Text(
+                "Not now",
+                color = if (settings) colors.accent else Color.Unspecified,
+                modifier = Modifier.clickable { vm.dismissInvitation() }.padding(vertical = 14.dp),
+            )
         }
         if (settings) {
             Spacer(Modifier.height(8.dp))
@@ -123,15 +129,13 @@ private val INDOOR_PLACE_PRESETS = listOf("Home", "University", "Work")
 /** Developer-only switch for the in-memory demo radius; lives in the Settings Developer card. */
 @Composable
 fun IndoorDemoToggle(vm: IndoorLocationsViewModel, state: IndoorLocationsUiState) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = state.demoEnabled, onCheckedChange = vm::setDemoEnabled)
-            Text("Demo: University Square radius")
-        }
-        if (state.demoEnabled) {
-            Text("Demonstration coordinates only; not a saved indoor building.", color = UvTheme.textSecondary, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
+    // Same row as the other Settings toggles, so it lines up with them.
+    SettingsSwitchRow(
+        title = "Demo: University Square radius",
+        subtitle = if (state.demoEnabled) "Demonstration coordinates only; not a saved indoor building." else null,
+        checked = state.demoEnabled,
+        onToggle = { vm.setDemoEnabled(!state.demoEnabled) },
+    )
 }
 
 @Composable

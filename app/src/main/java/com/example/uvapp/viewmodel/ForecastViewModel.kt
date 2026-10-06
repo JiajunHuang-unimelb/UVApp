@@ -151,10 +151,19 @@ class ForecastViewModel(
         _state.update { it.copy(selectedTimeMinutes = clampToWindow(minutes, it.selectedDay)) }
     }
 
+    /** "Current": back to today's chip at the current time, then keep following the clock. */
     fun selectCurrentTime() {
         followsClock = true
+        followsToday = true
         val current = now()
-        _state.update { it.copy(selectedTimeMinutes = clampToWindow(current.hour * 60 + current.minute, it.selectedDay)) }
+        selectedDate = current.toLocalDate()
+        _state.update {
+            val todayIndex = it.days.indexOfFirst { day -> day.dayOfMonth == current.dayOfMonth }.coerceAtLeast(0)
+            it.copy(
+                selectedDayIndex = todayIndex,
+                selectedTimeMinutes = clampToWindow(current.hour * 60 + current.minute, it.days.getOrNull(todayIndex)),
+            )
+        }
     }
 
     /** Fetches this week's sunrise/sunset online; the slider falls back to the full day until this resolves. */

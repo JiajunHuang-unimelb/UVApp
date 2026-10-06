@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -25,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,7 +48,6 @@ import com.example.uvapp.platform.environment.AndroidExposureMonitoringControlle
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
-import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
@@ -68,6 +70,7 @@ import com.example.uvapp.viewmodel.Tab
  * [requestedTab] comes from a launch intent (the weekly widget); it is applied once
  * and then cleared through [onRequestedTabHandled].
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UVAppRoot(
     requestedTab: Tab? = null,
@@ -228,6 +231,9 @@ fun UVAppRoot(
     }
     LaunchedEffect(mainState.devModeEnabled) { if (!mainState.devModeEnabled) indoorViewModel.setDemoEnabled(false) }
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
+    // Pull-to-refresh spinner: on from the pull until the refresh it starts finishes loading.
+    var pullRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(mainState.isLoading) { if (!mainState.isLoading) pullRefreshing = false }
     val requestCurrentLocation =
         rememberLocationPermissionRequester(
             onPermissionGranted = {
@@ -254,27 +260,8 @@ fun UVAppRoot(
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
-                when (mainState.selectedTab) {
-                    Tab.HOME -> HomeScreen(
-                        viewModel = mainViewModel,
-                        state = mainState,
-                        onLocate = requestCurrentLocation,
-                        indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions) },
-                    )
-                    Tab.FORECAST -> ForecastScreen(
-                        state = forecastState,
-                        onSearchClick = mainViewModel::onSearchClick,
-                        onLocate = requestCurrentLocation,
-                        onSelectDay = forecastViewModel::selectDay,
-                        onSelectTime = forecastViewModel::selectTime,
-                        onCurrentTime = forecastViewModel::selectCurrentTime,
-                    )
-                    Tab.SUN_LOG -> SunLogScreen(
-                        state = mainState,
-                        onPageSettled = mainViewModel::onSunLogPageSettled,
-                        onShowTime = mainViewModel::onSunLogShowTime,
-                    )
-                    Tab.SETTINGS -> SettingsScreen(
+                if (mainState.selectedTab == Tab.SETTINGS) {
+                    SettingsScreen(
                         viewModel = settingsViewModel,
                         state = settingsState,
                         indoorContent = {
@@ -289,16 +276,44 @@ fun UVAppRoot(
                         developerContent = { IndoorDemoToggle(indoorViewModel, indoorState) },
                         onEnhancedSensingToggle = toggleEnhancedSensing,
                     )
+                } else {
+                    // Pull down to refresh on every page except Settings. ForecastViewModel.refresh()
+                    // delegates to mainViewModel.onRefresh(); Sun log also re-anchors its weeks to today.
+                    PullToRefreshBox(
+                        isRefreshing = pullRefreshing,
+                        onRefresh = {
+                            pullRefreshing = true
+                            if (mainState.selectedTab == Tab.SUN_LOG) mainViewModel.observeSunLogWeeks()
+                            forecastViewModel.refresh()
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        when (mainState.selectedTab) {
+                            Tab.HOME -> HomeScreen(
+                                viewModel = mainViewModel,
+                                state = mainState,
+                                onLocate = requestCurrentLocation,
+                                indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions) },
+                            )
+                            Tab.FORECAST -> ForecastScreen(
+                                state = forecastState,
+                                onSearchClick = mainViewModel::onSearchClick,
+                                onLocate = requestCurrentLocation,
+                                onSelectDay = forecastViewModel::selectDay,
+                                onSelectTime = forecastViewModel::selectTime,
+                                onCurrentTime = forecastViewModel::selectCurrentTime,
+                            )
+                            else -> SunLogScreen(
+                                state = mainState,
+                                onPageSettled = mainViewModel::onSunLogPageSettled,
+                                onShowTime = mainViewModel::onSunLogShowTime,
+                            )
+                        }
+                    }
                 }
 
-                TopLoadingBar(mainState.isLoading, Modifier.align(Alignment.TopCenter))
-                RefreshButton(
-                    isLoading = mainState.isLoading,
-                    // ForecastViewModel.refresh() delegates to mainViewModel.onRefresh() —
-                    // calling both here would fire the same refresh twice.
-                    onClick = forecastViewModel::refresh,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 16.dp),
-                )
+                // Automatic loads show the thin top bar; a pull shows its own spinner instead.
+                TopLoadingBar(mainState.isLoading && !pullRefreshing, Modifier.align(Alignment.TopCenter))
 
                 BottomNav(
                     selected = mainState.selectedTab,

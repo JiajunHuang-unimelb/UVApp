@@ -21,10 +21,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,7 +67,10 @@ import com.example.uvapp.ui.theme.BandPalettes
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.Tab
+import androidx.compose.ui.res.stringResource
+import com.example.uvapp.R
 import java.util.Locale
+import kotlinx.coroutines.launch
 import kotlin.math.log10
 import kotlin.math.pow
 
@@ -411,6 +422,7 @@ private fun LuxBar(
 }
 
 /** Safe Timer card with progress ring and countdown. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SafeTimerCard(
     remainingSeconds: Long,
@@ -506,6 +518,19 @@ fun SafeTimerCard(
                 )
             }
             Spacer(Modifier.height(10.dp))
+        }
+        // (i) in the top-right corner: tap for what the countdown estimates; tap anywhere to close.
+        val aboutTooltip = rememberTooltipState(isPersistent = true)
+        val scope = rememberCoroutineScope()
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+            tooltip = { PlainTooltip { Text(stringResource(R.string.exposure_estimate_note)) } },
+            state = aboutTooltip,
+            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+        ) {
+            IconButton(onClick = { scope.launch { aboutTooltip.show() } }) {
+                Icon(UvIcons.Info, contentDescription = "About this timer", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

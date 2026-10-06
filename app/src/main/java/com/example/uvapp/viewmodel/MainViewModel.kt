@@ -234,6 +234,7 @@ class MainViewModel(
 
     // Exposure history (see docs/exposure-tracking-api.md for the save contract).
     private val historySaveMutex = Mutex()
+    private var sunLogWeeksJob: Job? = null
     private var historySessionId: String? = null
     private var historyStartedAtMillis = 0L
     private var historyZoneId: ZoneId = ZoneId.systemDefault()
@@ -1038,15 +1039,17 @@ class MainViewModel(
 
     /**
      * Loads every viewable Sun log week (the current Mon-Sun week and the ones before it)
-     * with one daily query, so all pager pages are ready before the user swipes.
+     * with one daily query, so all pager pages are ready before the user swipes. Called again
+     * by pull-to-refresh, which re-anchors the range to today.
      */
-    private fun observeSunLogWeeks() {
+    fun observeSunLogWeeks() {
         val repository = historyRepository ?: return
         val today = todayDate()
         val currentWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
         val firstWeekStart = currentWeekStart.minusWeeks((SUN_LOG_WEEK_COUNT - 1).toLong())
         val daysFlow = repository.observeDaily(firstWeekStart, currentWeekStart.plusWeeks(1))
-        viewModelScope.launch {
+        sunLogWeeksJob?.cancel()
+        sunLogWeeksJob = viewModelScope.launch {
             // observeDaily returns every day in the range (zero when empty), so 7-day chunks are weeks.
             daysFlow.collect { days ->
                 val weeks = days.chunked(7).map { weekDays -> ExposureWeeklySummary(weekDays.first().date, weekDays) }
