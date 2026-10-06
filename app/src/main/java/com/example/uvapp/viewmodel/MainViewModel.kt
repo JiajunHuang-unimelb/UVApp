@@ -78,6 +78,12 @@ private val LightContext.mockLux: Int
 
 /** Immutable snapshot of everything the Home page (and shared chrome) renders. */
 data class MainUiState(
+    /**exposure record */
+    val exposureSnapshot: ExposureSnapshot,
+    val activeSessionId: String? = null,
+    val activeSessionStartedAt: Long? = null,
+    val activeSessionZoneId: String? = null,
+    
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
@@ -166,11 +172,7 @@ data class MainUiState(
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
-    /**exposure record */
-    val exposureSnapshot: ExposureSnapshot,
-    val activeSessionId: String? = null,
-    val activeSessionStartedAt: Long? = null,
-    val activeSessionZoneId: String? = null,
+    
 }
 
 /**
@@ -436,7 +438,7 @@ class MainViewModel(
     fun onResetSession(save: Boolean) {
         viewModelScope.launch {
             
-            val currentSnapshot = sessionManager.snapshot()
+            val currentSnapshot = exposureSession.snapshot()
             
             val sessionId = _state.value.activeSessionId
             val startedAt = _state.value.activeSessionStartedAt
@@ -465,14 +467,14 @@ class MainViewModel(
                         days = listOf(dayTotal)
                     )
     
-                    val saveResult = historyRepository.save(record)
+                    val saveResult = historyRepository?.save(record)
                     if (saveResult.isFailure) {
                         // 
                     }
                 }
             }
     
-            val newSnapshot = sessionManager.clear(System.currentTimeMillis())
+            val newSnapshot = exposureSession.clear(System.currentTimeMillis())
             _state.update {
                 it.copy(
                     exposureSnapshot = newSnapshot,
