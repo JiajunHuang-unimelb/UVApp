@@ -19,4 +19,8 @@
     <string name="exposure_estimate_note">Exposure time is an estimate based on UV, skin type and detected surroundings. It does not guarantee a safe time in the sun.</string>
     <string name="enhanced_sensing_privacy_note">Sound level helps classify your surroundings. Microphone sampling runs only while the app is visible. Audio recordings are not saved.</string>
     <string name="weekly_widget_description">Your time in the sun this week</string>
+    <string name="reset_timer_title">Reset timer?</string>
+    <string name="reset_timer_message">This will discard your current exposure session and reset the timer. This action cannot be undone.</string>
+    <string name="reset">Reset</string>
+    <string name="cancel">Cancel</string>
 </resources>
