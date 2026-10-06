@@ -32,7 +32,8 @@ import com.example.uvapp.ui.components.TopChrome
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.MainUiState
 import com.example.uvapp.viewmodel.MainViewModel
-
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberSaveable
 /** Home tab: hero, address, safe timer, exposure indicator, cached note, dev card. */
 @Composable
 fun HomeScreen(
