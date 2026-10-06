@@ -777,7 +777,6 @@ class MainViewModelTest {
         assertEquals(1_500L, history.saved.last().activeDurationMillis)
     }
 
-    ```kotlin
     @Test
     fun `restart completes the old session before starting a new session`() {
         val history = FakeExposureHistoryRepository()
