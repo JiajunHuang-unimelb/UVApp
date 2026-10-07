@@ -453,39 +453,14 @@ class MainViewModel(
     }
 
     fun onResetSession(save: Boolean) {
-        viewModelScope.launch {
-            val currentSnapshot = exposureSession.snapshot()
-            val sessionId = _state.value.activeSessionId
-            val startedAt = _state.value.activeSessionStartedAt
-            val zoneId = _state.value.activeSessionZoneId
-
-            if (save && sessionId != null && startedAt != null && zoneId != null) {
-                if (currentSnapshot.accumulatedDoseSed > 0.001) {
-                    val recordedThroughMs = exposureClockMillis
-                    val totalActiveMs = recordedThroughMs - startedAt
-                    val totalSed = currentSnapshot.accumulatedDoseSed
-
-                    val dayTotal = ExposureDayTotal(
-                        date = LocalDate.now(),
-                        activeDurationMillis = totalActiveMs,
-                        doseSed = totalSed
-                    )
-
-                    val record = ExposureRecord(
-                        sessionId = sessionId,
-                        startedAtMillis = startedAt,
-                        recordedThroughMillis = recordedThroughMs,
-                        zoneId = zoneId,
-                        status = ExposureRecordStatus.COMPLETED,
-                        days = listOf(dayTotal)
-                    )
-
-                    val saveResult = historyRepository?.save(record)
-                    if (saveResult?.isFailure == true) {
-                        // log saveResult.exceptionOrNull()
-                    }
-                }
-            }
+        if (!_state.value.exposureStarted) return
+        if (save) {
+            val pauseEvent = exposureSession.pause(exposureClockMillis, ExposurePauseReason.RESET)
+            syncExposure()
+            publishExposure(pauseEvent)
+        }
+        restartExposureSession()
+    }
 
             val newSnapshot = exposureSession.clear(exposureClockMillis)
             _state.update {
