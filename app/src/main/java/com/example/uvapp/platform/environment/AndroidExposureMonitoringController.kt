@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.example.uvapp.domain.environment.ExposureMonitoringController
+import com.example.uvapp.domain.environment.ExposureMonitoringPolicy
 
 class AndroidExposureMonitoringController(
     context: Context,
@@ -18,8 +19,10 @@ class AndroidExposureMonitoringController(
                 PackageManager.PERMISSION_GRANTED ||
                 ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.ACCESS_COARSE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED
-        if (!hasLocationPermission) return
+        val plan = ExposureMonitoringPolicy.plan(hasLocationPermission)
+        if (!plan.startLocalSensors) return
 
+        // The service checks location permission separately, so local sensors can degrade gracefully.
         ContextCompat.startForegroundService(
             applicationContext,
             Intent(applicationContext, ExposureMonitoringService::class.java),

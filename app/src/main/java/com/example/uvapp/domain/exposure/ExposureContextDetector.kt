@@ -56,6 +56,19 @@ class ExposureContextDetector {
         }
 
         /*
+         * Low light can also be misleading when the proximity sensor does not
+         * report occlusion. A face-down phone, confirmed movement, or sustained
+         * outdoor-like sound conflicts with treating that reading as shade.
+         */
+        val hasConflictingLowLightEvidence =
+            input.isMoving == true ||
+                input.posture == DevicePosture.FACE_DOWN ||
+                input.acousticContext == AcousticContext.ACTIVE_OUTDOOR_LIKELY
+        if (input.lux in 1 until LightContext.SHADE_MAX_LUX && hasConflictingLowLightEvidence) {
+            return ExposureContext.UNKNOWN
+        }
+
+        /*
          * When the phone is not occluded, the light sensor is a useful
          * primary signal.
          */
@@ -89,17 +102,10 @@ class ExposureContextDetector {
         }
 
         /*
-         * If the phone is occluded but the user is near a saved indoor
-         * location and there is no movement evidence, indoor becomes
-         * more plausible.
-         */
-        if (input.nearIndoorLocation) {
-            return ExposureContext.INDOOR
-        }
-
-        /*
-         * With an occluded phone and no reliable environmental evidence,
-         * we should avoid making a confident claim.
+         * A saved location cannot make an occluded lux reading trustworthy:
+         * the user may still be outdoors near their home with the phone in a
+         * pocket. Keep the result conservative until unobstructed evidence is
+         * available or the indoor state was confirmed before the occlusion.
          */
         return ExposureContext.UNKNOWN
     }
