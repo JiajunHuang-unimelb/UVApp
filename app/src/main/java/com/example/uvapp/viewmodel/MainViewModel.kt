@@ -462,19 +462,6 @@ class MainViewModel(
         restartExposureSession()
     }
 
-            val newSnapshot = exposureSession.clear(exposureClockMillis)
-            _state.update {
-                it.copy(
-                    exposureSnapshot = newSnapshot,
-                    activeSessionId = null,
-                    activeSessionStartedAt = null,
-                    activeSessionZoneId = null
-                )
-            }
-            publishExposure(newSnapshot)
-        }
-    }
-
     fun onResetTimer() {
         restartExposureSession()
         pauseNewSessionIfAlreadyIndoor()
