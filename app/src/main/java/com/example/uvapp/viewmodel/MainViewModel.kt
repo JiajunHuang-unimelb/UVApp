@@ -220,10 +220,15 @@ class MainViewModel(
                 exposureFraction = 0.0,
                 estimatedRemainingMinutes = null,
                 estimatedRemainingSeconds = null,
-                estimatedTotalSeconds = null
-            )
-        )
+                estimatedTotalSeconds = null,
+                activeDurationMillis = 0L,
+                directSunDurationMillis = 0L,
+                shadeDurationMillis = 0L,
+                unknownDurationMillis = 0L,
+            ),
+        ),
     )
+
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
