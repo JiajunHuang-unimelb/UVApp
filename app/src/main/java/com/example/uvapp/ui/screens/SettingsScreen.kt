@@ -13,13 +13,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,17 +33,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uvapp.domain.model.SkinType
 import com.example.uvapp.R
 import com.example.uvapp.ui.components.DataSourcesDialog
-import com.example.uvapp.ui.components.SettingsRadioRow
 import com.example.uvapp.ui.components.SettingsSection
 import com.example.uvapp.ui.components.SettingsSwitchRow
 import com.example.uvapp.ui.components.SkinTypeHelpDialog
 import com.example.uvapp.ui.components.SpfSlider
+import com.example.uvapp.ui.icons.UvIcons
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.ui.theme.accentPalette
 import com.example.uvapp.viewmodel.AccentColor
@@ -68,7 +75,7 @@ fun SettingsScreen(
         modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 88.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
         Spacer(Modifier.height(16.dp))
@@ -78,26 +85,59 @@ fun SettingsScreen(
                 Text(
                     stringResource(R.string.skin_type_heading),
                     fontSize = 16.sp,
+                    lineHeight = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { showSkinTypeHelp = true }) {
-                    Text(stringResource(R.string.skin_type_help_button), color = colors.accent)
-                }
-            }
-            SkinType.entries.forEach { type ->
-                SettingsRadioRow(
-                    label = type.displayName(),
-                    selected = state.skinType == type,
-                    onClick = { viewModel.selectSkinType(type) },
+                // Plain clickable text (not TextButton) so it ends on the same edge as the SPF value.
+                Text(
+                    stringResource(R.string.skin_type_help_button),
+                    color = colors.accent,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.clickable { showSkinTypeHelp = true }.padding(vertical = 14.dp),
                 )
+            }
+            // Dropdown instead of six radio rows: one field showing the current type.
+            var skinMenuOpen by remember { mutableStateOf(false) }
+            Box {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, colors.outline, RoundedCornerShape(12.dp))
+                        .clickable { skinMenuOpen = true }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(state.skinType.displayName(), color = colors.onBackground, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                    Icon(UvIcons.ChevronDown, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                }
+                DropdownMenu(expanded = skinMenuOpen, onDismissRequest = { skinMenuOpen = false }) {
+                    SkinType.entries.forEach { type ->
+                        val selected = state.skinType == type
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    type.displayName(),
+                                    color = if (selected) colors.accent else colors.onBackground,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                )
+                            },
+                            onClick = {
+                                viewModel.selectSkinType(type)
+                                skinMenuOpen = false
+                            },
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("SPF", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, modifier = Modifier.weight(1f))
-                Text(state.spf.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.accent)
+                Text("SPF", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, modifier = Modifier.weight(1f))
+                Text(state.spf.toString(), fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.accent)
             }
             Spacer(Modifier.height(8.dp))
             SpfSlider(state.spf, viewModel::setSpf)
@@ -106,6 +146,7 @@ fun SettingsScreen(
                 text = stringResource(R.string.spf_countdown_hint),
                 color = colors.textSecondary,
                 fontSize = 12.sp,
+                lineHeight = 17.sp,
             )
         }
 
@@ -138,24 +179,43 @@ fun SettingsScreen(
                 text = stringResource(R.string.enhanced_sensing_privacy_note),
                 color = colors.textSecondary,
                 fontSize = 12.sp,
+                lineHeight = 17.sp,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
             indoorContent()
         }
 
         Spacer(Modifier.height(12.dp))
         SettingsSection("Appearance") {
-            Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
-            ThemeMode.entries.forEach { mode ->
-                SettingsRadioRow(
-                    label = mode.label,
-                    selected = state.themeMode == mode,
-                    onClick = { viewModel.setThemeMode(mode) },
-                )
+            Text("Theme", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+            Spacer(Modifier.height(8.dp))
+            // Chips in one row: 40 dp visible, 48 dp touch area.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeMode.entries.forEach { mode ->
+                    val selected = state.themeMode == mode
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (selected) colors.activePill else colors.surface)
+                            .border(if (selected) 1.5.dp else 1.dp, if (selected) colors.accent else colors.outline, RoundedCornerShape(20.dp))
+                            .selectable(selected = selected, role = Role.RadioButton, onClick = { viewModel.setThemeMode(mode) }),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            mode.label,
+                            color = if (selected) colors.accent else colors.onBackground,
+                            fontSize = 15.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("Theme colour", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
+            Text("Theme colour", fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 AccentColor.entries.forEach { preset ->
@@ -164,6 +224,7 @@ fun SettingsScreen(
                     val selected = state.accent == preset
                     Box(
                         Modifier
+                            .minimumInteractiveComponentSize()
                             .size(40.dp)
                             .clip(CircleShape)
                             .background(swatch)
@@ -199,8 +260,11 @@ fun SettingsScreen(
             }
         }
         Spacer(Modifier.height(24.dp))
-        TextButton(onClick = { showDataSources = true }) {
-            Text(stringResource(R.string.data_sources), color = colors.accent)
-        }
+        Text(
+            stringResource(R.string.data_sources),
+            color = colors.accent,
+            lineHeight = 20.sp,
+            modifier = Modifier.clickable { showDataSources = true }.padding(vertical = 14.dp),
+        )
     }
 }

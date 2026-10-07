@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,7 +108,7 @@ fun SearchDialogOverlay(
                         UvIcons.Close,
                         contentDescription = "Clear search",
                         tint = colors.textSecondary,
-                        modifier = Modifier.size(20.dp).clickable { onQueryChange("") },
+                        modifier = Modifier.minimumInteractiveComponentSize().size(20.dp).clickable { onQueryChange("") },
                     )
                 }
             }
@@ -117,6 +118,7 @@ fun SearchDialogOverlay(
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .minimumInteractiveComponentSize()
                     .height(36.dp)
                     .clickable { onUseCurrentLocation() },
                 verticalAlignment = Alignment.CenterVertically,
