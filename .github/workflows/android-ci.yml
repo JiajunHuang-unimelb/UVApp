@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [ Sprint6 ]
+    branches: [ chore/misc-fixes-and-minor-features ]
   pull_request:
-    branches: [ Sprint6 ]
+    branches: [ chore/misc-fixes-and-minor-features ]
 
 concurrency:
   group: ci-${{ github.ref }}

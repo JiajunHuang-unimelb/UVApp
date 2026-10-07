@@ -82,6 +82,12 @@ private val LightContext.mockLux: Int
 
 /** Immutable snapshot of everything the Home page (and shared chrome) renders. */
 data class MainUiState(
+    /**exposure record */
+    val exposureSnapshot: ExposureSnapshot,
+    val activeSessionId: String? = null,
+    val activeSessionStartedAt: Long? = null,
+    val activeSessionZoneId: String? = null,
+
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
@@ -186,6 +192,7 @@ data class MainUiState(
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
+
 }
 
 /**
@@ -211,7 +218,23 @@ class MainViewModel(
     private val sunscreenAppliedEvents: Flow<Unit>? = null,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(MainUiState())
+    private val _state = MutableStateFlow(
+        MainUiState(
+            exposureSnapshot = ExposureSnapshot(
+                status = ExposureStatus.NOT_STARTED,
+                skinType = SkinType.II,
+                uvIndex = 0.0,
+                context = ExposureContext.UNKNOWN,
+                accumulatedDoseSed = 0.0,
+                doseLimitSed = 1.0,
+                remainingDoseSed = 1.0,
+                exposureFraction = 0.0,
+                estimatedRemainingMinutes = null,
+                estimatedRemainingSeconds = null,
+                estimatedTotalSeconds = null
+            )
+        )
+    )
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
@@ -444,9 +467,24 @@ class MainViewModel(
             locate()
         }
     }
-
+    
     fun onStartExposure() {
         restartExposureSession()
+    
+        val state = _state.value
+    
+        val snapshot =
+            exposureSession.start(
+                skinType = state.skinType,
+                uvIndex = state.displayUv,
+                nowElapsedMs = exposureClockMillis,
+                context = state.displayContext.toExposureContext(),
+            )
+    
+        publishExposure(snapshot)
+    
+        monitoringController?.start()
+    
         pauseNewSessionIfAlreadyIndoor()
     }
 
@@ -476,6 +514,17 @@ class MainViewModel(
     /** The first band alert fires before the permission prompt is answered; let it fire again. */
     fun onSunscreenNotificationsAllowed() = sunProtection.reset()
 
+    fun onResetSession(save: Boolean) {
+        if (!_state.value.exposureStarted) return
+    
+        if (save) {
+            closeHistorySession()
+        } else {
+            discardHistorySession()
+        }
+    
+        restartExposureSession()
+    }
     fun onResetTimer() {
         restartExposureSession()
         pauseNewSessionIfAlreadyIndoor()
@@ -733,37 +782,44 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
-        closeHistorySession()
-        monitoringController?.start()
+        monitoringController?.stop()
+    
+        val dbSessionId = java.util.UUID.randomUUID().toString()
+        val sessionStartMs = exposureClockMillis
+        val zoneId = java.time.ZoneId.systemDefault().id
+    
+        exposureSession.clear(exposureClockMillis)
+    
         _state.update {
             it.copy(
                 exposureSessionId = it.exposureSessionId + 1,
                 luxOverride = null,
+                activeSessionId = dbSessionId,
+                activeSessionStartedAt = sessionStartMs,
+                activeSessionZoneId = zoneId,
+                exposureStatus = ExposureStatus.NOT_STARTED,
+                exposureStarted = false,
+                exposureRunning = false,
+                accumulatedDoseSed = 0.0,
+                exposureFraction = 0.0,
+                remainingSeconds = 0L,
+                totalBurnSeconds = 0L,
             )
         }
-        advanceExposureClock()
-        val state = _state.value
-        publishExposure(
-            exposureSession.start(
-                skinType = state.skinType,
-                uvIndex = state.displayUv,
-                nowElapsedMs = exposureClockMillis,
-                context = state.exposureContext,
-            ),
-        )
+    
+        publishExposure(exposureSession.snapshot())
     }
-
     /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
     private fun evaluateIndoorTransition() {
         val state = _state.value
         val target =
             when {
                 !state.indoorDetected &&
-                    state.isWithinSavedIndoorLocation &&
-                    state.displayLux < INDOOR_ENTER_LUX -> true
+                        state.isWithinSavedIndoorLocation &&
+                        state.displayLux < INDOOR_ENTER_LUX -> true
 
                 state.indoorDetected &&
-                    (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+                        (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
 
                 else -> null
             }
@@ -938,7 +994,7 @@ class MainViewModel(
         val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =
             snapshot.status == ExposureStatus.RUNNING &&
-                now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
+                    now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
         lastHistoryStatus = snapshot.status
         lastHistoryContext = snapshot.context
         if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
@@ -957,13 +1013,71 @@ class MainViewModel(
 
     /** Saves the session being replaced; called before start() resets the dose. */
     private fun closeHistorySession() {
-        if (historySessionId == null) return
+        val sessionId = historySessionId ?: return
+        val repository = historyRepository ?: return
+    
         val now = nowMillis()
-        addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
-        saveHistory(ExposureRecordStatus.COMPLETED, now)
+    
+        // Settle the final exposure interval.
+        val snapshot = exposureSession.refresh(now)
+    
+        // Add the final dose/duration delta to the in-memory history.
+        addHistoryDelta(snapshot.accumulatedDoseSed, now)
+    
+        lastHistoryStatus = snapshot.status
+        lastHistoryContext = snapshot.context
+    
+        val record = ExposureRecord(
+            sessionId = sessionId,
+            startedAtMillis = historyStartedAtMillis,
+            recordedThroughMillis = maxOf(lastRecordedThroughMillis, now),
+            zoneId = historyZoneId.id,
+            status = ExposureRecordStatus.COMPLETED,
+            days = historyDays.values.sortedBy { it.date },
+        )
+    
         historySessionId = null
+    
+        viewModelScope.launch {
+            historySaveMutex.withLock {
+                val saved = repository.save(record).isSuccess
+                val callback = onHistorySaved
+                if (saved && callback != null) {
+                    callback()
+                }
+            }
+        }
+    
+        exposureSession.clear(now)
     }
-
+    private fun discardHistorySession() {
+        val sessionId = historySessionId
+        val repository = historyRepository
+        val now = nowMillis()
+    
+        // Detach the history session immediately.
+        historySessionId = null
+    
+        // Discard all in-memory exposure data.
+        exposureSession.clear(now)
+    
+        // Reset history bookkeeping.
+        historyDays.clear()
+        lastHistoryDoseSed = 0.0
+        lastHistoryWallMillis = now
+        lastHistoryStatus = ExposureStatus.NOT_STARTED
+        lastHistoryContext = ExposureContext.UNKNOWN
+        lastHistorySaveWallMillis = now
+        lastRecordedThroughMillis = now
+    
+        if (repository != null && sessionId != null) {
+            viewModelScope.launch {
+                historySaveMutex.withLock {
+                    repository.deleteSession(sessionId)
+                }
+            }
+        }
+    }
     /**
      * Duration uses wall time (never more than real time, even in 60x dev mode) and only
      * counts direct sun, so "time in the sun" excludes shade; shade still adds its dose.

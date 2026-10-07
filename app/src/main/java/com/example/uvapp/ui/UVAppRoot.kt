@@ -23,14 +23,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -49,6 +52,9 @@ import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
+import com.example.uvapp.ui.microphone.rememberMicrophonePermissionRequester
+import com.example.uvapp.ui.camera.rememberCameraPermissionRequester
+import com.example.uvapp.ui.activityrecognition.rememberActivityRecognitionPermissionRequester
 import com.example.uvapp.ui.screens.ForecastScreen
 import com.example.uvapp.ui.screens.SunLogScreen
 import com.example.uvapp.ui.screens.HomeScreen
@@ -150,45 +156,63 @@ fun UVAppRoot(
         onDispose { lifecycle.removeObserver(observer); indoorViewModel.setVisible(false) }
     }
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
-    var optionalPermissionRevision by remember { mutableIntStateOf(0) }
-    val optionalSensorPermissions =
-        remember {
-            buildList {
-                add(android.Manifest.permission.RECORD_AUDIO)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    add(android.Manifest.permission.ACTIVITY_RECOGNITION)
-                }
-            }
+    // Enhanced Sensing rationale dialog state
+    var showEnhanceSensingRationale: Boolean by remember { mutableStateOf(false) }
+    // -------- Serial permission chain: Mic -> Camera -> Activity Recognition --------
+    
+    // Step 3: Activity Recognition (Android 10+)
+    val requestActivityRecognition = rememberActivityRecognitionPermissionRequester(
+        onPermissionGranted = {
+            // All permissions granted, finally enable enhanced sensing
+            settingsViewModel.setEnhancedSensingEnabled(true)
+        },
+        onPermissionDenied = {
+            settingsViewModel.setEnhancedSensingEnabled(false)
         }
-    val optionalSensorPermissionLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            if (results[android.Manifest.permission.POST_NOTIFICATIONS] == true) mainViewModel.onSunscreenNotificationsAllowed()
-            optionalPermissionRevision++
-            if (mainViewModel.state.value.exposureStarted) {
-                monitoringController.stop()
-                monitoringController.start()
+    )
+    // Step 2: Camera
+    val requestCamera = rememberCameraPermissionRequester(
+        onPermissionGranted = {
+            // Camera OK. Activity Recognition only exists on Android Q+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                requestActivityRecognition()
+            } else {
+                // Older Android: no ACTIVITY_RECOGNITION permission needed, done
+                settingsViewModel.setEnhancedSensingEnabled(true)
             }
+        },
+        onPermissionDenied = {
+            settingsViewModel.setEnhancedSensingEnabled(false)
         }
+    )
+    // Step 1: Microphone
+    val requestMicrophone = rememberMicrophonePermissionRequester(
+        onPermissionGranted = {
+            // Mic OK, move on to camera
+            requestCamera()
+        },
+        onPermissionDenied = {
+            settingsViewModel.setEnhancedSensingEnabled(false)
+        }
+    )
     val toggleEnhancedSensing: () -> Unit = {
-        val enable = !settingsState.enhancedSensingEnabled
-        settingsViewModel.setEnhancedSensingEnabled(enable)
-        if (enable) {
-            val missing =
-                optionalSensorPermissions.filter { permission ->
-                    androidx.core.content.ContextCompat.checkSelfPermission(applicationContext, permission) !=
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-            if (missing.isEmpty()) optionalPermissionRevision++
-            else optionalSensorPermissionLauncher.launch(missing.toTypedArray())
+        val currentEnabled = settingsState.enhancedSensingEnabled
+        val wantEnable = !currentEnabled
+        if (wantEnable) {
+            // User wants ON: show rationale dialog first
+            showEnhanceSensingRationale = true
         } else {
+            // User wants OFF: stop hardware directly, no dialog, no permission flow
+            settingsViewModel.setEnhancedSensingEnabled(false)
             microphoneMonitor.stop()
+            // TODO later: cameraMonitor.stop()
         }
     }
+   
     DisposableEffect(
         lifecycle,
         microphoneMonitor,
         settingsState.enhancedSensingEnabled,
-        optionalPermissionRevision,
     ) {
         fun updateOptionalSensors() {
             if (
@@ -240,6 +264,36 @@ fun UVAppRoot(
 
     UvAppTheme(themeMode = settingsState.themeMode, accent = settingsState.accent) {
         IndoorSuggestionDialog(indoorViewModel, indoorState)
+        if (showEnhanceSensingRationale) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showEnhanceSensingRationale = false },
+                title = { Text("Enable Enhanced Sensing") },
+                text = {
+                    Text(
+                        "Enabling Enhanced Sensing requests permissions to improve UV light estimation:\n" +
+                                "• Microphone: Helps detect outdoor ambient noise\n" +
+                                "• Camera: Reads brightness to calibrate the ambient light sensor. No photos will be saved.\n" +
+                                "• Activity recognition: Detects walking, stillness and movement to refine sun exposure estimates\n\n" +
+                                "All data stays local on your device. If permissions are denied, enhanced sensing will be disabled, and core UV features still work."
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showEnhanceSensingRationale = false
+                        requestMicrophone()
+                    }) {
+                        Text("Continue")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showEnhanceSensingRationale = false
+                    }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
         Box(
             Modifier
                 .fillMaxSize()
