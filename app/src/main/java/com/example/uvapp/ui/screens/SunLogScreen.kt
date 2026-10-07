@@ -47,6 +47,7 @@ import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.MainUiState
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.Duration
 import java.util.Locale
 import kotlin.math.roundToLong
 
@@ -260,7 +261,16 @@ private fun WeekChartCard(
                         size = Size(barWidth, size.height),
                         cornerRadius = corner,
                     )
-                    val fraction = ExposureCalculator.calculateExposureFraction(limitSed, day.doseSed).toFloat()
+                    val fraction =
+                        if (showTime) {
+                            (day.activeDurationMillis.toFloat() / Duration.ofHours(24).toMillis())
+                                .coerceIn(0f, 1f)
+                        } else {
+                            ExposureCalculator.calculateExposureFraction(
+                                limitSed,
+                                day.doseSed,
+                            ).toFloat()
+                        }
                     if (fraction > 0f) {
                         val barHeight = size.height * fraction
                         drawRoundRect(
