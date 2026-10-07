@@ -455,16 +455,17 @@ class MainViewModel(
     fun onResetSession(save: Boolean) {
         if (!_state.value.exposureStarted) return
         if (save) {
-            val pauseEvent = exposureSession.pause(exposureClockMillis, ExposurePauseReason.RESET)
+            val pauseEvent =
+                exposureSession.pause(
+                    exposureClockMillis,
+                    ExposurePauseReason.RESET,
+                )
+    
             syncExposure()
             publishExposure(pauseEvent)
         }
+    
         restartExposureSession()
-    }
-
-    fun onResetTimer() {
-        restartExposureSession()
-        pauseNewSessionIfAlreadyIndoor()
     }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
