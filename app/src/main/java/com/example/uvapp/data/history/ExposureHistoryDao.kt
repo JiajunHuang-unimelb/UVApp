@@ -24,11 +24,17 @@ abstract class ExposureHistoryDao {
 
     @Query(
         """
-        SELECT epochDay, SUM(activeDurationMillis) AS activeDurationMillis,
+        SELECT epochDay,
+               SUM(activeDurationMillis) AS activeDurationMillis,
+               SUM(directSunDurationMillis) AS directSunDurationMillis,
+               SUM(shadeDurationMillis) AS shadeDurationMillis,
+               SUM(unknownDurationMillis) AS unknownDurationMillis,
                SUM(doseSed) AS doseSed,
                SUM(CASE WHEN activeDurationMillis > 0 THEN 1 ELSE 0 END) AS sessionCount
-        FROM exposure_days WHERE epochDay >= :startDay AND epochDay < :endDay
-        GROUP BY epochDay ORDER BY epochDay ASC
+        FROM exposure_days
+        WHERE epochDay >= :startDay AND epochDay < :endDay
+        GROUP BY epochDay
+        ORDER BY epochDay ASC
         """,
     )
     abstract fun observeDaily(
@@ -54,40 +60,89 @@ abstract class ExposureHistoryDao {
         validateForStorage(record)
         val previous = getSession(record.sessionId)?.session
         if (previous != null) {
-            require(record.startedAtMillis == previous.startedAtMillis && record.zoneId == previous.zoneId) {
+            require(
+                record.startedAtMillis == previous.startedAtMillis &&
+                    record.zoneId == previous.zoneId,
+            ) {
                 "Session start and timezone cannot change"
             }
-            require(record.recordedThroughMillis >= previous.recordedThroughMillis) { "Checkpoint time cannot go backwards" }
+            require(record.recordedThroughMillis >= previous.recordedThroughMillis) {
+                "Checkpoint time cannot go backwards"
+            }
         }
+
         // REPLACE removes the old parent's daily rows through the foreign-key cascade.
         insertSession(
             ExposureSessionEntity(
-                record.sessionId,
-                record.startedAtMillis,
-                record.recordedThroughMillis,
-                record.zoneId,
-                record.status.name,
+                sessionId = record.sessionId,
+                startedAtMillis = record.startedAtMillis,
+                recordedThroughMillis = record.recordedThroughMillis,
+                zoneId = record.zoneId,
+                status = record.status.name,
             ),
         )
+
         insertDays(
             record.days.map {
-                ExposureDayEntity(record.sessionId, it.date.toEpochDay(), it.activeDurationMillis, it.doseSed)
+                ExposureDayEntity(
+                    sessionId = record.sessionId,
+                    epochDay = it.date.toEpochDay(),
+                    activeDurationMillis = it.activeDurationMillis,
+                    directSunDurationMillis = it.directSunDurationMillis,
+                    shadeDurationMillis = it.shadeDurationMillis,
+                    unknownDurationMillis = it.unknownDurationMillis,
+                    doseSed = it.doseSed,
+                )
             },
         )
     }
 
     /** Storage shape and numeric checks only; the producer owns exposure and calendar calculations. */
     private fun validateForStorage(record: ExposureRecord) {
-        require(record.sessionId.isNotBlank() && record.sessionId.length <= 128) { "sessionId must contain 1..128 characters" }
-        require(record.startedAtMillis >= 0 && record.recordedThroughMillis >= record.startedAtMillis) { "Invalid session time range" }
-        ZoneId.of(record.zoneId)
-        require(record.days.map { it.date }.distinct().size == record.days.size) { "Duplicate day in snapshot" }
-        for (day in record.days) {
-            require(day.activeDurationMillis >= 0) { "Active duration must be non-negative" }
-            require(day.doseSed.isFinite() && day.doseSed >= 0) { "Dose must be finite and non-negative SED" }
+        require(
+            record.sessionId.isNotBlank() &&
+                record.sessionId.length <= 128,
+        ) {
+            "sessionId must contain 1..128 characters"
         }
+
+        require(
+            record.startedAtMillis >= 0 &&
+                record.recordedThroughMillis >= record.startedAtMillis,
+        ) {
+            "Invalid session time range"
+        }
+
+        ZoneId.of(record.zoneId)
+
+        require(record.days.map { it.date }.distinct().size == record.days.size) {
+            "Duplicate day in snapshot"
+        }
+
+        for (day in record.days) {
+            require(day.activeDurationMillis >= 0) {
+                "Active duration must be non-negative"
+            }
+            require(day.directSunDurationMillis >= 0) {
+                "Direct sun duration must be non-negative"
+            }
+            require(day.shadeDurationMillis >= 0) {
+                "Shade duration must be non-negative"
+            }
+            require(day.unknownDurationMillis >= 0) {
+                "Unknown duration must be non-negative"
+            }
+            require(day.doseSed.isFinite() && day.doseSed >= 0) {
+                "Dose must be finite and non-negative SED"
+            }
+        }
+
         // Check representable totals, without comparing them to elapsed session time.
-        require(record.activeDurationMillis >= 0) { "Total active duration must fit in Long" }
-        require(record.doseSed.isFinite()) { "Total dose overflow" }
+        require(record.activeDurationMillis >= 0) {
+            "Total active duration must fit in Long"
+        }
+        require(record.doseSed.isFinite()) {
+            "Total dose overflow"
+        }
     }
 }

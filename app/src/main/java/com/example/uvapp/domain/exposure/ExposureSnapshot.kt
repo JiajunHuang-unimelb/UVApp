@@ -14,6 +14,13 @@ data class ExposureSnapshot(
     val estimatedRemainingMinutes: Double?,
     val estimatedRemainingSeconds: Long?,
     val estimatedTotalSeconds: Long?,
+
+    // Exposure duration breakdown.
+    // activeDurationMillis is the sum of the three context durations.
+    val activeDurationMillis: Long,
+    val directSunDurationMillis: Long,
+    val shadeDurationMillis: Long,
+    val unknownDurationMillis: Long,
 ) {
     val isStarted: Boolean get() = status != ExposureStatus.NOT_STARTED
     val isRunning: Boolean get() = status == ExposureStatus.RUNNING

@@ -2,7 +2,6 @@ package com.example.uvapp.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -42,14 +41,13 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
     Column(panelModifier) {
         if (settings) {
-            Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(2.dp))
             Text(
                 if (state.data.locations.isEmpty()) "Automatic indoor detection needs a saved location. Manual tracking is available."
                 else "Used to pause tracking when you're inside.",
                 color = colors.textSecondary,
                 fontSize = 12.sp,
-                lineHeight = 17.sp,
             )
         } else {
             Text("Indoor locations", style = MaterialTheme.typography.titleMedium)
@@ -61,13 +59,7 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
         if (!state.data.invitationDismissed && state.data.locations.isEmpty()) {
             Text("Save Home, University or Work to get started.", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
-            // Plain clickable text (not TextButton) so it lines up with the text above it.
-            Text(
-                "Not now",
-                color = if (settings) colors.accent else Color.Unspecified,
-                lineHeight = 20.sp,
-                modifier = Modifier.clickable { vm.dismissInvitation() }.padding(vertical = 14.dp),
-            )
+            TextButton(onClick = { vm.dismissInvitation() }) { Text("Not now", color = if (settings) colors.accent else Color.Unspecified) }
         }
         if (settings) {
             Spacer(Modifier.height(8.dp))
@@ -131,13 +123,15 @@ private val INDOOR_PLACE_PRESETS = listOf("Home", "University", "Work")
 /** Developer-only switch for the in-memory demo radius; lives in the Settings Developer card. */
 @Composable
 fun IndoorDemoToggle(vm: IndoorLocationsViewModel, state: IndoorLocationsUiState) {
-    // Same row as the other Settings toggles, so it lines up with them.
-    SettingsSwitchRow(
-        title = "Demo: University Square radius",
-        subtitle = if (state.demoEnabled) "Demonstration coordinates only; not a saved indoor building." else null,
-        checked = state.demoEnabled,
-        onToggle = { vm.setDemoEnabled(!state.demoEnabled) },
-    )
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = state.demoEnabled, onCheckedChange = vm::setDemoEnabled)
+            Text("Demo: University Square radius")
+        }
+        if (state.demoEnabled) {
+            Text("Demonstration coordinates only; not a saved indoor building.", color = UvTheme.textSecondary, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
 
 @Composable

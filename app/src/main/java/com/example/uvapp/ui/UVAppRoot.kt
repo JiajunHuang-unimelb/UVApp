@@ -4,8 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -25,15 +23,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Text
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -48,9 +46,13 @@ import com.example.uvapp.platform.environment.AndroidExposureMonitoringControlle
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
+import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
+import com.example.uvapp.ui.microphone.rememberMicrophonePermissionRequester
+import com.example.uvapp.ui.camera.rememberCameraPermissionRequester
+import com.example.uvapp.ui.activityrecognition.rememberActivityRecognitionPermissionRequester
 import com.example.uvapp.ui.screens.ForecastScreen
 import com.example.uvapp.ui.screens.SunLogScreen
 import com.example.uvapp.ui.screens.HomeScreen
@@ -59,7 +61,6 @@ import com.example.uvapp.ui.theme.UvAppTheme
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
-import com.example.uvapp.viewmodel.SUN_LOG_WEEK_COUNT
 import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
 
@@ -70,7 +71,6 @@ import com.example.uvapp.viewmodel.Tab
  * [requestedTab] comes from a launch intent (the weekly widget); it is applied once
  * and then cleared through [onRequestedTabHandled].
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UVAppRoot(
     requestedTab: Tab? = null,
@@ -87,18 +87,26 @@ fun UVAppRoot(
         remember(applicationContext) { DataStoreUserPreferencesRepository(applicationContext) }
     val environmentContextProvider = AndroidEnvironmentContextProvider
     val monitoringController =
-        remember(applicationContext) { AndroidExposureMonitoringController(applicationContext) }
+        remember(applicationContext) {
+            AndroidExposureMonitoringController(applicationContext)
+        }
     val alertGateway =
         remember(applicationContext) { AndroidExposureAlertGateway(applicationContext) }
     val microphoneMonitor =
-        remember(applicationContext) { AndroidMicrophoneEnvironmentMonitor(applicationContext) }
+        remember(applicationContext) {
+            AndroidMicrophoneEnvironmentMonitor(applicationContext)
+        }
     val historyRepository =
-        remember(applicationContext) { ExposureHistoryRepositoryFactory.create(applicationContext) }
+        remember(applicationContext) {
+            ExposureHistoryRepositoryFactory.create(applicationContext)
+        }
     val sunProtectionNotifier =
         remember(applicationContext) { SunProtectionNotifier(applicationContext) }
+
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
+
     val mainViewModel: MainViewModel = viewModel {
         MainViewModel(
             settingsViewModel = settingsViewModel,
@@ -109,29 +117,37 @@ fun UVAppRoot(
             monitoringController = monitoringController,
             alertGateway = alertGateway,
             historyRepository = historyRepository,
-            onHistorySaved = { WeeklyExposureWidget().updateAll(applicationContext) },
+            onHistorySaved = {
+                WeeklyExposureWidget().updateAll(applicationContext)
+            },
             onSunProtectionAlert = sunProtectionNotifier::show,
             sunscreenAppliedEvents = SunscreenAppliedEvents.events,
         )
     }
+
     LaunchedEffect(requestedTab) {
         if (requestedTab != null) {
-            // The widget shows this week's total, so it always opens Sun log on this week.
-            if (requestedTab == Tab.SUN_LOG) mainViewModel.onSunLogPageSettled(SUN_LOG_WEEK_COUNT - 1)
             mainViewModel.onTabSelected(requestedTab)
             onRequestedTabHandled()
         }
     }
+
     val forecastViewModel: ForecastViewModel = viewModel {
         ForecastViewModel(settingsViewModel, mainViewModel)
     }
 
-    val indoorRepository = remember { DataStoreIndoorLocationRepository(applicationContext) }
-    val notifier = remember { IndoorSuggestionNotifier(applicationContext) }
+    val indoorRepository =
+        remember { DataStoreIndoorLocationRepository(applicationContext) }
+    val notifier =
+        remember { IndoorSuggestionNotifier(applicationContext) }
+
     val indoorViewModel: IndoorLocationsViewModel = viewModel {
         IndoorLocationsViewModel(
             repository = indoorRepository,
-            location = FusedCurrentLocationProvider(applicationContext, freshOnly = true),
+            location = FusedCurrentLocationProvider(
+                applicationContext,
+                freshOnly = true,
+            ),
             main = mainViewModel,
             notifySuggestion = notifier::show,
             reportIndoorProximity = { near ->
@@ -139,62 +155,125 @@ fun UVAppRoot(
             },
         )
     }
+
     val indoorState by indoorViewModel.state.collectAsStateWithLifecycle()
-    val requestSave = rememberLocationPermissionRequester(onPermissionGranted = indoorViewModel::requestSave, onPermissionDenied = { indoorViewModel.permissionDenied() })
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { indoorViewModel.enableSuggestions(true) }
+
+    val requestSave = rememberLocationPermissionRequester(
+        onPermissionGranted = indoorViewModel::requestSave,
+        onPermissionDenied = { indoorViewModel.permissionDenied() },
+    )
+
+    val notificationPermission =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) {
+            indoorViewModel.enableSuggestions(true)
+        }
+
     val enableSuggestions: () -> Unit = {
-        if (android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        else indoorViewModel.enableSuggestions(true)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            notificationPermission.launch(
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            )
+        } else {
+            indoorViewModel.enableSuggestions(true)
+        }
     }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycle = lifecycleOwner.lifecycle
+
     DisposableEffect(lifecycle, indoorViewModel) {
-        fun updateVisibility() = indoorViewModel.setVisible(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-        val observer = LifecycleEventObserver { _, _ -> updateVisibility() }
+        fun updateVisibility() {
+            indoorViewModel.setVisible(
+                lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED),
+            )
+        }
+
+        val observer = LifecycleEventObserver { _, _ ->
+            updateVisibility()
+        }
+
         lifecycle.addObserver(observer)
         updateVisibility()
-        onDispose { lifecycle.removeObserver(observer); indoorViewModel.setVisible(false) }
+
+        onDispose {
+            lifecycle.removeObserver(observer)
+            indoorViewModel.setVisible(false)
+        }
     }
+
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
-    var optionalPermissionRevision by remember { mutableIntStateOf(0) }
-    val optionalSensorPermissions =
-        remember {
-            buildList {
-                add(android.Manifest.permission.RECORD_AUDIO)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    add(android.Manifest.permission.ACTIVITY_RECOGNITION)
+
+    // Enhanced Sensing rationale dialog state.
+    var showEnhanceSensingRationale by remember {
+        mutableStateOf(false)
+    }
+
+    // -------- Serial permission chain: Mic -> Camera -> Activity Recognition --------
+
+    // Step 3: Activity Recognition (Android 10+).
+    val requestActivityRecognition =
+        rememberActivityRecognitionPermissionRequester(
+            onPermissionGranted = {
+                // All permissions granted, finally enable enhanced sensing.
+                settingsViewModel.setEnhancedSensingEnabled(true)
+            },
+            onPermissionDenied = {
+                settingsViewModel.setEnhancedSensingEnabled(false)
+            },
+        )
+
+    // Step 2: Camera.
+    val requestCamera =
+        rememberCameraPermissionRequester(
+            onPermissionGranted = {
+                // Camera OK. Activity Recognition only exists on Android Q+.
+                if (android.os.Build.VERSION.SDK_INT >=
+                    android.os.Build.VERSION_CODES.Q
+                ) {
+                    requestActivityRecognition()
+                } else {
+                    // Older Android: no ACTIVITY_RECOGNITION permission needed.
+                    settingsViewModel.setEnhancedSensingEnabled(true)
                 }
-            }
-        }
-    val optionalSensorPermissionLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            if (results[android.Manifest.permission.POST_NOTIFICATIONS] == true) mainViewModel.onSunscreenNotificationsAllowed()
-            optionalPermissionRevision++
-            if (mainViewModel.state.value.exposureStarted) {
-                monitoringController.stop()
-                monitoringController.start()
-            }
-        }
+            },
+            onPermissionDenied = {
+                settingsViewModel.setEnhancedSensingEnabled(false)
+            },
+        )
+
+    // Step 1: Microphone.
+    val requestMicrophone =
+        rememberMicrophonePermissionRequester(
+            onPermissionGranted = {
+                // Mic OK, move on to camera.
+                requestCamera()
+            },
+            onPermissionDenied = {
+                settingsViewModel.setEnhancedSensingEnabled(false)
+            },
+        )
+
     val toggleEnhancedSensing: () -> Unit = {
-        val enable = !settingsState.enhancedSensingEnabled
-        settingsViewModel.setEnhancedSensingEnabled(enable)
-        if (enable) {
-            val missing =
-                optionalSensorPermissions.filter { permission ->
-                    androidx.core.content.ContextCompat.checkSelfPermission(applicationContext, permission) !=
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-            if (missing.isEmpty()) optionalPermissionRevision++
-            else optionalSensorPermissionLauncher.launch(missing.toTypedArray())
+        val currentEnabled = settingsState.enhancedSensingEnabled
+        val wantEnable = !currentEnabled
+
+        if (wantEnable) {
+            // User wants ON: show rationale dialog first.
+            showEnhanceSensingRationale = true
         } else {
+            // User wants OFF: stop hardware directly, no permission flow.
+            settingsViewModel.setEnhancedSensingEnabled(false)
             microphoneMonitor.stop()
+            // TODO later: cameraMonitor.stop()
         }
     }
+
     DisposableEffect(
         lifecycle,
         microphoneMonitor,
         settingsState.enhancedSensingEnabled,
-        optionalPermissionRevision,
     ) {
         fun updateOptionalSensors() {
             if (
@@ -206,49 +285,101 @@ fun UVAppRoot(
                 microphoneMonitor.stop()
             }
         }
-        val observer = LifecycleEventObserver { _, _ -> updateOptionalSensors() }
+
+        val observer = LifecycleEventObserver { _, _ ->
+            updateOptionalSensors()
+        }
+
         lifecycle.addObserver(observer)
         updateOptionalSensors()
+
         onDispose {
             lifecycle.removeObserver(observer)
             microphoneMonitor.stop()
         }
     }
-    LaunchedEffect(settingsState.notificationsEnabled) { indoorViewModel.setNotificationsEnabled(settingsState.notificationsEnabled) }
-    val mainState by mainViewModel.state.collectAsStateWithLifecycle()
-    // Sunscreen reminders need notifications (13+) and, for US-18, the step counter (10+).
-    LaunchedEffect(mainState.exposureStarted, settingsState.sunscreenRemindersEnabled) {
-        if (!mainState.exposureStarted || !settingsState.sunscreenRemindersEnabled) return@LaunchedEffect
-        val missing =
-            buildList {
-                if (android.os.Build.VERSION.SDK_INT >= 33) add(android.Manifest.permission.POST_NOTIFICATIONS)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) add(android.Manifest.permission.ACTIVITY_RECOGNITION)
-            }.filter { permission ->
-                androidx.core.content.ContextCompat.checkSelfPermission(applicationContext, permission) !=
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-            }
-        if (missing.isNotEmpty()) optionalSensorPermissionLauncher.launch(missing.toTypedArray())
+
+    LaunchedEffect(settingsState.notificationsEnabled) {
+        indoorViewModel.setNotificationsEnabled(settingsState.notificationsEnabled)
     }
-    LaunchedEffect(mainState.devModeEnabled) { if (!mainState.devModeEnabled) indoorViewModel.setDemoEnabled(false) }
+
+    val mainState by mainViewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(mainState.devModeEnabled) {
+        if (!mainState.devModeEnabled) {
+            indoorViewModel.setDemoEnabled(false)
+        }
+    }
+
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
-    // Pull-to-refresh spinner: on from the pull until the refresh it starts finishes loading.
-    var pullRefreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(mainState.isLoading) { if (!mainState.isLoading) pullRefreshing = false }
+
     val requestCurrentLocation =
         rememberLocationPermissionRequester(
             onPermissionGranted = {
                 mainViewModel.onUseCurrentLocation()
-                if (mainViewModel.state.value.exposureStarted) monitoringController.start()
+                if (mainViewModel.state.value.exposureStarted) {
+                    monitoringController.start()
+                }
             },
             onPermissionDenied = mainViewModel::onLocationPermissionDenied,
         )
 
     LaunchedEffect(mainViewModel) {
-        if (mainViewModel.state.value.locationFix == null) requestCurrentLocation()
+        if (mainViewModel.state.value.locationFix == null) {
+            requestCurrentLocation()
+        }
     }
 
-    UvAppTheme(themeMode = settingsState.themeMode, accent = settingsState.accent) {
+    UvAppTheme(
+        themeMode = settingsState.themeMode,
+        accent = settingsState.accent,
+    ) {
         IndoorSuggestionDialog(indoorViewModel, indoorState)
+
+        if (showEnhanceSensingRationale) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = {
+                    showEnhanceSensingRationale = false
+                },
+                title = {
+                    Text("Enable Enhanced Sensing")
+                },
+                text = {
+                    Text(
+                        "Enabling Enhanced Sensing requests permissions to improve UV " +
+                            "light estimation:\n" +
+                            "• Microphone: Helps detect outdoor ambient noise\n" +
+                            "• Camera: Reads brightness to calibrate the ambient light " +
+                            "sensor. No photos will be saved.\n" +
+                            "• Activity recognition: Detects walking, stillness and " +
+                            "movement to refine sun exposure estimates\n\n" +
+                            "All data stays local on your device. If permissions are " +
+                            "denied, enhanced sensing will be disabled, and core UV " +
+                            "features still work.",
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showEnhanceSensingRationale = false
+                            requestMicrophone()
+                        },
+                    ) {
+                        Text("Continue")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showEnhanceSensingRationale = false
+                        },
+                    ) {
+                        Text("Cancel")
+                    }
+                },
+            )
+        }
+
         Box(
             Modifier
                 .fillMaxSize()
@@ -260,8 +391,38 @@ fun UVAppRoot(
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
-                if (mainState.selectedTab == Tab.SETTINGS) {
-                    SettingsScreen(
+                when (mainState.selectedTab) {
+                    Tab.HOME -> HomeScreen(
+                        viewModel = mainViewModel,
+                        state = mainState,
+                        onLocate = requestCurrentLocation,
+                        indoorContent = {
+                            IndoorLocationsPanel(
+                                indoorViewModel,
+                                indoorState,
+                                requestSave,
+                                enableSuggestions,
+                            )
+                        },
+                    )
+
+                    Tab.FORECAST -> ForecastScreen(
+                        state = forecastState,
+                        onSearchClick = mainViewModel::onSearchClick,
+                        onLocate = requestCurrentLocation,
+                        onSelectDay = forecastViewModel::selectDay,
+                        onSelectTime = forecastViewModel::selectTime,
+                        onCurrentTime = forecastViewModel::selectCurrentTime,
+                    )
+
+                    Tab.SUN_LOG -> SunLogScreen(
+                        state = mainState,
+                        onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
+                        onNextWeek = mainViewModel::onSunLogNextWeek,
+                        onShowTime = mainViewModel::onSunLogShowTime,
+                    )
+
+                    Tab.SETTINGS -> SettingsScreen(
                         viewModel = settingsViewModel,
                         state = settingsState,
                         indoorContent = {
@@ -273,47 +434,30 @@ fun UVAppRoot(
                                 settings = true,
                             )
                         },
-                        developerContent = { IndoorDemoToggle(indoorViewModel, indoorState) },
+                        developerContent = {
+                            IndoorDemoToggle(
+                                indoorViewModel,
+                                indoorState,
+                            )
+                        },
                         onEnhancedSensingToggle = toggleEnhancedSensing,
                     )
-                } else {
-                    // Pull down to refresh on every page except Settings. ForecastViewModel.refresh()
-                    // delegates to mainViewModel.onRefresh(); Sun log also re-anchors its weeks to today.
-                    PullToRefreshBox(
-                        isRefreshing = pullRefreshing,
-                        onRefresh = {
-                            pullRefreshing = true
-                            if (mainState.selectedTab == Tab.SUN_LOG) mainViewModel.observeSunLogWeeks()
-                            forecastViewModel.refresh()
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        when (mainState.selectedTab) {
-                            Tab.HOME -> HomeScreen(
-                                viewModel = mainViewModel,
-                                state = mainState,
-                                onLocate = requestCurrentLocation,
-                                indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions) },
-                            )
-                            Tab.FORECAST -> ForecastScreen(
-                                state = forecastState,
-                                onSearchClick = mainViewModel::onSearchClick,
-                                onLocate = requestCurrentLocation,
-                                onSelectDay = forecastViewModel::selectDay,
-                                onSelectTime = forecastViewModel::selectTime,
-                                onCurrentTime = forecastViewModel::selectCurrentTime,
-                            )
-                            else -> SunLogScreen(
-                                state = mainState,
-                                onPageSettled = mainViewModel::onSunLogPageSettled,
-                                onShowTime = mainViewModel::onSunLogShowTime,
-                            )
-                        }
-                    }
                 }
 
-                // Automatic loads show the thin top bar; a pull shows its own spinner instead.
-                TopLoadingBar(mainState.isLoading && !pullRefreshing, Modifier.align(Alignment.TopCenter))
+                TopLoadingBar(
+                    mainState.isLoading,
+                    Modifier.align(Alignment.TopCenter),
+                )
+
+                RefreshButton(
+                    isLoading = mainState.isLoading,
+                    // ForecastViewModel.refresh() delegates to mainViewModel.onRefresh().
+                    // Calling both here would fire the same refresh twice.
+                    onClick = forecastViewModel::refresh,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 4.dp, end = 16.dp),
+                )
 
                 BottomNav(
                     selected = mainState.selectedTab,
@@ -322,7 +466,10 @@ fun UVAppRoot(
                 )
 
                 if (mainState.showSearchDialog) {
-                    BackHandler { mainViewModel.onSearchDismiss() }
+                    BackHandler {
+                        mainViewModel.onSearchDismiss()
+                    }
+
                     SearchDialogOverlay(
                         query = mainState.searchQuery,
                         results = mainState.searchResults,

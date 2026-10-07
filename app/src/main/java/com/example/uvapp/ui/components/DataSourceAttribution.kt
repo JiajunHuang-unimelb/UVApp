@@ -4,11 +4,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -45,7 +45,7 @@ private fun SourceLink(label: String, url: String, modifier: Modifier = Modifier
     val uriHandler = LocalUriHandler.current
     Text(
         text = label,
-        modifier = modifier.minimumInteractiveComponentSize().clickable(role = Role.Button) { uriHandler.openUri(url) },
+        modifier = modifier.clickable(role = Role.Button) { uriHandler.openUri(url) }.padding(vertical = 8.dp),
         color = UvTheme.accent,
         fontSize = 12.sp,
         textDecoration = TextDecoration.Underline,

@@ -36,6 +36,8 @@ import com.example.uvapp.domain.model.UvForecastReading
 import com.example.uvapp.domain.repository.ExposureHistoryRepository
 import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
+import com.example.uvapp.domain.exposure.ExposureContextDetector
+import com.example.uvapp.domain.exposure.ExposureContextInput
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -54,9 +56,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-
-/** Weeks the Sun log can show: the current week plus the three before it. */
-const val SUN_LOG_WEEK_COUNT = 4
 
 /** Bottom-navigation destinations. */
 enum class Tab { HOME, FORECAST, SUN_LOG, SETTINGS }
@@ -85,6 +84,12 @@ private val LightContext.mockLux: Int
 
 /** Immutable snapshot of everything the Home page (and shared chrome) renders. */
 data class MainUiState(
+    /**exposure record */
+    val exposureSnapshot: ExposureSnapshot,
+    val activeSessionId: String? = null,
+    val activeSessionStartedAt: Long? = null,
+    val activeSessionZoneId: String? = null,
+
     val selectedTab: Tab = Tab.HOME,
     val showSearchDialog: Boolean = false,
     val searchQuery: String = "",
@@ -131,10 +136,8 @@ data class MainUiState(
     val spf: Int = 15,
     val devModeEnabled: Boolean = false,
     val dev: DevUiState = DevUiState(),
-    /** Sun log weeks, oldest first, current week last; empty until the first read arrives. */
-    val sunLogWeeks: List<ExposureWeeklySummary> = emptyList(),
-    /** Sun log page (index into [sunLogWeeks]) last settled on; starts on the current week. */
-    val sunLogPage: Int = SUN_LOG_WEEK_COUNT - 1,
+    /** Week shown on the Sun log tab; null until the first read arrives. */
+    val sunLogWeek: ExposureWeeklySummary? = null,
     /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
     val sunLogShowsTime: Boolean = false,
     val sunscreenRemindersEnabled: Boolean = true,
@@ -175,22 +178,10 @@ data class MainUiState(
         else -> LightContext.DIRECT_SUN
     }
 
-    /**
-     * Context used by the dose model. A covered phone cannot provide a trustworthy ambient-light
-     * reading: the user may still be standing in direct sun while the phone is in a pocket or bag.
-     * Treat that case as UNKNOWN, whose conservative dose factor is 1.0, unless saved-location and
-     * low-light evidence has already confirmed that the user is indoors.
-     */
-    val exposureContext: ExposureContext get() = when {
-        indoorDetected -> ExposureContext.INDOOR
-        effectiveDeviceOccluded == true -> ExposureContext.UNKNOWN
-        displayLux < LightContext.SHADE_MAX_LUX -> ExposureContext.SHADE
-        else -> ExposureContext.DIRECT_SUN
-    }
-
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
+
 }
 
 /**
@@ -216,10 +207,32 @@ class MainViewModel(
     private val sunscreenAppliedEvents: Flow<Unit>? = null,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(MainUiState())
+    private val _state = MutableStateFlow(
+        MainUiState(
+            exposureSnapshot = ExposureSnapshot(
+                status = ExposureStatus.NOT_STARTED,
+                skinType = SkinType.II,
+                uvIndex = 0.0,
+                context = ExposureContext.UNKNOWN,
+                accumulatedDoseSed = 0.0,
+                doseLimitSed = 1.0,
+                remainingDoseSed = 1.0,
+                exposureFraction = 0.0,
+                estimatedRemainingMinutes = null,
+                estimatedRemainingSeconds = null,
+                estimatedTotalSeconds = null,
+                activeDurationMillis = 0L,
+                directSunDurationMillis = 0L,
+                shadeDurationMillis = 0L,
+                unknownDurationMillis = 0L,
+            ),
+        ),
+    )
+
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
+    private val exposureContextDetector = ExposureContextDetector()
     private val sunProtection = SunProtectionTracker()
     private var exposureClockMillis = elapsedRealtimeMillis()
 
@@ -234,7 +247,8 @@ class MainViewModel(
 
     // Exposure history (see docs/exposure-tracking-api.md for the save contract).
     private val historySaveMutex = Mutex()
-    private var sunLogWeeksJob: Job? = null
+    private var sunLogWeekJob: Job? = null
+    private var sunLogWeekDate: LocalDate = todayDate()
     private var historySessionId: String? = null
     private var historyStartedAtMillis = 0L
     private var historyZoneId: ZoneId = ZoneId.systemDefault()
@@ -243,6 +257,9 @@ class MainViewModel(
     private var lastHistoryContext = ExposureContext.UNKNOWN
     private var lastHistoryWallMillis = 0L
     private var lastHistoryDoseSed = 0.0
+    private var lastHistoryDirectSunDurationMillis = 0L
+    private var lastHistoryShadeDurationMillis = 0L
+    private var lastHistoryUnknownDurationMillis = 0L
     private var lastHistorySaveWallMillis = 0L
     private var lastRecordedThroughMillis = 0L
 
@@ -285,7 +302,7 @@ class MainViewModel(
             viewModelScope.launch {
                 provider.samples.collect { sample ->
                     latestEnvironmentSample = sample
-                    val previousExposureContext = _state.value.exposureContext
+                    val previousExposureContext = detectExposureContext()
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
@@ -303,7 +320,10 @@ class MainViewModel(
                         )
                     }
                     evaluateIndoorTransition()
-                    if (_state.value.exposureContext != previousExposureContext) syncExposure()
+                    val currentExposureContext = detectExposureContext()
+                    if (currentExposureContext != previousExposureContext) {
+                        syncExposure()
+                    }
                 }
             }
         }
@@ -331,7 +351,7 @@ class MainViewModel(
             locate()
         }
 
-        observeSunLogWeeks()
+        observeSunLogWeek(sunLogWeekDate)
     }
 
     // ---- User actions -------------------------------------------------------
@@ -340,8 +360,13 @@ class MainViewModel(
 
     fun onSunLogShowTime(showTime: Boolean) = _state.update { it.copy(sunLogShowsTime = showTime) }
 
-    /** Remembers the week the Sun log pager settled on, so it survives tab switches. */
-    fun onSunLogPageSettled(page: Int) = _state.update { it.copy(sunLogPage = page) }
+    fun onSunLogPreviousWeek() = observeSunLogWeek(sunLogWeekDate.minusDays(7))
+
+    fun onSunLogNextWeek() {
+        val next = sunLogWeekDate.plusDays(7)
+        if (next.isAfter(todayDate())) return
+        observeSunLogWeek(next)
+    }
 
     fun onSearchClick() = _state.update { it.copy(showSearchDialog = true) }
 
@@ -443,9 +468,24 @@ class MainViewModel(
             locate()
         }
     }
-
+    
     fun onStartExposure() {
         restartExposureSession()
+    
+        val state = _state.value
+    
+        val snapshot =
+            exposureSession.start(
+                skinType = state.skinType,
+                uvIndex = state.displayUv,
+                nowElapsedMs = exposureClockMillis,
+                context = detectExposureContext(),
+            )
+    
+        publishExposure(snapshot)
+    
+        monitoringController?.start()
+    
         pauseNewSessionIfAlreadyIndoor()
     }
 
@@ -475,6 +515,17 @@ class MainViewModel(
     /** The first band alert fires before the permission prompt is answered; let it fire again. */
     fun onSunscreenNotificationsAllowed() = sunProtection.reset()
 
+    fun onResetSession(save: Boolean) {
+        if (!_state.value.exposureStarted) return
+    
+        if (save) {
+            closeHistorySession()
+        } else {
+            discardHistorySession()
+        }
+    
+        restartExposureSession()
+    }
     fun onResetTimer() {
         restartExposureSession()
         pauseNewSessionIfAlreadyIndoor()
@@ -486,10 +537,14 @@ class MainViewModel(
     fun onLuxChange(lux: Int) {
         if (_state.value.exposureStarted) return
         val clamped = lux.coerceIn(0, MAX_LUX)
-        val previous = _state.value.exposureContext
+        val previous = detectExposureContext()
+
         _state.update { it.copy(luxOverride = clamped) }
         evaluateIndoorTransition()
-        if (_state.value.exposureContext != previous) syncExposure()
+        val current = detectExposureContext()
+        if (current != previous) {
+            syncExposure()
+        }
     }
 
     // ---- Developer-mode overrides -------------------------------------------
@@ -505,26 +560,65 @@ class MainViewModel(
     }.also { syncExposure() }
 
     fun onOverrideLightToggle() {
-        val previous = _state.value.exposureContext
-        _state.update { it.copy(dev = it.dev.copy(overrideLight = !it.dev.overrideLight)) }
+        val previous = detectExposureContext()
+    
+        _state.update {
+            it.copy(
+                dev = it.dev.copy(
+                    overrideLight = !it.dev.overrideLight,
+                ),
+            )
+        }
+    
         evaluateIndoorTransition()
-        if (_state.value.exposureContext != previous) syncExposure()
+    
+        val current = detectExposureContext()
+    
+        if (current != previous) {
+            syncExposure()
+        }
     }
 
     fun onLightOverride(context: LightContext) {
-        val previous = _state.value.exposureContext
-        _state.update { it.copy(dev = it.dev.copy(lightOverride = context)) }
+        val previous = detectExposureContext()
+    
+        _state.update {
+            it.copy(
+                dev = it.dev.copy(
+                    lightOverride = context,
+                ),
+            )
+        }
+    
         evaluateIndoorTransition()
-        if (_state.value.exposureContext != previous) syncExposure()
+    
+        val current = detectExposureContext()
+    
+        if (current != previous) {
+            syncExposure()
+        }
     }
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
     fun onOccludedToggle() {
-        val previous = _state.value.exposureContext
-        _state.update { it.copy(dev = it.dev.copy(simulateOccluded = !it.dev.simulateOccluded)) }
+        val previous = detectExposureContext()
+    
+        _state.update {
+            it.copy(
+                dev = it.dev.copy(
+                    simulateOccluded = !it.dev.simulateOccluded,
+                ),
+            )
+        }
+    
         evaluateIndoorTransition()
-        if (_state.value.exposureContext != previous) syncExposure()
+    
+        val current = detectExposureContext()
+    
+        if (current != previous) {
+            syncExposure()
+        }
     }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
@@ -732,37 +826,44 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
-        closeHistorySession()
-        monitoringController?.start()
+        monitoringController?.stop()
+    
+        val dbSessionId = java.util.UUID.randomUUID().toString()
+        val sessionStartMs = exposureClockMillis
+        val zoneId = java.time.ZoneId.systemDefault().id
+    
+        exposureSession.clear(exposureClockMillis)
+    
         _state.update {
             it.copy(
                 exposureSessionId = it.exposureSessionId + 1,
                 luxOverride = null,
+                activeSessionId = dbSessionId,
+                activeSessionStartedAt = sessionStartMs,
+                activeSessionZoneId = zoneId,
+                exposureStatus = ExposureStatus.NOT_STARTED,
+                exposureStarted = false,
+                exposureRunning = false,
+                accumulatedDoseSed = 0.0,
+                exposureFraction = 0.0,
+                remainingSeconds = 0L,
+                totalBurnSeconds = 0L,
             )
         }
-        advanceExposureClock()
-        val state = _state.value
-        publishExposure(
-            exposureSession.start(
-                skinType = state.skinType,
-                uvIndex = state.displayUv,
-                nowElapsedMs = exposureClockMillis,
-                context = state.exposureContext,
-            ),
-        )
+    
+        publishExposure(exposureSession.snapshot())
     }
-
     /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
     private fun evaluateIndoorTransition() {
         val state = _state.value
         val target =
             when {
                 !state.indoorDetected &&
-                    state.isWithinSavedIndoorLocation &&
-                    state.displayLux < INDOOR_ENTER_LUX -> true
+                        state.isWithinSavedIndoorLocation &&
+                        state.displayLux < INDOOR_ENTER_LUX -> true
 
                 state.indoorDetected &&
-                    (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+                        (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
 
                 else -> null
             }
@@ -834,7 +935,7 @@ class MainViewModel(
         if (snapshot.uvIndex != state.displayUv) {
             snapshot = exposureSession.updateUvIndex(state.displayUv, exposureClockMillis)
         }
-        val exposureContext = state.exposureContext
+        val exposureContext = detectExposureContext()
         if (snapshot.context != exposureContext) {
             exposureSession.updateContext(exposureContext, exposureClockMillis)
         }
@@ -932,12 +1033,12 @@ class MainViewModel(
             if (snapshot.status == ExposureStatus.NOT_STARTED) return
             openHistorySession(now)
         } else {
-            addHistoryDelta(snapshot.accumulatedDoseSed, now)
+            addHistoryDelta(snapshot, now)
         }
         val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =
             snapshot.status == ExposureStatus.RUNNING &&
-                now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
+                    now - lastHistorySaveWallMillis >= HISTORY_CHECKPOINT_MILLIS
         lastHistoryStatus = snapshot.status
         lastHistoryContext = snapshot.context
         if (statusChanged || checkpointDue) saveHistory(toRecordStatus(snapshot.status), now)
@@ -948,60 +1049,197 @@ class MainViewModel(
         historyStartedAtMillis = now
         historyZoneId = ZoneId.systemDefault()
         historyDays.clear()
+    
         lastHistoryWallMillis = now
         lastHistoryDoseSed = 0.0
+        lastHistoryDirectSunDurationMillis = 0L
+        lastHistoryShadeDurationMillis = 0L
+        lastHistoryUnknownDurationMillis = 0L
+    
         lastHistorySaveWallMillis = now
         lastRecordedThroughMillis = now
     }
 
     /** Saves the session being replaced; called before start() resets the dose. */
     private fun closeHistorySession() {
-        if (historySessionId == null) return
+        val sessionId = historySessionId ?: return
+        val repository = historyRepository ?: return
+    
         val now = nowMillis()
-        addHistoryDelta(exposureSession.snapshot().accumulatedDoseSed, now)
-        saveHistory(ExposureRecordStatus.COMPLETED, now)
+    
+        // Settle the final exposure interval.
+        val snapshot = exposureSession.refresh(now)
+    
+        // Add the final dose/duration delta to the in-memory history.
+        addHistoryDelta(snapshot, now)
+    
+        lastHistoryStatus = snapshot.status
+        lastHistoryContext = snapshot.context
+    
+        val record = ExposureRecord(
+            sessionId = sessionId,
+            startedAtMillis = historyStartedAtMillis,
+            recordedThroughMillis = maxOf(lastRecordedThroughMillis, now),
+            zoneId = historyZoneId.id,
+            status = ExposureRecordStatus.COMPLETED,
+            days = historyDays.values.sortedBy { it.date },
+        )
+    
         historySessionId = null
+    
+        viewModelScope.launch {
+            historySaveMutex.withLock {
+                val saved = repository.save(record).isSuccess
+                val callback = onHistorySaved
+                if (saved && callback != null) {
+                    callback()
+                }
+            }
+        }
+    
+        exposureSession.clear(now)
     }
-
-    /**
-     * Duration uses wall time (never more than real time, even in 60x dev mode) and only
-     * counts direct sun, so "time in the sun" excludes shade; shade still adds its dose.
-     * A segment that crosses local midnight is split, with dose shared by time on each day.
-     */
-    private fun addHistoryDelta(doseSed: Double, now: Long) {
-        val from = lastHistoryWallMillis
-        val inDirectSun =
-            lastHistoryStatus == ExposureStatus.RUNNING && lastHistoryContext == ExposureContext.DIRECT_SUN
-        val doseDelta = doseSed - lastHistoryDoseSed
+    private fun discardHistorySession() {
+        val sessionId = historySessionId
+        val repository = historyRepository
+        val now = nowMillis()
+    
+        // Detach the history session immediately.
+        historySessionId = null
+    
+        // Discard all in-memory exposure data.
+        exposureSession.clear(now)
+    
+       // Reset history bookkeeping.
+        historyDays.clear()
+        lastHistoryDoseSed = 0.0
+        lastHistoryDirectSunDurationMillis = 0L
+        lastHistoryShadeDurationMillis = 0L
+        lastHistoryUnknownDurationMillis = 0L
         lastHistoryWallMillis = now
-        lastHistoryDoseSed = doseSed
-        // No wall time passed (or the clock went back): any dose goes to the current day.
+        lastHistoryStatus = ExposureStatus.NOT_STARTED
+        lastHistoryContext = ExposureContext.UNKNOWN
+        lastHistorySaveWallMillis = now
+        lastRecordedThroughMillis = now
+    
+        if (repository != null && sessionId != null) {
+            viewModelScope.launch {
+                historySaveMutex.withLock {
+                    repository.deleteSession(sessionId)
+                }
+            }
+        }
+    }
+    /**
+     * Adds the cumulative SessionManager deltas to the per-day history.
+     *
+     * Duration is taken from ExposureSnapshot, so SessionManager remains the source
+     * of truth for DIRECT_SUN / SHADE / UNKNOWN time.
+     *
+     * A segment that crosses local midnight is split by wall-clock time.
+     * Dose is also split proportionally across the affected calendar days.
+     */
+    private fun addHistoryDelta(snapshot: ExposureSnapshot, now: Long) {
+        val from = lastHistoryWallMillis
+    
+        val doseDelta = snapshot.accumulatedDoseSed - lastHistoryDoseSed
+        val directSunDelta =
+            snapshot.directSunDurationMillis - lastHistoryDirectSunDurationMillis
+        val shadeDelta =
+            snapshot.shadeDurationMillis - lastHistoryShadeDurationMillis
+        val unknownDelta =
+            snapshot.unknownDurationMillis - lastHistoryUnknownDurationMillis
+    
+        lastHistoryWallMillis = now
+        lastHistoryDoseSed = snapshot.accumulatedDoseSed
+        lastHistoryDirectSunDurationMillis = snapshot.directSunDurationMillis
+        lastHistoryShadeDurationMillis = snapshot.shadeDurationMillis
+        lastHistoryUnknownDurationMillis = snapshot.unknownDurationMillis
+    
         if (now <= from) {
-            addToHistoryDay(historyDate(now), 0L, doseDelta)
+            addToHistoryDay(
+                date = historyDate(now),
+                activeDurationMillis = directSunDelta + shadeDelta + unknownDelta,
+                directSunDurationMillis = directSunDelta,
+                shadeDurationMillis = shadeDelta,
+                unknownDurationMillis = unknownDelta,
+                doseDelta = doseDelta,
+            )
             return
         }
+    
+        val elapsedWallMillis = now - from
+    
         var start = from
+    
         while (start < now) {
             val date = historyDate(start)
-            val nextMidnight = date.plusDays(1).atStartOfDay(historyZoneId).toInstant().toEpochMilli()
+    
+            val nextMidnight =
+                date
+                    .plusDays(1)
+                    .atStartOfDay(historyZoneId)
+                    .toInstant()
+                    .toEpochMilli()
+    
             val end = minOf(now, nextMidnight)
-            val share = (end - start).toDouble() / (now - from)
-            addToHistoryDay(date, if (inDirectSun) end - start else 0L, doseDelta * share)
+    
+            val share =
+                (end - start).toDouble() / elapsedWallMillis.toDouble()
+    
+            addToHistoryDay(
+                date = date,
+                activeDurationMillis =
+                    ((directSunDelta + shadeDelta + unknownDelta) * share).toLong(),
+                directSunDurationMillis = (directSunDelta * share).toLong(),
+                shadeDurationMillis = (shadeDelta * share).toLong(),
+                unknownDurationMillis = (unknownDelta * share).toLong(),
+                doseDelta = doseDelta * share,
+            )
+    
             start = end
         }
     }
-
     private fun historyDate(millis: Long): LocalDate =
         Instant.ofEpochMilli(millis).atZone(historyZoneId).toLocalDate()
 
-    private fun addToHistoryDay(date: LocalDate, durationMillis: Long, doseDelta: Double) {
-        if (durationMillis == 0L && doseDelta <= 0.0) return
+    private fun addToHistoryDay(
+        date: LocalDate,
+        activeDurationMillis: Long,
+        directSunDurationMillis: Long,
+        shadeDurationMillis: Long,
+        unknownDurationMillis: Long,
+        doseDelta: Double,
+    ) {
+        if (activeDurationMillis == 0L && doseDelta <= 0.0) return
+    
         val previous = historyDays[date]
+    
         if (previous == null) {
-            historyDays[date] = ExposureDayTotal(date, durationMillis, doseDelta)
+            historyDays[date] =
+                ExposureDayTotal(
+                    date = date,
+                    activeDurationMillis = activeDurationMillis,
+                    directSunDurationMillis = directSunDurationMillis,
+                    shadeDurationMillis = shadeDurationMillis,
+                    unknownDurationMillis = unknownDurationMillis,
+                    doseSed = doseDelta,
+                )
         } else {
             historyDays[date] =
-                ExposureDayTotal(date, previous.activeDurationMillis + durationMillis, previous.doseSed + doseDelta)
+                ExposureDayTotal(
+                    date = date,
+                    activeDurationMillis =
+                        previous.activeDurationMillis + activeDurationMillis,
+                    directSunDurationMillis =
+                        previous.directSunDurationMillis + directSunDurationMillis,
+                    shadeDurationMillis =
+                        previous.shadeDurationMillis + shadeDurationMillis,
+                    unknownDurationMillis =
+                        previous.unknownDurationMillis + unknownDurationMillis,
+                    doseSed =
+                        previous.doseSed + doseDelta,
+                )
         }
     }
 
@@ -1037,25 +1275,17 @@ class MainViewModel(
             else -> ExposureRecordStatus.ACTIVE
         }
 
-    /**
-     * Loads every viewable Sun log week (the current Mon-Sun week and the ones before it)
-     * with one daily query, so all pager pages are ready before the user swipes. Called again
-     * by pull-to-refresh, which re-anchors the range to today.
-     */
-    fun observeSunLogWeeks() {
+    private fun observeSunLogWeek(date: LocalDate) {
         val repository = historyRepository ?: return
-        val today = todayDate()
-        val currentWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
-        val firstWeekStart = currentWeekStart.minusWeeks((SUN_LOG_WEEK_COUNT - 1).toLong())
-        val daysFlow = repository.observeDaily(firstWeekStart, currentWeekStart.plusWeeks(1))
-        sunLogWeeksJob?.cancel()
-        sunLogWeeksJob = viewModelScope.launch {
-            // observeDaily returns every day in the range (zero when empty), so 7-day chunks are weeks.
-            daysFlow.collect { days ->
-                val weeks = days.chunked(7).map { weekDays -> ExposureWeeklySummary(weekDays.first().date, weekDays) }
-                _state.update { it.copy(sunLogWeeks = weeks) }
+        sunLogWeekDate = date
+        val weekFlow = repository.observeWeek(date)
+        sunLogWeekJob?.cancel()
+        sunLogWeekJob =
+            viewModelScope.launch {
+                weekFlow.collect { week ->
+                    _state.update { it.copy(sunLogWeek = week) }
+                }
             }
-        }
     }
 
     private fun todayDate(): LocalDate =
@@ -1071,7 +1301,21 @@ class MainViewModel(
 
     private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
         minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
-
+    private fun detectExposureContext(): ExposureContext {
+        val state = _state.value
+    
+        return exposureContextDetector.detect(
+            ExposureContextInput(
+                indoorDetected = state.indoorDetected,
+                lux = state.displayLux,
+                deviceOccluded = state.effectiveDeviceOccluded,
+                isMoving = state.effectiveIsMoving,
+                nearIndoorLocation = state.isWithinSavedIndoorLocation,
+                acousticContext = state.effectiveAcousticContext,
+                posture = state.devicePosture,
+            ),
+        )
+    }
     private companion object {
         const val DEFAULT_LUX = 38_200
         const val MAX_LUX = 100_000
