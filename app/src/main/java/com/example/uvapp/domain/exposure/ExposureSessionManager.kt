@@ -7,6 +7,11 @@ class ExposureSessionManager {
     private var currentUvIndex = 0.0
     private var currentContext = ExposureContext.UNKNOWN
     private var accumulatedDoseSed = 0.0
+
+    private var directSunDurationMillis = 0L
+    private var shadeDurationMillis = 0L
+    private var unknownDurationMillis = 0L
+
     private var status = ExposureStatus.NOT_STARTED
     private var lastElapsedMs: Long? = null
 
@@ -20,6 +25,9 @@ class ExposureSessionManager {
         currentUvIndex = uvIndex.coerceAtLeast(0.0)
         currentContext = context
         accumulatedDoseSed = 0.0
+        directSunDurationMillis = 0L
+        shadeDurationMillis = 0L
+        unknownDurationMillis = 0L
         status = ExposureStatus.RUNNING
         lastElapsedMs = nowElapsedMs
         return snapshot()
@@ -51,6 +59,9 @@ class ExposureSessionManager {
     fun clear(nowElapsedMs: Long): ExposureSnapshot {
         settleExposure(nowElapsedMs)
         accumulatedDoseSed = 0.0
+        directSunDurationMillis = 0L
+        shadeDurationMillis = 0L
+        unknownDurationMillis = 0L
         status = ExposureStatus.NOT_STARTED
         lastElapsedMs = null
         return snapshot()
@@ -88,7 +99,12 @@ class ExposureSessionManager {
 
     fun snapshot(): ExposureSnapshot {
         val doseLimitSed = ExposureCalculator.calculatePersonalDoseLimit(skinType)
-        val remainingDoseSed = ExposureCalculator.calculateRemainingDose(doseLimitSed, accumulatedDoseSed)
+        val remainingDoseSed =
+            ExposureCalculator.calculateRemainingDose(
+                doseLimitSed,
+                accumulatedDoseSed,
+            )
+
         return ExposureSnapshot(
             status = status,
             skinType = skinType,
@@ -97,7 +113,11 @@ class ExposureSessionManager {
             accumulatedDoseSed = accumulatedDoseSed,
             doseLimitSed = doseLimitSed,
             remainingDoseSed = remainingDoseSed,
-            exposureFraction = ExposureCalculator.calculateExposureFraction(doseLimitSed, accumulatedDoseSed),
+            exposureFraction =
+                ExposureCalculator.calculateExposureFraction(
+                    doseLimitSed,
+                    accumulatedDoseSed,
+                ),
             estimatedRemainingMinutes =
                 ExposureCalculator.calculateRemainingMinutes(
                     remainingDoseSed,
@@ -116,6 +136,13 @@ class ExposureSessionManager {
                     currentUvIndex,
                     currentContext.doseRateFactor,
                 ),
+            activeDurationMillis =
+                directSunDurationMillis +
+                    shadeDurationMillis +
+                    unknownDurationMillis,
+            directSunDurationMillis = directSunDurationMillis,
+            shadeDurationMillis = shadeDurationMillis,
+            unknownDurationMillis = unknownDurationMillis,
         )
     }
 
@@ -123,15 +150,39 @@ class ExposureSessionManager {
         val previousElapsedMs = lastElapsedMs ?: return
         if (status != ExposureStatus.RUNNING || nowElapsedMs <= previousElapsedMs) return
 
-        val elapsedMinutes = (nowElapsedMs - previousElapsedMs) / MILLIS_PER_MINUTE
+        val elapsedMillis = nowElapsedMs - previousElapsedMs
+        val elapsedMinutes = elapsedMillis / MILLIS_PER_MINUTE
+
         accumulatedDoseSed +=
             ExposureCalculator.calculateDoseIncrement(
                 currentUvIndex,
                 elapsedMinutes,
                 currentContext.doseRateFactor,
             )
+
+        when (currentContext) {
+            ExposureContext.DIRECT_SUN -> {
+                directSunDurationMillis += elapsedMillis
+            }
+
+            ExposureContext.SHADE -> {
+                shadeDurationMillis += elapsedMillis
+            }
+
+            ExposureContext.UNKNOWN -> {
+                unknownDurationMillis += elapsedMillis
+            }
+
+            ExposureContext.INDOOR -> {
+                // Indoor exposure is paused and does not count as active exposure time.
+            }
+        }
+
         lastElapsedMs = nowElapsedMs
-        if (remainingDoseSed() == 0.0) status = ExposureStatus.COMPLETE
+
+        if (remainingDoseSed() == 0.0) {
+            status = ExposureStatus.COMPLETE
+        }
     }
 
     private fun remainingDoseSed(): Double =
