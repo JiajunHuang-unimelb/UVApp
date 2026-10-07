@@ -1,5 +1,6 @@
 package com.example.uvapp
 
+import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
@@ -9,6 +10,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -49,6 +52,28 @@ class MainViewModelSensorTest {
         // Once unobstructed, the same 8,000 lux reading is trustworthy shade evidence again.
         val shadeSeconds = viewModel.state.value.totalBurnSeconds
         assertTrue(shadeSeconds > conservativeSeconds)
+    }
+
+    @Test
+    fun `missing sensor evidence does not pause exposure`() {
+        val environment =
+            MockEnvironmentContextProvider(
+                // 100,000 is the provider's conservative unavailable-light fallback.
+                initialLux = 100_000,
+                initiallyNearIndoorLocation = false,
+                initiallyDeviceOccluded = null,
+            )
+        val viewModel = buildViewModel(environment)
+        dispatcher.scheduler.runCurrent()
+        viewModel.onOverrideUvToggle()
+        viewModel.onUvOverride(6.0)
+        viewModel.onStartExposure()
+
+        dispatcher.scheduler.advanceTimeBy(12_000)
+        dispatcher.scheduler.runCurrent()
+
+        assertFalse(viewModel.state.value.indoorDetected)
+        assertEquals(ExposureStatus.RUNNING, viewModel.state.value.exposureStatus)
     }
 
     private fun buildViewModel(environment: MockEnvironmentContextProvider) =
