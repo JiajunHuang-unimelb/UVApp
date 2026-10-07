@@ -72,6 +72,9 @@ data class ExposureSessionWithDays(
 data class ExposureDayAggregate(
     val epochDay: Long,
     val activeDurationMillis: Long,
+    val directSunDurationMillis: Long,
+    val shadeDurationMillis: Long,
+    val unknownDurationMillis: Long,
     val doseSed: Double,
     val sessionCount: Int,
 )
