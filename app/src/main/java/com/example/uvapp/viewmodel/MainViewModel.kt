@@ -257,6 +257,9 @@ class MainViewModel(
     private var lastHistoryContext = ExposureContext.UNKNOWN
     private var lastHistoryWallMillis = 0L
     private var lastHistoryDoseSed = 0.0
+    private var lastHistoryDirectSunDurationMillis = 0L
+    private var lastHistoryShadeDurationMillis = 0L
+    private var lastHistoryUnknownDurationMillis = 0L
     private var lastHistorySaveWallMillis = 0L
     private var lastRecordedThroughMillis = 0L
 
@@ -1030,7 +1033,7 @@ class MainViewModel(
             if (snapshot.status == ExposureStatus.NOT_STARTED) return
             openHistorySession(now)
         } else {
-            addHistoryDelta(snapshot.accumulatedDoseSed, now)
+            addHistoryDelta(snapshot, now)
         }
         val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =
@@ -1046,8 +1049,13 @@ class MainViewModel(
         historyStartedAtMillis = now
         historyZoneId = ZoneId.systemDefault()
         historyDays.clear()
+    
         lastHistoryWallMillis = now
         lastHistoryDoseSed = 0.0
+        lastHistoryDirectSunDurationMillis = 0L
+        lastHistoryShadeDurationMillis = 0L
+        lastHistoryUnknownDurationMillis = 0L
+    
         lastHistorySaveWallMillis = now
         lastRecordedThroughMillis = now
     }
@@ -1063,7 +1071,7 @@ class MainViewModel(
         val snapshot = exposureSession.refresh(now)
     
         // Add the final dose/duration delta to the in-memory history.
-        addHistoryDelta(snapshot.accumulatedDoseSed, now)
+        addHistoryDelta(snapshot, now)
     
         lastHistoryStatus = snapshot.status
         lastHistoryContext = snapshot.context
@@ -1102,9 +1110,12 @@ class MainViewModel(
         // Discard all in-memory exposure data.
         exposureSession.clear(now)
     
-        // Reset history bookkeeping.
+       // Reset history bookkeeping.
         historyDays.clear()
         lastHistoryDoseSed = 0.0
+        lastHistoryDirectSunDurationMillis = 0L
+        lastHistoryShadeDurationMillis = 0L
+        lastHistoryUnknownDurationMillis = 0L
         lastHistoryWallMillis = now
         lastHistoryStatus = ExposureStatus.NOT_STARTED
         lastHistoryContext = ExposureContext.UNKNOWN
@@ -1120,44 +1131,115 @@ class MainViewModel(
         }
     }
     /**
-     * Duration uses wall time (never more than real time, even in 60x dev mode) and only
-     * counts direct sun, so "time in the sun" excludes shade; shade still adds its dose.
-     * A segment that crosses local midnight is split, with dose shared by time on each day.
+     * Adds the cumulative SessionManager deltas to the per-day history.
+     *
+     * Duration is taken from ExposureSnapshot, so SessionManager remains the source
+     * of truth for DIRECT_SUN / SHADE / UNKNOWN time.
+     *
+     * A segment that crosses local midnight is split by wall-clock time.
+     * Dose is also split proportionally across the affected calendar days.
      */
-    private fun addHistoryDelta(doseSed: Double, now: Long) {
+    private fun addHistoryDelta(snapshot: ExposureSnapshot, now: Long) {
         val from = lastHistoryWallMillis
-        val inDirectSun =
-            lastHistoryStatus == ExposureStatus.RUNNING && lastHistoryContext == ExposureContext.DIRECT_SUN
-        val doseDelta = doseSed - lastHistoryDoseSed
+    
+        val doseDelta = snapshot.accumulatedDoseSed - lastHistoryDoseSed
+        val directSunDelta =
+            snapshot.directSunDurationMillis - lastHistoryDirectSunDurationMillis
+        val shadeDelta =
+            snapshot.shadeDurationMillis - lastHistoryShadeDurationMillis
+        val unknownDelta =
+            snapshot.unknownDurationMillis - lastHistoryUnknownDurationMillis
+    
         lastHistoryWallMillis = now
-        lastHistoryDoseSed = doseSed
-        // No wall time passed (or the clock went back): any dose goes to the current day.
+        lastHistoryDoseSed = snapshot.accumulatedDoseSed
+        lastHistoryDirectSunDurationMillis = snapshot.directSunDurationMillis
+        lastHistoryShadeDurationMillis = snapshot.shadeDurationMillis
+        lastHistoryUnknownDurationMillis = snapshot.unknownDurationMillis
+    
         if (now <= from) {
-            addToHistoryDay(historyDate(now), 0L, doseDelta)
+            addToHistoryDay(
+                date = historyDate(now),
+                activeDurationMillis = directSunDelta + shadeDelta + unknownDelta,
+                directSunDurationMillis = directSunDelta,
+                shadeDurationMillis = shadeDelta,
+                unknownDurationMillis = unknownDelta,
+                doseDelta = doseDelta,
+            )
             return
         }
+    
+        val elapsedWallMillis = now - from
+    
         var start = from
+    
         while (start < now) {
             val date = historyDate(start)
-            val nextMidnight = date.plusDays(1).atStartOfDay(historyZoneId).toInstant().toEpochMilli()
+    
+            val nextMidnight =
+                date
+                    .plusDays(1)
+                    .atStartOfDay(historyZoneId)
+                    .toInstant()
+                    .toEpochMilli()
+    
             val end = minOf(now, nextMidnight)
-            val share = (end - start).toDouble() / (now - from)
-            addToHistoryDay(date, if (inDirectSun) end - start else 0L, doseDelta * share)
+    
+            val share =
+                (end - start).toDouble() / elapsedWallMillis.toDouble()
+    
+            addToHistoryDay(
+                date = date,
+                activeDurationMillis =
+                    ((directSunDelta + shadeDelta + unknownDelta) * share).toLong(),
+                directSunDurationMillis = (directSunDelta * share).toLong(),
+                shadeDurationMillis = (shadeDelta * share).toLong(),
+                unknownDurationMillis = (unknownDelta * share).toLong(),
+                doseDelta = doseDelta * share,
+            )
+    
             start = end
         }
     }
-
     private fun historyDate(millis: Long): LocalDate =
         Instant.ofEpochMilli(millis).atZone(historyZoneId).toLocalDate()
 
-    private fun addToHistoryDay(date: LocalDate, durationMillis: Long, doseDelta: Double) {
-        if (durationMillis == 0L && doseDelta <= 0.0) return
+    private fun addToHistoryDay(
+        date: LocalDate,
+        activeDurationMillis: Long,
+        directSunDurationMillis: Long,
+        shadeDurationMillis: Long,
+        unknownDurationMillis: Long,
+        doseDelta: Double,
+    ) {
+        if (activeDurationMillis == 0L && doseDelta <= 0.0) return
+    
         val previous = historyDays[date]
+    
         if (previous == null) {
-            historyDays[date] = ExposureDayTotal(date, durationMillis, doseDelta)
+            historyDays[date] =
+                ExposureDayTotal(
+                    date = date,
+                    activeDurationMillis = activeDurationMillis,
+                    directSunDurationMillis = directSunDurationMillis,
+                    shadeDurationMillis = shadeDurationMillis,
+                    unknownDurationMillis = unknownDurationMillis,
+                    doseSed = doseDelta,
+                )
         } else {
             historyDays[date] =
-                ExposureDayTotal(date, previous.activeDurationMillis + durationMillis, previous.doseSed + doseDelta)
+                ExposureDayTotal(
+                    date = date,
+                    activeDurationMillis =
+                        previous.activeDurationMillis + activeDurationMillis,
+                    directSunDurationMillis =
+                        previous.directSunDurationMillis + directSunDurationMillis,
+                    shadeDurationMillis =
+                        previous.shadeDurationMillis + shadeDurationMillis,
+                    unknownDurationMillis =
+                        previous.unknownDurationMillis + unknownDurationMillis,
+                    doseSed =
+                        previous.doseSed + doseDelta,
+                )
         }
     }
 
