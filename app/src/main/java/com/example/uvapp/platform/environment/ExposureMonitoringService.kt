@@ -155,15 +155,21 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     override fun onDestroy() {
         locationRequestGeneration++
         freshLocationGeneration++
-        sensorManager?.unregisterListener(this)
-        locationClient.removeLocationUpdates(locationCallback)
-        freshLocationCancellation?.cancel()
-        repositoryJob?.cancel()
-        freshnessJob?.cancel()
-        proximityClearJob?.cancel()
-        serviceScope.cancel()
-        if (wakeLock.isHeld) wakeLock.release()
-        AndroidEnvironmentContextProvider.markUnavailable()
+        ExposureMonitoringCleanup(
+            unregisterSensors = { sensorManager?.unregisterListener(this) },
+            removeLocationUpdates = { locationClient.removeLocationUpdates(locationCallback) },
+            cancelFreshLocation = { freshLocationCancellation?.cancel() },
+            cancelJobs = {
+                repositoryJob?.cancel()
+                freshnessJob?.cancel()
+                proximityClearJob?.cancel()
+                serviceScope.cancel()
+            },
+            releaseWakeLock = {
+                if (wakeLock.isHeld) wakeLock.release()
+            },
+            clearPublishedContext = AndroidEnvironmentContextProvider::markUnavailable,
+        ).releaseAll()
         super.onDestroy()
     }
 

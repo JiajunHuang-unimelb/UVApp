@@ -1,6 +1,7 @@
 package com.example.uvapp.platform.environment
 
 import com.example.uvapp.domain.environment.ExposureMonitoringPolicy
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,6 +35,27 @@ class ExposureMonitoringServiceTest {
                 hasActivityRecognitionPermission = true,
                 isAlreadyRegistered = true,
             ),
+        )
+    }
+
+    @Test
+    fun `service cleanup releases sensors location jobs and wake lock`() {
+        val released = mutableListOf<String>()
+        val cleanup =
+            ExposureMonitoringCleanup(
+                unregisterSensors = { released += "sensors" },
+                removeLocationUpdates = { released += "location" },
+                cancelFreshLocation = { released += "fresh-location" },
+                cancelJobs = { released += "jobs" },
+                releaseWakeLock = { released += "wake-lock" },
+                clearPublishedContext = { released += "context" },
+            )
+
+        cleanup.releaseAll()
+
+        assertEquals(
+            listOf("sensors", "location", "fresh-location", "jobs", "wake-lock", "context"),
+            released,
         )
     }
 }
