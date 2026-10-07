@@ -4,6 +4,7 @@ import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
 import com.example.uvapp.domain.environment.StepActivity
+import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -200,9 +201,131 @@ class IndoorLocationsTest {
         assertNull(repo.data.value.pending)
 
         main.onStartExposure()
-        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
+        val tracker = StepCounterTracker()
+        tracker.update(100f, 0L)
+        val incidentalSteps = tracker.update(102f, 1_000L)!!
+        environment.setStepActivity(incidentalSteps.stepsSinceStart, 0, recentSteps = incidentalSteps.recentSteps, activity = incidentalSteps.activity)
         dispatcher.scheduler.runCurrent()
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNotNull(repo.data.value.pending)
+    }
+    @Test fun `missing microphone evidence blocks suggestion until it becomes available`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        IndoorLocationsViewModel(repo, provider(), main, now = { 10_000L })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onResumeExposure()
+        environment.setAcoustic(-50.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+
+        assertNotNull(repo.data.value.pending)
+    }
+    @Test fun `missing motion evidence blocks suggestion until stationary reading arrives`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        IndoorLocationsViewModel(repo, provider(), main, now = { 10_000L })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-50.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+        assertNull(repo.data.value.pending)
+
+        main.onResumeExposure()
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        dispatcher.scheduler.runCurrent()
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+
+        assertNotNull(repo.data.value.pending)
+    }
+    @Test fun `disabled suggestions ignore otherwise eligible sensor context`() {
+        val repo = Memory()
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        IndoorLocationsViewModel(repo, provider(), main, now = { 10_000L })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-50.0, AcousticContext.QUIET_INDOOR_LIKELY)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure()
+        dispatcher.scheduler.runCurrent()
+
+        assertNull(repo.data.value.pending)
+    }
+    @Test fun `automatic indoor pause never creates a save suggestion`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment =
+            MockEnvironmentContextProvider(
+                initialLux = 500,
+                initiallyNearIndoorLocation = true,
+            )
+        val main = main(environment)
+        IndoorLocationsViewModel(
+            repository = repo,
+            location = provider(),
+            main = main,
+            now = { 10_000L },
+            reportIndoorProximity = {},
+        )
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+
+        dispatcher.scheduler.advanceTimeBy(10_000L)
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(com.example.uvapp.domain.exposure.ExposurePauseReason.INDOOR_DETECTED, main.state.value.pauseReason)
+        assertNull(repo.data.value.pending)
+    }
+
+    @Test fun `unavailable step data suppresses automatic suggestions but allows explicit saving`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider()
+        val main = main(environment)
+        val vm = IndoorLocationsViewModel(repo, provider(), main, now = { 10_000 })
+        dispatcher.scheduler.runCurrent()
+        main.onStartExposure()
+        main.onOverrideLightToggle()
+        main.onLightOverride(LightContext.INDOOR)
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(null, null)
+        dispatcher.scheduler.runCurrent()
+
+        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
+        assertNull(main.state.value.stepActivity)
+        assertNull(repo.data.value.pending)
+
+        vm.requestSave(); dispatcher.scheduler.runCurrent()
         assertNotNull(repo.data.value.pending)
     }
     @Test fun `bad location never produces candidate and proximity is unknown`() {

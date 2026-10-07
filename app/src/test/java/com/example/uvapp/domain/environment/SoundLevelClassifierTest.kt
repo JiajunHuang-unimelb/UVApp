@@ -2,6 +2,7 @@ package com.example.uvapp.domain.environment
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -53,7 +54,31 @@ class SoundLevelClassifierTest {
     }
 
     @Test
+    fun `clock moving backwards restarts loud confirmation window`() {
+        var now = 10_000L
+        val loud = ShortArray(128) { index -> if (index % 2 == 0) 20_000 else -20_000 }
+        val classifier = SoundLevelClassifier(smoothingFactor = 1.0, elapsedRealtimeMillis = { now })
+
+        classifier.classify(loud)
+        now = 9_000L
+        assertEquals(AcousticContext.UNCERTAIN, classifier.classify(loud)?.context)
+        now = 13_999L
+        assertEquals(AcousticContext.UNCERTAIN, classifier.classify(loud)?.context)
+        now = 14_000L
+
+        assertEquals(AcousticContext.ACTIVE_OUTDOOR_LIKELY, classifier.classify(loud)?.context)
+    }
+
+    @Test
     fun `invalid sample count is ignored`() {
         assertNull(SoundLevelClassifier().classify(ShortArray(4), sampleCount = 0))
+        assertNull(SoundLevelClassifier().classify(ShortArray(4), sampleCount = 5))
+    }
+
+    @Test
+    fun `invalid smoothing factor is rejected`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SoundLevelClassifier(smoothingFactor = 1.1)
+        }
     }
 }

@@ -15,6 +15,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -122,6 +123,19 @@ fun HomeScreen(
                 color = UvTheme.textSecondary,
                 fontSize = 12.sp,
             )
+
+            if (state.exposureStarted && state.sunscreenRemindersEnabled) {
+                val remaining = state.sunscreenReapplyRemainingMillis
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (remaining == null) "Sunscreen: not applied yet" else "Reapply sunscreen in ${remaining / 3_600_000}:%02d".format(remaining / 60_000 % 60),
+                        color = UvTheme.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = viewModel::onSunscreenApplied) { Text("I've applied", color = UvTheme.accent) }
+                }
+            }
 
             val indoorMessage = indoorStatusMessage(
                 state.pauseReason,

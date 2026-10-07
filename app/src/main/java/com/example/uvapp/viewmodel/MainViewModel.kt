@@ -4,6 +4,9 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.alerts.ExposureAlertGateway
+import com.example.uvapp.domain.alerts.SunProtectionAlert
+import com.example.uvapp.domain.alerts.SunProtectionAlertKind
+import com.example.uvapp.domain.alerts.SunProtectionTracker
 import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.EnvironmentContextProvider
@@ -42,6 +45,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -121,7 +125,7 @@ data class MainUiState(
     val recentSteps: Int? = null,
     val stepsPerMinute: Int? = null,
     val lastStepElapsedMillis: Long? = null,
-    val stepActivity: StepActivity = StepActivity.UNKNOWN,
+    val stepActivity: StepActivity? = null,
     val soundLevelDb: Double? = null,
     val acousticContext: AcousticContext? = null,
     val indoorDetected: Boolean = false,
@@ -134,6 +138,9 @@ data class MainUiState(
     val sunLogWeek: ExposureWeeklySummary? = null,
     /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
     val sunLogShowsTime: Boolean = false,
+    val sunscreenRemindersEnabled: Boolean = true,
+    /** Exposure time left until the reapply reminder; null until the user taps "I've applied". */
+    val sunscreenReapplyRemainingMillis: Long? = null,
 ) {
     /** UV shown on the hero (dev override wins). */
     val displayUv: Double get() = if (dev.overrideUv) dev.uvOverride else uvIndex
@@ -169,6 +176,19 @@ data class MainUiState(
         else -> LightContext.DIRECT_SUN
     }
 
+    /**
+     * Context used by the dose model. A covered phone cannot provide a trustworthy ambient-light
+     * reading: the user may still be standing in direct sun while the phone is in a pocket or bag.
+     * Treat that case as UNKNOWN, whose conservative dose factor is 1.0, unless saved-location and
+     * low-light evidence has already confirmed that the user is indoors.
+     */
+    val exposureContext: ExposureContext get() = when {
+        indoorDetected -> ExposureContext.INDOOR
+        effectiveDeviceOccluded == true -> ExposureContext.UNKNOWN
+        displayLux < LightContext.SHADE_MAX_LUX -> ExposureContext.SHADE
+        else -> ExposureContext.DIRECT_SUN
+    }
+
     val isTimerFinite: Boolean get() = totalBurnSeconds < Long.MAX_VALUE
     val isWarning: Boolean get() =
         exposureStatus == ExposureStatus.RUNNING && estimatedExposureMinutes?.let { it < 15.0 } == true
@@ -192,6 +212,10 @@ class MainViewModel(
     private val historyRepository: ExposureHistoryRepository? = null,
     /** Called after each successful history save (refreshes the weekly widget). */
     private val onHistorySaved: (suspend () -> Unit)? = null,
+    /** Shows a sun protection notification (US-17 / US-18). */
+    private val onSunProtectionAlert: ((SunProtectionAlert) -> Unit)? = null,
+    /** "I've applied" taps from the notification. */
+    private val sunscreenAppliedEvents: Flow<Unit>? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -214,6 +238,7 @@ class MainViewModel(
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     private val exposureSession = ExposureSessionManager()
+    private val sunProtection = SunProtectionTracker()
     private var exposureClockMillis = elapsedRealtimeMillis()
 
     private var lastSkinType: SkinType = SkinType.II
@@ -259,15 +284,27 @@ class MainViewModel(
             settingsViewModel.state.collect { s ->
                 val skinTypeChanged = s.skinType != lastSkinType
                 lastSkinType = s.skinType
-                _state.update { it.copy(skinType = s.skinType, spf = s.spf, devModeEnabled = s.devModeEnabled) }
+                _state.update {
+                    it.copy(
+                        skinType = s.skinType,
+                        spf = s.spf,
+                        devModeEnabled = s.devModeEnabled,
+                        sunscreenRemindersEnabled = s.sunscreenRemindersEnabled,
+                    )
+                }
                 if (skinTypeChanged) syncExposure()
             }
+        }
+
+        sunscreenAppliedEvents?.let { events ->
+            viewModelScope.launch { events.collect { onSunscreenApplied() } }
         }
 
         environmentContextProvider?.let { provider ->
             viewModelScope.launch {
                 provider.samples.collect { sample ->
                     latestEnvironmentSample = sample
+                    val previousExposureContext = _state.value.exposureContext
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
@@ -285,6 +322,7 @@ class MainViewModel(
                         )
                     }
                     evaluateIndoorTransition()
+                    if (_state.value.exposureContext != previousExposureContext) syncExposure()
                 }
             }
         }
@@ -467,6 +505,15 @@ class MainViewModel(
         publishExposure(exposureSession.resume(exposureClockMillis))
     }
 
+    /** Starts (or restarts) the two-hour reapply timer. */
+    fun onSunscreenApplied() {
+        sunProtection.markApplied()
+        _state.update { it.copy(sunscreenReapplyRemainingMillis = sunProtection.reapplyRemainingMillis) }
+    }
+
+    /** The first band alert fires before the permission prompt is answered; let it fire again. */
+    fun onSunscreenNotificationsAllowed() = sunProtection.reset()
+
     fun onResetSession(save: Boolean) {
         if (!_state.value.exposureStarted) return
     
@@ -489,10 +536,10 @@ class MainViewModel(
     fun onLuxChange(lux: Int) {
         if (_state.value.exposureStarted) return
         val clamped = lux.coerceIn(0, MAX_LUX)
-        val previous = _state.value.displayContext
+        val previous = _state.value.exposureContext
         _state.update { it.copy(luxOverride = clamped) }
         evaluateIndoorTransition()
-        if (_state.value.displayContext != previous) syncExposure()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     // ---- Developer-mode overrides -------------------------------------------
@@ -508,24 +555,26 @@ class MainViewModel(
     }.also { syncExposure() }
 
     fun onOverrideLightToggle() {
-        val previous = _state.value.displayContext
+        val previous = _state.value.exposureContext
         _state.update { it.copy(dev = it.dev.copy(overrideLight = !it.dev.overrideLight)) }
         evaluateIndoorTransition()
-        if (_state.value.displayContext != previous) syncExposure()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     fun onLightOverride(context: LightContext) {
-        val previous = _state.value.displayContext
+        val previous = _state.value.exposureContext
         _state.update { it.copy(dev = it.dev.copy(lightOverride = context)) }
         evaluateIndoorTransition()
-        if (_state.value.displayContext != previous) syncExposure()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
 
     fun onOccludedToggle() {
+        val previous = _state.value.exposureContext
         _state.update { it.copy(dev = it.dev.copy(simulateOccluded = !it.dev.simulateOccluded)) }
         evaluateIndoorTransition()
+        if (_state.value.exposureContext != previous) syncExposure()
     }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
@@ -842,7 +891,7 @@ class MainViewModel(
         if (snapshot.uvIndex != state.displayUv) {
             snapshot = exposureSession.updateUvIndex(state.displayUv, exposureClockMillis)
         }
-        val exposureContext = state.displayContext.toExposureContext()
+        val exposureContext = state.exposureContext
         if (snapshot.context != exposureContext) {
             exposureSession.updateContext(exposureContext, exposureClockMillis)
         }
@@ -900,6 +949,28 @@ class MainViewModel(
             monitoringController?.stop()
         }
         recordHistory()
+        evaluateSunProtection(snapshot)
+    }
+
+    /** Runs after every publishExposure(), so band changes, pauses and ticks reach the tracker. */
+    private fun evaluateSunProtection(snapshot: ExposureSnapshot) {
+        val state = _state.value
+        val alert =
+            sunProtection.update(
+                nowMillis = exposureClockMillis,
+                sessionActive = state.sunscreenRemindersEnabled && snapshot.isStarted && snapshot.status != ExposureStatus.COMPLETE,
+                running = snapshot.isRunning,
+                uvIndex = state.displayUv,
+                walking = state.stepActivity == StepActivity.WALKING || state.dev.simulateActive,
+                userSpf = state.spf,
+            )
+        val remaining = sunProtection.reapplyRemainingMillis
+        if (remaining != state.sunscreenReapplyRemainingMillis) {
+            _state.update { it.copy(sunscreenReapplyRemainingMillis = remaining) }
+        }
+        if (alert == null) return
+        if (alert.kind == SunProtectionAlertKind.BAND) alertGateway?.previewBandWarning() else alertGateway?.previewReapplyReminder()
+        onSunProtectionAlert?.invoke(alert)
     }
 
     // ---- Exposure history -----------------------------------------------------
@@ -1101,13 +1172,6 @@ class MainViewModel(
         monitoringController?.stop()
         super.onCleared()
     }
-
-    private fun LightContext.toExposureContext(): ExposureContext =
-        when (this) {
-            LightContext.INDOOR -> ExposureContext.INDOOR
-            LightContext.SHADE -> ExposureContext.SHADE
-            LightContext.DIRECT_SUN -> ExposureContext.DIRECT_SUN
-        }
 
     private fun LocationFix.coordinateLabel(): String =
         String.format(Locale.ROOT, "%.5f, %.5f", latitude, longitude)

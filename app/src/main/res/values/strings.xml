@@ -19,4 +19,17 @@
     <string name="exposure_estimate_note">Exposure time is an estimate based on UV, skin type and detected surroundings. It does not guarantee a safe time in the sun.</string>
     <string name="enhanced_sensing_privacy_note">Sound level helps classify your surroundings. Microphone sampling runs only while the app is visible. Audio recordings are not saved.</string>
     <string name="weekly_widget_description">Your time in the sun this week</string>
+    <string name="skin_type_heading">Skin type</string>
+    <string name="skin_type_help_button">Help</string>
+    <string name="skin_type_help_title">Understanding skin types</string>
+    <string name="skin_type_help_intro">The Fitzpatrick scale describes how skin reacts to sunlight. Choose the type that best matches your past sunburn and tanning reactions, alongside your natural skin colour. Do not deliberately expose your skin to test it.</string>
+    <string name="skin_type_help_i">Burns very easily and does not tan.</string>
+    <string name="skin_type_help_ii">Burns easily and tans only slightly.</string>
+    <string name="skin_type_help_iii">Sometimes burns and gradually develops a light tan.</string>
+    <string name="skin_type_help_iv">Burns less easily and tans readily.</string>
+    <string name="skin_type_help_v">Rarely burns and tans easily and deeply.</string>
+    <string name="skin_type_help_vi">Deeply pigmented skin that is usually less prone to sunburn.</string>
+    <string name="skin_type_help_sun_protection">All skin types need sun protection. A lower tendency to burn does not mean protection from UV damage. This guide supports self-selection; it is not a medical assessment.</string>
+    <string name="skin_type_help_source">Source: ARPANSA Fitzpatrick skin phototype</string>
+    <string name="skin_type_help_close">Close</string>
 </resources>

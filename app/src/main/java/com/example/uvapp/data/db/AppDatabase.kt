@@ -4,19 +4,27 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.uvapp.data.history.ExposureDayEntity
+import com.example.uvapp.data.history.ExposureHistoryDao
+import com.example.uvapp.data.history.ExposureSessionEntity
 
-/** On-device Room database for network data that must remain available offline. */
+/** Shared on-device database for network caches and user exposure history. */
 @Database(
-    entities = [UvReadingEntity::class, PlaceNameEntity::class],
-    version = 2,
+    entities = [
+        UvReadingEntity::class,
+        PlaceNameEntity::class,
+        ExposureSessionEntity::class,
+        ExposureDayEntity::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun uvReadingDao(): UvReadingDao
 
     abstract fun placeNameDao(): PlaceNameDao
+
+    abstract fun exposureHistoryDao(): ExposureHistoryDao
 
     companion object {
         private const val DATABASE_NAME = "uvapp.db"
@@ -32,36 +40,11 @@ abstract class AppDatabase : RoomDatabase() {
                             context.applicationContext,
                             AppDatabase::class.java,
                             DATABASE_NAME,
-                        ).addMigrations(MIGRATION_1_2)
-                        // uv_readings/place_names are a re-fetchable network cache, not
-                        // user data — safe to recreate rather than crash on a schema
-                        // mismatch that has no explicit migration.
-                        .fallbackToDestructiveMigration(dropAllTables = true)
+                        )
+                        // Version 3 supports fresh installations only. Future schema changes
+                        // must explicitly migrate user history; never recreate this database.
                         .build()
                         .also { database -> instance = database }
-            }
-
-        private val MIGRATION_1_2 =
-            object : Migration(1, 2) {
-                override fun migrate(db: SupportSQLiteDatabase) {
-                    db.execSQL(
-                        """
-                        CREATE TABLE IF NOT EXISTS `place_names` (
-                            `locationKey` TEXT NOT NULL,
-                            `latitude` REAL NOT NULL,
-                            `longitude` REAL NOT NULL,
-                            `label` TEXT NOT NULL,
-                            `locality` TEXT,
-                            `city` TEXT,
-                            `state` TEXT,
-                            `country` TEXT,
-                            `displayName` TEXT NOT NULL,
-                            `fetchedAtMillis` INTEGER NOT NULL,
-                            PRIMARY KEY(`locationKey`)
-                        )
-                        """.trimIndent(),
-                    )
-                }
             }
     }
 }

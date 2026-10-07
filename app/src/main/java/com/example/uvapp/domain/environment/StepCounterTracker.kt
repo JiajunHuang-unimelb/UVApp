@@ -3,7 +3,6 @@ package com.example.uvapp.domain.environment
 import kotlin.math.roundToInt
 
 enum class StepActivity {
-    UNKNOWN,
     STATIONARY,
     WALKING,
 }
@@ -77,12 +76,8 @@ class StepCounterTracker {
                 .sumOf(StepBurst::count)
         val lastStep = lastStepElapsedMillis
         val activity =
-            when {
-                walkingSteps >= WALKING_STEP_THRESHOLD -> StepActivity.WALKING
-                lastStep == null && durationMillis >= STATIONARY_AFTER_MILLIS -> StepActivity.STATIONARY
-                lastStep != null && elapsedMillis - lastStep >= STATIONARY_AFTER_MILLIS -> StepActivity.STATIONARY
-                else -> StepActivity.UNKNOWN
-            }
+            if (walkingSteps >= WALKING_STEP_THRESHOLD) StepActivity.WALKING
+            else StepActivity.STATIONARY
         return StepActivityReading(
             stepsSinceStart = previousSteps,
             recentSteps = recentSteps,
@@ -110,7 +105,6 @@ class StepCounterTracker {
         const val MAX_STEPS_PER_MINUTE = 300
         const val RECENT_STEP_WINDOW_MILLIS = 60_000L
         const val WALKING_WINDOW_MILLIS = 15_000L
-        const val STATIONARY_AFTER_MILLIS = 60_000L
         const val WALKING_STEP_THRESHOLD = 3
     }
 }

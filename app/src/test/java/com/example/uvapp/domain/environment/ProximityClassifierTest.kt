@@ -16,10 +16,17 @@ class ProximityClassifierTest {
     }
 
     @Test
+    fun `reading above maximum range is treated as clear`() {
+        assertEquals(false, ProximityClassifier.isOccluded(distance = 6f, maximumRange = 5f))
+    }
+
+    @Test
     fun `invalid readings are unavailable`() {
         assertNull(ProximityClassifier.isOccluded(distance = null, maximumRange = 5f))
         assertNull(ProximityClassifier.isOccluded(distance = Float.NaN, maximumRange = 5f))
+        assertNull(ProximityClassifier.isOccluded(distance = Float.POSITIVE_INFINITY, maximumRange = 5f))
         assertNull(ProximityClassifier.isOccluded(distance = -1f, maximumRange = 5f))
         assertNull(ProximityClassifier.isOccluded(distance = 0f, maximumRange = 0f))
+        assertNull(ProximityClassifier.isOccluded(distance = 0f, maximumRange = Float.NaN))
     }
 }

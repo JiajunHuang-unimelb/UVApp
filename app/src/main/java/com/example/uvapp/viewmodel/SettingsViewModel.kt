@@ -34,6 +34,7 @@ data class SettingsUiState(
     val skinType: SkinType = SkinType.II,
     val spf: Int = 15,
     val notificationsEnabled: Boolean = true,
+    val sunscreenRemindersEnabled: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val accent: AccentColor = AccentColor.AMBER,
     val devModeEnabled: Boolean = false,
@@ -85,6 +86,10 @@ class SettingsViewModel(
 
     fun setNotificationsEnabled(enabled: Boolean) {
         _state.update { it.copy(notificationsEnabled = enabled) }
+    }
+
+    fun setSunscreenRemindersEnabled(enabled: Boolean) {
+        _state.update { it.copy(sunscreenRemindersEnabled = enabled) }
     }
 
     fun setThemeMode(mode: ThemeMode) {

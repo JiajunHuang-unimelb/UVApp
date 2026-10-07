@@ -9,6 +9,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
 import com.example.uvapp.platform.alerts.IndoorSuggestionNotifier
+import com.example.uvapp.platform.alerts.SunProtectionNotifier
+import com.example.uvapp.platform.alerts.SunscreenAppliedEvents
 import com.example.uvapp.viewmodel.IndoorLocationsViewModel
 import com.example.uvapp.ui.components.IndoorDemoToggle
 import com.example.uvapp.ui.components.IndoorLocationsPanel
@@ -94,6 +96,8 @@ fun UVAppRoot(
         remember(applicationContext) { AndroidMicrophoneEnvironmentMonitor(applicationContext) }
     val historyRepository =
         remember(applicationContext) { ExposureHistoryRepositoryFactory.create(applicationContext) }
+    val sunProtectionNotifier =
+        remember(applicationContext) { SunProtectionNotifier(applicationContext) }
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
     }
@@ -108,6 +112,8 @@ fun UVAppRoot(
             alertGateway = alertGateway,
             historyRepository = historyRepository,
             onHistorySaved = { WeeklyExposureWidget().updateAll(applicationContext) },
+            onSunProtectionAlert = sunProtectionNotifier::show,
+            sunscreenAppliedEvents = SunscreenAppliedEvents.events,
         )
     }
     LaunchedEffect(requestedTab) {
@@ -228,6 +234,19 @@ fun UVAppRoot(
     }
     LaunchedEffect(settingsState.notificationsEnabled) { indoorViewModel.setNotificationsEnabled(settingsState.notificationsEnabled) }
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
+    // Sunscreen reminders need notifications (13+) and, for US-18, the step counter (10+).
+    LaunchedEffect(mainState.exposureStarted, settingsState.sunscreenRemindersEnabled) {
+        if (!mainState.exposureStarted || !settingsState.sunscreenRemindersEnabled) return@LaunchedEffect
+        val missing =
+            buildList {
+                if (android.os.Build.VERSION.SDK_INT >= 33) add(android.Manifest.permission.POST_NOTIFICATIONS)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) add(android.Manifest.permission.ACTIVITY_RECOGNITION)
+            }.filter { permission ->
+                androidx.core.content.ContextCompat.checkSelfPermission(applicationContext, permission) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        if (missing.isNotEmpty()) optionalSensorPermissionLauncher.launch(missing.toTypedArray())
+    }
     LaunchedEffect(mainState.devModeEnabled) { if (!mainState.devModeEnabled) indoorViewModel.setDemoEnabled(false) }
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
     val requestCurrentLocation =

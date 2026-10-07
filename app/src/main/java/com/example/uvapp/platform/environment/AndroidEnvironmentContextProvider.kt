@@ -24,7 +24,7 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 recentSteps = null,
                 stepsPerMinute = null,
                 lastStepElapsedMillis = null,
-                stepActivity = com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
+                stepActivity = null,
                 soundLevelDb = null,
                 acousticContext = null,
             ),
@@ -34,6 +34,11 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
 
     fun updateLux(lux: Int) {
         mutable.update { it.copy(lux = lux.coerceIn(0, MAX_LUX)) }
+    }
+
+    /** Missing light evidence must not reduce the calculated UV dose. */
+    fun markLuxUnavailable() {
+        mutable.update { it.copy(lux = UNAVAILABLE_LUX) }
     }
 
     fun updateIndoorProximity(isNear: Boolean) {
@@ -60,7 +65,7 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 recentSteps = reading?.recentSteps,
                 stepsPerMinute = reading?.averageStepsPerMinute,
                 lastStepElapsedMillis = reading?.lastStepElapsedMillis,
-                stepActivity = reading?.activity ?: com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
+                stepActivity = reading?.activity,
             )
         }
     }
@@ -87,7 +92,7 @@ object AndroidEnvironmentContextProvider : EnvironmentContextProvider {
                 recentSteps = null,
                 stepsPerMinute = null,
                 lastStepElapsedMillis = null,
-                stepActivity = com.example.uvapp.domain.environment.StepActivity.UNKNOWN,
+                stepActivity = null,
                 soundLevelDb = null,
                 acousticContext = null,
             )

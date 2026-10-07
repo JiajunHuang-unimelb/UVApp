@@ -20,7 +20,7 @@
     <uses-feature
         android:name="android.hardware.location.gps"
         android:required="false" />
-    <uses-feature android:name="android.hardware.sensor.light" android:required="true" />
+    <uses-feature android:name="android.hardware.sensor.light" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.proximity" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
@@ -80,6 +80,10 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/weekly_exposure_widget_info" />
         </receiver>
+
+        <receiver
+            android:name=".platform.alerts.SunscreenAppliedReceiver"
+            android:exported="false" />
     </application>
 
 

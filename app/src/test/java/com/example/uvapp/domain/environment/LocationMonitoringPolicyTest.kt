@@ -2,6 +2,7 @@ package com.example.uvapp.domain.environment
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,6 +21,7 @@ class LocationMonitoringPolicyTest {
 
         assertEquals(60_000L, policy.evaluate(0L, true, stationary(0), null).intervalMillis)
         assertEquals(60_000L, policy.evaluate(1_000L, true, walking(100), null).intervalMillis)
+        assertEquals(60_000L, policy.evaluate(2_000L, true, null, null).intervalMillis)
     }
 
     @Test
@@ -53,6 +55,27 @@ class LocationMonitoringPolicyTest {
     }
 
     @Test
+    fun `fix at freshness boundary is accepted`() {
+        val atBoundary =
+            LocationMonitoringPolicy().evaluate(
+                nowElapsedMillis = 20_000L,
+                nearIndoorLocation = true,
+                stepReading = walking(101),
+                latestFixElapsedMillis = 5_000L,
+            )
+        val justStale =
+            LocationMonitoringPolicy().evaluate(
+                nowElapsedMillis = 20_001L,
+                nearIndoorLocation = true,
+                stepReading = walking(101),
+                latestFixElapsedMillis = 5_000L,
+            )
+
+        assertFalse(atBoundary.requestFreshFix)
+        assertTrue(justStale.requestFreshFix)
+    }
+
+    @Test
     fun `triggered requests are throttled across walking transitions`() {
         val policy = LocationMonitoringPolicy()
         assertTrue(policy.evaluate(20_000L, true, walking(101), null).requestFreshFix)
@@ -61,6 +84,34 @@ class LocationMonitoringPolicyTest {
         assertFalse(policy.evaluate(30_000L, true, walking(102), null).requestFreshFix)
         policy.evaluate(35_000L, true, stationary(102), null)
         assertTrue(policy.evaluate(35_001L, true, walking(103), null).requestFreshFix)
+    }
+
+    @Test
+    fun `refresh throttle expires exactly at fifteen seconds`() {
+        val policy = LocationMonitoringPolicy()
+        assertTrue(policy.evaluate(20_000L, true, walking(101), null).requestFreshFix)
+        policy.evaluate(25_000L, true, stationary(101), null)
+
+        assertTrue(policy.evaluate(35_000L, true, walking(102), null).requestFreshFix)
+    }
+
+    @Test
+    fun `walking burst continues briefly after activity stops`() {
+        val policy = LocationMonitoringPolicy()
+        policy.evaluate(20_000L, true, walking(101), latestFixElapsedMillis = 20_000L)
+
+        val stopped = policy.evaluate(25_000L, true, stationary(101), latestFixElapsedMillis = 20_000L)
+        val expired = policy.evaluate(50_000L, true, stationary(101), latestFixElapsedMillis = 20_000L)
+
+        assertEquals(5_000L, stopped.intervalMillis)
+        assertEquals(60_000L, expired.intervalMillis)
+    }
+
+    @Test
+    fun `negative elapsed time is rejected`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            LocationMonitoringPolicy().evaluate(-1L, false, null, null)
+        }
     }
 
     private fun stationary(steps: Int) =

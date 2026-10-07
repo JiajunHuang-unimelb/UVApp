@@ -7,7 +7,7 @@ The exposure countdown identifies a confirmed indoor context from two signals:
 - the ambient light level is low; and
 - the user is within 100 m of a saved indoor location.
 
-When both conditions remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions also read proximity, accelerometer and step-counter data for diagnostics and suggestion context, but those signals do not classify a place as indoors. The optional microphone monitor runs only while the app is visible and Enhanced sensing is enabled.
+When both conditions remain stable, the app automatically pauses an active exposure countdown and produces a short vibration. Production sessions also read proximity, accelerometer and step-counter data for diagnostics and suggestion context, but those signals do not classify a place as indoors. A covered phone invalidates its low-light shade reading, so the dose model conservatively uses `UNKNOWN` with a 1.0 factor until indoor detection is confirmed. The optional microphone monitor runs only while the app is visible and Enhanced sensing is enabled.
 
 ## Detection rules
 
@@ -18,7 +18,7 @@ Indoor and outdoor transitions use different light thresholds to avoid repeated 
 | Enter indoor | Lux is below `1,000` and the current fix is within 100 m of a saved indoor location | 10 seconds |
 | Leave indoor | Lux is above `2,000`, or the current fix leaves the saved radius | 10 seconds |
 
-Lux values from `1,000` through `2,000` preserve the current indoor/outdoor classification. If a required condition changes during its stability period, the pending transition is cancelled. A new complete 10-second period is then required.
+Lux values from `1,000` through `2,000` preserve the current indoor/outdoor classification. Raw light readings first pass through a five-sample rolling median, which rejects isolated spikes caused by a hand, clothing, or sensor noise. If a required condition changes during its stability period, the pending transition is cancelled. A new complete 10-second period is then required.
 
 Low light alone and saved-location proximity alone are insufficient because both are required. Physical proximity, microphone context, posture, movement and steps never change the automatic indoor classification.
 
@@ -58,7 +58,7 @@ interface EnvironmentContextProvider {
 }
 ```
 
-The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. High-accuracy fused-location updates normally run every 30 seconds. While inside a saved radius with stationary, unknown, or at most 100 session steps of walking activity, the interval becomes 60 seconds. Entering walking activity after more than 100 session steps starts a 30-second burst of five-second updates and requests one fresh fix unless the latest fix is already no more than 15 seconds old or another triggered request occurred within 15 seconds. A lifecycle-bound microphone monitor publishes sound context while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
+The application injects the process-scoped `AndroidEnvironmentContextProvider`. `ExposureMonitoringService` registers light, proximity, accelerometer and permitted step-counter sensors, reads saved indoor locations from DataStore and publishes combined `EnvironmentSample` values. High-accuracy fused-location updates normally run every 30 seconds when at least one saved indoor location exists; with no saved locations, the updates stop. Fix age uses Android's monotonic elapsed timestamp rather than the user-adjustable wall clock. While inside a saved radius with stationary, unavailable step data, or at most 100 session steps of walking activity, the interval becomes 60 seconds. Entering walking activity after more than 100 session steps starts a 30-second burst of five-second updates and requests one fresh fix unless the latest fix is already no more than 15 seconds old or another triggered request occurred within 15 seconds. A lifecycle-bound microphone monitor publishes sound context at most twice per second while the visible app has permission. Missing hardware is represented by `null`. `AndroidExposureMonitoringController` starts the service when a session starts and stops it when the session completes or its owning ViewModel is cleared.
 
 The foreground service collects facts only. Saved-radius gating, thresholds, debounce, pause ownership and exposure calculations remain in `MainViewModel`. `MockEnvironmentContextProvider` remains available for deterministic unit tests.
 
@@ -102,7 +102,7 @@ The current state does not expose the remaining time in the 10-second debounce. 
 6. Select **Shade** or **Direct sun**, or disable **Near known indoor location**.
 7. Keep the outdoor condition unchanged for 10 seconds. The countdown should resume if it was automatically paused.
 
-The **Simulate occluded (in pocket)** control is diagnostic only and cannot trigger an indoor auto-pause without saved-location proximity.
+The **Simulate occluded (in pocket)** control cannot trigger an indoor auto-pause without saved-location proximity. Outside confirmed indoor state, it also switches the dose context to conservative `UNKNOWN` so pocket darkness is not mistaken for shade.
 
 Before a session starts, the exposure indicator's lux slider can supply a mock light value for previewing the UI. Starting a session clears that override and makes the indicator read-only so live sensor values cannot be replaced accidentally. The explicit developer light-level override remains available for deliberate in-session testing and takes precedence while enabled.
 
@@ -149,7 +149,7 @@ Collect `IndoorLocationsViewModel.state` with `collectAsStateWithLifecycle()`. `
 
 ### Suggestions and notifications
 
-An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, available microphone context that is not sustained loud activity, a stationary accelerometer classification, step activity classified as `STATIONARY` after 60 seconds without steps, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Quiet and conversational/uncertain audio are accepted. Audio must remain at or above -15 dBFS for five continuous seconds before it becomes `ACTIVE_OUTDOOR_LIKELY` and blocks a suggestion. Stationary acceleration and step inactivity remain required; missing microphone or step context suppresses only the automatic suggestion. Explicit saving remains available. Only one eligible automatic opportunity is considered per exposure session. Low light alone and automatic pauses do not prompt.
+An automatic suggestion requires an actual running-to-manually-paused transition, effective lux below 1,000, available microphone context that is not sustained loud activity, a stationary accelerometer classification, available step activity classified as `STATIONARY` with fewer than three steps in the last 15 seconds, suggestions enabled, a usable GPS fix outside saved radii, and no pending candidate. Quiet and conversational/uncertain audio are accepted. Audio must remain at or above -15 dBFS for five continuous seconds before it becomes `ACTIVE_OUTDOOR_LIKELY` and blocks a suggestion. Stationary acceleration and fewer than three steps in the rolling 15-second window remain required; missing microphone or step context suppresses only the automatic suggestion. Explicit saving remains available. Only one eligible automatic opportunity is considered per exposure session. Low light alone and automatic pauses do not prompt.
 
 When hidden, a pending suggestion produces **Were you indoors when you paused?** with a tap action opening the app's confirmation dialog. It never opens a screen without a tap or saves automatically. There is only one pending suggestion; notification slot 2002 is reused for it, updated without repeating alerts, and cancelled on confirmation/dismissal. If notifications are denied, the persisted candidate remains available on the next app visit. The present app has no background pause action/service: this notification path handles pending work completing while hidden and is ready for future service integration.
 
@@ -170,7 +170,7 @@ Validation on 23 September 2026: `testDebugUnitTest assembleDebug assembleDebugA
 - Monitoring begins only after the user starts an exposure session and location permission is available.
 - The foreground service uses adaptive 30/60-second fused-location updates with a temporary five-second walking burst rather than Android geofencing. It is intentionally `START_NOT_STICKY`; a killed app process does not restore an in-memory exposure session.
 - Saving an indoor place still uses a separate fresh one-shot GPS fix, while active-session proximity uses continuous service updates.
-- Proximity sensors are commonly binary and are retained only as diagnostics that the phone is covered; they do not affect indoor detection.
+- Proximity sensors are commonly binary. They do not affect indoor detection, but a covered reading prevents pocket darkness from reducing the calculated dose rate.
 - Microphone level depends on device gain and is used only as a sustained-loudness veto alongside stationary motion and step inactivity. Quiet and conversational/uncertain levels are accepted; audio is never a UV measurement or definitive indoor classification.
 - Microphone sampling intentionally stops when the app is no longer visible; continuous background access would require an additional foreground-service type and user-facing policy justification.
 - Step-counter hardware is optional and may deliver updates with several seconds of latency.

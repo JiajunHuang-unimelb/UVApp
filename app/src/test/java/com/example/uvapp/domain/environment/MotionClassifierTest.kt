@@ -35,7 +35,36 @@ class MotionClassifierTest {
     }
 
     @Test
+    fun `stable negative z is face down`() {
+        val classifier = MotionClassifier(windowSize = 5)
+
+        val reading = (1..5).map { classifier.update(0f, 0f, -9.81f) }.last()
+
+        assertEquals(DevicePosture.FACE_DOWN, reading?.posture)
+        assertFalse(reading!!.isMoving)
+    }
+
+    @Test
+    fun `diagonal gravity vector is tilted`() {
+        val reading = MotionClassifier(windowSize = 5).update(7f, 0f, 7f)
+
+        assertEquals(DevicePosture.TILTED, reading?.posture)
+    }
+
+    @Test
+    fun `rolling window returns to stationary after movement settles`() {
+        val classifier = MotionClassifier(windowSize = 5)
+        listOf(4f, 15f, 6f, 13f, 4f).forEach { z -> classifier.update(0f, 0f, z) }
+        assertTrue(classifier.update(0f, 0f, 15f)!!.isMoving)
+
+        val settled = (1..5).map { classifier.update(0f, 0f, 9.81f) }.last()
+
+        assertFalse(settled!!.isMoving)
+    }
+
+    @Test
     fun `invalid sample is ignored`() {
         assertNull(MotionClassifier().update(Float.NaN, 0f, 9.81f))
+        assertNull(MotionClassifier().update(0f, Float.POSITIVE_INFINITY, 9.81f))
     }
 }

@@ -4,6 +4,8 @@ import com.example.uvapp.domain.alerts.ExposureAlertGateway
 import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.ExposureMonitoringController
+import com.example.uvapp.domain.exposure.ExposureCalculator
+import com.example.uvapp.domain.exposure.ExposureContext
 import com.example.uvapp.domain.exposure.ExposurePauseReason
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.CurrentLocationProvider
@@ -292,6 +294,96 @@ class MainViewModelTest {
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(0, alerts.callCount)
+    }
+
+    @Test
+    fun `covered phone uses conservative unknown exposure instead of shade`() {
+        val environment =
+            MockEnvironmentContextProvider(
+                initialLux = 500,
+                initiallyDeviceOccluded = true,
+            )
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+
+        vm.onStartExposure()
+
+        val state = vm.state.value
+        val conservativeTotalSeconds =
+            ExposureCalculator.calculateRemainingSeconds(
+                remainingDoseSed = state.doseLimitSed,
+                uvIndex = state.displayUv,
+                contextFactor = ExposureContext.UNKNOWN.doseRateFactor,
+            )
+        assertEquals(ExposureContext.UNKNOWN, state.exposureContext)
+        assertEquals(conservativeTotalSeconds, state.totalBurnSeconds)
+        assertEquals(ExposureStatus.RUNNING, state.exposureStatus)
+        assertFalse(state.indoorDetected)
+    }
+
+    @Test
+    fun `covering and uncovering phone switches between shade and conservative exposure`() {
+        val environment =
+            MockEnvironmentContextProvider(
+                initialLux = 8_000,
+                initiallyDeviceOccluded = false,
+            )
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+        vm.onStartExposure()
+        val shadeTotalSeconds = vm.state.value.totalBurnSeconds
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureContext)
+
+        environment.setDeviceOccluded(true)
+        mainDispatcher.scheduler.runCurrent()
+        val coveredTotalSeconds = vm.state.value.totalBurnSeconds
+
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureContext)
+        assertTrue(coveredTotalSeconds < shadeTotalSeconds)
+
+        environment.setDeviceOccluded(false)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureContext)
+        assertTrue(vm.state.value.totalBurnSeconds > coveredTotalSeconds)
+    }
+
+    @Test
+    fun `confirmed indoor context takes priority over phone occlusion`() {
+        val environment =
+            MockEnvironmentContextProvider(
+                initialLux = 500,
+                initiallyNearIndoorLocation = true,
+                initiallyDeviceOccluded = true,
+            )
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+        vm.onStartExposure()
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureContext)
+
+        mainDispatcher.scheduler.advanceTimeBy(10_000)
+        mainDispatcher.scheduler.runCurrent()
+
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureContext.INDOOR, vm.state.value.exposureContext)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
+    }
+
+    @Test
+    fun `unavailable proximity keeps ordinary shade classification`() {
+        val environment =
+            MockEnvironmentContextProvider(
+                initialLux = 8_000,
+                initiallyDeviceOccluded = null,
+            )
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+
+        vm.onStartExposure()
+
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureContext)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
     }
 
     @Test
