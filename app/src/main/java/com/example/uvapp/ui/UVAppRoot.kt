@@ -41,6 +41,7 @@ import com.example.uvapp.data.nominatim.PlaceRepositoryFactory
 import com.example.uvapp.data.preferences.DataStoreUserPreferencesRepository
 import com.example.uvapp.data.repository.UvRepositoryFactory
 import com.example.uvapp.platform.alerts.AndroidExposureAlertGateway
+import com.example.uvapp.domain.environment.EnhancedSensingPermissions
 import com.example.uvapp.platform.environment.AndroidEnvironmentContextProvider
 import com.example.uvapp.platform.environment.AndroidExposureMonitoringController
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
@@ -209,22 +210,33 @@ fun UVAppRoot(
     var showEnhanceSensingRationale by remember {
         mutableStateOf(false)
     }
+    var enhancedPermissions by remember {
+        mutableStateOf(EnhancedSensingPermissions())
+    }
 
-    // -------- Serial permission chain: Mic -> Camera -> Activity Recognition --------
+    val finishEnhancedPermissionRequest: (EnhancedSensingPermissions) -> Unit = { updated ->
+        enhancedPermissions = updated
+        settingsViewModel.setEnhancedSensingEnabled(updated.hasAnyGrantedCapability)
+        if (mainViewModel.state.value.exposureStarted) {
+            // Refresh permission-dependent registrations without restarting the exposure session.
+            monitoringController.start()
+        }
+    }
+
+    // Each denial continues the chain so one optional sensor never disables the others.
 
     // Step 3: Activity Recognition (Android 10+).
     val requestActivityRecognition =
         rememberActivityRecognitionPermissionRequester(
             onPermissionGranted = {
-                // All permissions granted, finally enable enhanced sensing.
-                settingsViewModel.setEnhancedSensingEnabled(true)
-                if (mainViewModel.state.value.exposureStarted) {
-                    // Re-delivering the start command lets the active service add the step sensor.
-                    monitoringController.start()
-                }
+                finishEnhancedPermissionRequest(
+                    enhancedPermissions.copy(activityRecognitionGranted = true),
+                )
             },
             onPermissionDenied = {
-                settingsViewModel.setEnhancedSensingEnabled(false)
+                finishEnhancedPermissionRequest(
+                    enhancedPermissions.copy(activityRecognitionGranted = false),
+                )
             },
         )
 
@@ -232,6 +244,7 @@ fun UVAppRoot(
     val requestCamera =
         rememberCameraPermissionRequester(
             onPermissionGranted = {
+                enhancedPermissions = enhancedPermissions.copy(cameraGranted = true)
                 // Camera OK. Activity Recognition only exists on Android Q+.
                 if (android.os.Build.VERSION.SDK_INT >=
                     android.os.Build.VERSION_CODES.Q
@@ -239,11 +252,20 @@ fun UVAppRoot(
                     requestActivityRecognition()
                 } else {
                     // Older Android: no ACTIVITY_RECOGNITION permission needed.
-                    settingsViewModel.setEnhancedSensingEnabled(true)
+                    finishEnhancedPermissionRequest(
+                        enhancedPermissions.copy(activityRecognitionGranted = true),
+                    )
                 }
             },
             onPermissionDenied = {
-                settingsViewModel.setEnhancedSensingEnabled(false)
+                enhancedPermissions = enhancedPermissions.copy(cameraGranted = false)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    requestActivityRecognition()
+                } else {
+                    finishEnhancedPermissionRequest(
+                        enhancedPermissions.copy(activityRecognitionGranted = true),
+                    )
+                }
             },
         )
 
@@ -251,11 +273,12 @@ fun UVAppRoot(
     val requestMicrophone =
         rememberMicrophonePermissionRequester(
             onPermissionGranted = {
-                // Mic OK, move on to camera.
+                enhancedPermissions = enhancedPermissions.copy(microphoneGranted = true)
                 requestCamera()
             },
             onPermissionDenied = {
-                settingsViewModel.setEnhancedSensingEnabled(false)
+                enhancedPermissions = enhancedPermissions.copy(microphoneGranted = false)
+                requestCamera()
             },
         )
 
