@@ -94,6 +94,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private var repositoryJob: Job? = null
     private var freshnessJob: Job? = null
     private var proximityClearJob: Job? = null
+    private var stepCounterRegistered = false
 
     private val locationCallback =
         object : LocationCallback() {
@@ -143,7 +144,11 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         intent: Intent?,
         flags: Int,
         startId: Int,
-    ): Int = START_NOT_STICKY
+    ): Int {
+        // onStartCommand runs again when a permission grant refreshes the active service.
+        refreshStepCounterMonitoring()
+        return START_NOT_STICKY
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -238,12 +243,22 @@ class ExposureMonitoringService : Service(), SensorEventListener {
             markProximityUnavailable()
         }
         registerAccelerometer()
-        if (hasActivityRecognitionPermission()) {
-            registerSensor(stepCounterSensor) {
-                latestStepReading = null
-                AndroidEnvironmentContextProvider.updateSteps(null)
+        refreshStepCounterMonitoring()
+    }
+
+    private fun refreshStepCounterMonitoring() {
+        val hasPermission = hasActivityRecognitionPermission()
+        if (ExposureMonitoringPolicy.shouldRegisterStepCounter(hasPermission, stepCounterRegistered)) {
+            stepCounterRegistered =
+                registerSensor(stepCounterSensor) {
+                    latestStepReading = null
+                    AndroidEnvironmentContextProvider.updateSteps(null)
+                }
+        } else if (!hasPermission) {
+            if (stepCounterRegistered) {
+                stepCounterSensor?.let { sensor -> sensorManager?.unregisterListener(this, sensor) }
             }
-        } else {
+            stepCounterRegistered = false
             latestStepReading = null
             AndroidEnvironmentContextProvider.updateSteps(null)
         }

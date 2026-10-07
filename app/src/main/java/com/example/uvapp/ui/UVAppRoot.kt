@@ -218,6 +218,10 @@ fun UVAppRoot(
             onPermissionGranted = {
                 // All permissions granted, finally enable enhanced sensing.
                 settingsViewModel.setEnhancedSensingEnabled(true)
+                if (mainViewModel.state.value.exposureStarted) {
+                    // Re-delivering the start command lets the active service add the step sensor.
+                    monitoringController.start()
+                }
             },
             onPermissionDenied = {
                 settingsViewModel.setEnhancedSensingEnabled(false)

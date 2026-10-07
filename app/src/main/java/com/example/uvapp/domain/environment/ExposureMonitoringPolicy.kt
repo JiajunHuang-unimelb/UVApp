@@ -13,4 +13,10 @@ object ExposureMonitoringPolicy {
             startLocalSensors = true,
             startLocationMonitoring = hasLocationPermission,
         )
+
+    /** A running service only needs to register the step sensor after a new grant. */
+    fun shouldRegisterStepCounter(
+        hasActivityRecognitionPermission: Boolean,
+        isAlreadyRegistered: Boolean,
+    ): Boolean = hasActivityRecognitionPermission && !isAlreadyRegistered
 }

@@ -14,4 +14,26 @@ class ExposureMonitoringServiceTest {
         assertTrue(plan.startLocalSensors)
         assertFalse(plan.startLocationMonitoring)
     }
+
+    @Test
+    fun `runtime activity grant registers a previously unavailable step counter`() {
+        assertFalse(
+            ExposureMonitoringPolicy.shouldRegisterStepCounter(
+                hasActivityRecognitionPermission = false,
+                isAlreadyRegistered = false,
+            ),
+        )
+        assertTrue(
+            ExposureMonitoringPolicy.shouldRegisterStepCounter(
+                hasActivityRecognitionPermission = true,
+                isAlreadyRegistered = false,
+            ),
+        )
+        assertFalse(
+            ExposureMonitoringPolicy.shouldRegisterStepCounter(
+                hasActivityRecognitionPermission = true,
+                isAlreadyRegistered = true,
+            ),
+        )
+    }
 }
