@@ -62,17 +62,46 @@ class ExposureSessionManagerTest {
     }
 
     @Test
-    fun `threshold completion stops further accumulation`() {
-        session.start(SkinType.I, 10.0, 0L)
-
-        val complete = session.refresh(600_000L)
-        val later = session.refresh(1_200_000L)
-
-        assertEquals(ExposureStatus.COMPLETE, complete.status)
-        assertEquals(1.5, complete.accumulatedDoseSed, EPSILON)
-        assertEquals(complete.accumulatedDoseSed, later.accumulatedDoseSed, 0.0)
-        assertEquals(0.0, later.remainingDoseSed, 0.0)
-        assertEquals(1.0, later.exposureFraction, 0.0)
+    fun `threshold completion allows further accumulation`() {
+        val manager = ExposureSessionManager()
+    
+        val start = 0L
+    
+        manager.start(
+            skinType = SkinType.II,
+            uvIndex = 10.0,
+            nowElapsedMs = start,
+        )
+    
+        // Skin type II has a 1.0 SED personal dose limit.
+        // 7 minutes at UVI 10:
+        // 0.015 * 10 * 7 = 1.05 SED.
+        val thresholdTime = 420_000L
+    
+        val atThreshold = manager.refresh(thresholdTime)
+    
+        assertEquals(
+            ExposureStatus.COMPLETE,
+            atThreshold.status,
+        )
+        assertEquals(
+            1.05,
+            atThreshold.accumulatedDoseSed,
+            1e-9,
+        )
+    
+        // Exposure continues after reaching the dose limit.
+        val later = manager.refresh(thresholdTime + 60_000L)
+    
+        assertEquals(
+            ExposureStatus.COMPLETE,
+            later.status,
+        )
+        assertEquals(
+            1.20,
+            later.accumulatedDoseSed,
+            1e-9,
+        )
     }
 
     @Test
