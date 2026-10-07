@@ -37,6 +37,9 @@ data class ExposureDayEntity(
     val sessionId: String,
     val epochDay: Long,
     val activeDurationMillis: Long,
+    val directSunDurationMillis: Long,
+    val shadeDurationMillis: Long,
+    val unknownDurationMillis: Long,
     val doseSed: Double,
 )
 
@@ -54,7 +57,14 @@ data class ExposureSessionWithDays(
             status = ExposureRecordStatus.valueOf(session.status),
             days =
                 days.sortedBy { it.epochDay }.map {
-                    ExposureDayTotal(LocalDate.ofEpochDay(it.epochDay), it.activeDurationMillis, it.doseSed)
+                    ExposureDayTotal(
+                        date = LocalDate.ofEpochDay(it.epochDay),
+                        activeDurationMillis = it.activeDurationMillis,
+                        directSunDurationMillis = it.directSunDurationMillis,
+                        shadeDurationMillis = it.shadeDurationMillis,
+                        unknownDurationMillis = it.unknownDurationMillis,
+                        doseSed = it.doseSed,
+                    )
                 },
         )
 }
