@@ -463,6 +463,10 @@ class MainViewModel(
     
         restartExposureSession()
     }
+    fun onResetTimer() {
+        restartExposureSession()
+        pauseNewSessionIfAlreadyIndoor()
+    }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
 
