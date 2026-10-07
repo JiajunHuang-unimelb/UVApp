@@ -1,0 +1,65 @@
+package com.example.uvapp
+
+import com.example.uvapp.platform.environment.MockEnvironmentContextProvider
+import com.example.uvapp.viewmodel.MainViewModel
+import com.example.uvapp.viewmodel.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+/** Integration-style unit tests for sensor samples consumed by [MainViewModel]. */
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainViewModelSensorTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `uncovering phone restores lux based exposure context`() {
+        val environment =
+            MockEnvironmentContextProvider(
+                initialLux = 8_000,
+                initiallyDeviceOccluded = true,
+            )
+        val viewModel = buildViewModel(environment)
+        dispatcher.scheduler.runCurrent()
+
+        viewModel.onOverrideUvToggle()
+        viewModel.onUvOverride(6.0)
+        viewModel.onStartExposure()
+        val conservativeSeconds = viewModel.state.value.totalBurnSeconds
+
+        environment.setDeviceOccluded(false)
+        dispatcher.scheduler.runCurrent()
+
+        // Once unobstructed, the same 8,000 lux reading is trustworthy shade evidence again.
+        val shadeSeconds = viewModel.state.value.totalBurnSeconds
+        assertTrue(shadeSeconds > conservativeSeconds)
+    }
+
+    private fun buildViewModel(environment: MockEnvironmentContextProvider) =
+        MainViewModel(
+            settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
+            environmentContextProvider = environment,
+            nowMillis = { FIXED_TIME_MILLIS },
+            elapsedRealtimeMillis = { dispatcher.scheduler.currentTime },
+        )
+
+    private companion object {
+        const val FIXED_TIME_MILLIS = 1_800_000L
+    }
+}
