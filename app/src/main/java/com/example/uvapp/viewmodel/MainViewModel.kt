@@ -478,7 +478,7 @@ class MainViewModel(
                 skinType = state.skinType,
                 uvIndex = state.displayUv,
                 nowElapsedMs = exposureClockMillis,
-                context = state.displayContext.toExposureContext(),
+                context = state.exposureContext,
             )
     
         publishExposure(snapshot)
