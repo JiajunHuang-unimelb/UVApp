@@ -1,9 +1,12 @@
-# UVApp — Front-end (MVVM + Jetpack Compose, mock data only)
+# UVApp — Android UV forecasts and exposure tracking
 
-Front-end-only build of the UVApp high-fidelity design (`high-fi/` mockups).
-The UI is complete; **no backend code** — all data comes from `MockUvRepository`.
+UVApp uses MVVM and Jetpack Compose to display location-specific UV forecasts,
+place search, a personal exposure countdown and local exposure history. The app
+connects to Open-Meteo and Nominatim through Retrofit repositories, uses Room for
+forecast/place caches and history, and persists settings and saved indoor places
+with DataStore.
 
-## Pages (identical to `high-fi/`)
+## Pages
 
 | Page | Screen |
 |---|---|
@@ -12,42 +15,34 @@ The UI is complete; **no backend code** — all data comes from `MockUvRepositor
 | Forecast — day chips, drag-on-curve time picker, 24 h UV chart | `ui/screens/ForecastScreen.kt` |
 | Settings — skin type, SPF, notifications, theme, dev mode | `ui/screens/SettingsScreen.kt` |
 | Search dialog (scrim + Nominatim place search) | `ui/components/SearchDialog.kt` |
-| Developer-mode card (8 override toggles) | `ui/components/DevCard.kt` |
+| Developer-mode card | `ui/components/DevCard.kt` |
+| SunLog — daily and weekly exposure history | `ui/screens/SunLogScreen.kt` |
 
-## Connecting the backend (2 steps)
+## Data interfaces and integration
 
-The UI depends on exactly one contract: `data/UvRepository.kt`.
+`ui/UVAppRoot.kt` creates the production repositories and injects them into the
+ViewModels. Repository contracts are in `domain/repository`, with implementations
+under `data`.
 
-1. **Implement `UvRepository`** with the real stack (Retrofit + Open-Meteo +
-   Nominatim + Room). The mock's return shapes are the contract:
+| Interface | Current contract and implementation |
+|---|---|
+| `UvRepository` | `observeForecast(latitude, longitude): Flow<UvForecastState>` and suspend `refresh(latitude, longitude): Result<Unit>`; `UvRepositoryFactory` supplies Open-Meteo networking with Room caching |
+| `PlaceRepository` | Submitted `searchPlaces(query)` and `reverseGeocode(coordinates)`; `PlaceRepositoryFactory` supplies Nominatim networking |
+| `ExposureHistoryRepository` | Saves complete cumulative session snapshots and queries history, daily and weekly totals through Room |
+| `UserPreferencesRepository` | Settings persisted by `DataStoreUserPreferencesRepository` |
 
-   | Method | Returns |
-   |---|---|
-   | `getCurrentUv()` | `UvReading(index)` — current UV (e.g. 8.4) |
-   | `getPlaceName()` | `String` — e.g. "Southbank, Melbourne" |
-   | `getForecastDays()` | `List<ForecastDay>` — 7 days; each has weekday, day-of-month, max UV, sunrise/sunset minutes, `hourly: List<HourlyUv>` (hour + uv or null for gaps) |
-   | `getSensorContext()` | `SensorContext(lightContext, lux, stepsPerMinute)` |
-   | `getBurnMinutes(skin, spf, uv, context)` | burn minutes (the front end also has the formula in `BurnCalculator` as a fallback) |
-   | `getApiStatuses()` | `List<ApiStatus>` — shown in the developer card |
+Search is already connected to the dialog: an explicit submission requests
+results, and selecting a result refreshes the forecast at its coordinates.
+Forecast observation exposes cache/network state and refresh errors; network
+failure can retain existing cached readings. Uncached locations still need a
+successful fetch to obtain forecast data.
 
-2. **Swap the provider** — change one line in `data/UvRepository.kt`:
-
-   ```kotlin
-   object UvRepositoryProvider {
-       val instance: UvRepository by lazy { YourRealUvRepository() }
-   }
-   ```
-
-   That's it. The ViewModels observe this instance; the UI updates
-   automatically. The refresh button re-reads all of it.
-
-### Data semantics the backend must honour
-
-- UV bands (WHO): `<3 Low, <6 Moderate, <8 High, <11 Very High, ≥11 Extreme`
-  (computed from the index — you only supply the number).
-- Burn time: `baseMinutesAtUv1(skin) × SPF ÷ (uvIndex × contextFactor)`;
-  indoor/zero dose ⇒ infinite (`Int.MAX_VALUE`) ⇒ timer shows `--:--`.
-- Forecast hourly: hours without data must be `null` (chart draws a gap).
+Exposure calculations and environment classification belong to the domain and
+platform modules, rather than the UV repository. MainViewModel organizes and
+saves daily history. See [place search](docs/place-search-api.md),
+[history storage](docs/exposure-tracking-api.md) and
+[sensor implementation](docs/multi-sensor-implementation.md) for their contracts
+and limitations.
 
 ## Architecture
 
@@ -55,33 +50,46 @@ The UI depends on exactly one contract: `data/UvRepository.kt`.
 View (Compose) ──events──▶ ViewModel ──StateFlow──▶ immutable UiState ──▶ View
                                │
                                ▼
-                    UvRepository (interface)
+                    Repository interfaces
                                │
-                    MockUvRepository (fake)
+                    Retrofit APIs / Room / DataStore
 ```
 
 - `viewmodel/MainViewModel.kt` — Home + shared chrome: live countdown ticker,
   refresh, search dialog, dev overrides.
-- `viewmodel/ForecastViewModel.kt` — day/hour selection, forecast refresh.
-- `viewmodel/SettingsViewModel.kt` — profile, theme, dev-mode (in-memory mock).
+- `viewmodel/ForecastViewModel.kt` — day/hour selection and forecast presentation
+  from MainViewModel's shared forecast state.
+- `viewmodel/SettingsViewModel.kt` — profile, theme and dev-mode settings backed
+  by DataStore.
 - `ui/theme/UvTheme.kt` — Solar palette + tokens, taken verbatim from the
   mockups; the main (accent) colour is user-selectable in
   Settings → Theme colour (6 presets, default Amber).
 - `ui/icons/UvIcons.kt` — facade over the vector drawables in
-  `app/src/main/res/drawable/ic_*.xml`. A visual gallery of all nine icons
-  (light + dark tiles, on-device tints) lives at `docs/icons/index.html`,
-  with standalone `ic_*.svg` previews beside it — regenerate both after
-  editing an icon via `node docs/icons/gen_icons.js` (the XML drawables are
-  the single source of truth the app loads).
+  `app/src/main/res/drawable/ic_*.xml`, which can be previewed and edited in
+  Android Studio.
 
 ## Build
 
-Database version 3 uses one `uvapp.db` for UV/place caches and exposure history and supports fresh installations only. Before testing, manually clear app data or uninstall and reinstall without restoring a backup. This deletes history, caches, settings and saved indoor places. Installing over an older database is unsupported; the app does not automatically erase it. Future schema changes require explicit migrations.
+Use JDK 21 and an Android SDK matching `app/build.gradle.kts` (currently compile
+and target SDK 37). Configure the SDK location in untracked `local.properties`.
+
+Database version 4 uses one `uvapp.db` for UV/place caches and exposure history.
+The registered 3→4 migration adds direct-sun, shade and unknown duration columns
+with SQL defaults of zero, without backfilling old duration breakdowns. Versions
+1/2 and the former separate `exposure_history.db` have no migration/import path.
+Migration compatibility and old-data preservation still need dedicated migration
+tests; clearing app data is not migration validation. See the
+[history storage guide](docs/exposure-tracking-api.md) before testing upgrades.
 
 ```powershell
 .\gradlew.bat assembleDebug          # APK -> app/build/outputs/apk/debug/
-.\gradlew.bat testDebugUnitTest      # JVM tests (bands, burn math)
+.\gradlew.bat testDebugUnitTest      # Enabled JVM tests
+.\gradlew.bat assembleDebugAndroidTest # Compile Android instrumentation tests
 ```
 
-Offline-safe: all dependencies are pinned to versions already resolved in the
-local Gradle cache. Install the APK on a device/emulator to run the app.
+Install the APK on a device/emulator to run the app. Initial dependency resolution
+may require network access; offline builds require the necessary dependencies
+and SDK packages to already be installed. Android instrumentation tests require
+a connected device/emulator and are separate from JVM tests. MainViewModelTest
+is currently commented out; a successful JVM test task does not validate disabled
+tests or Android database/migration scenarios.
