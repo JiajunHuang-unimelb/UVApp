@@ -13,9 +13,6 @@ import com.example.uvapp.R
  * placeholder.
  */
 object UvIcons {
-    val Refresh: ImageVector
-        @Composable get() = ImageVector.vectorResource(R.drawable.ic_refresh)
-
     val Search: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_search)
 
@@ -36,6 +33,9 @@ object UvIcons {
 
     val Settings: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_settings)
+
+    val Info: ImageVector
+        @Composable get() = ImageVector.vectorResource(R.drawable.ic_info)
 
     val Warning: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_warning)
