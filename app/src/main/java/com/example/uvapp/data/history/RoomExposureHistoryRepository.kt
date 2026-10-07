@@ -31,19 +31,32 @@ class RoomExposureHistoryRepository(private val dao: ExposureHistoryDao) : Expos
     ): Flow<List<ExposureDailySummary>> {
         val count = ChronoUnit.DAYS.between(start, endExclusive)
         require(count in 1..366) { "Daily query requires 1..366 days" }
+
         return dao.observeDaily(start.toEpochDay(), endExclusive.toEpochDay()).map { rows ->
             val byDay = rows.associateBy { it.epochDay }
+
             List(count.toInt()) { index ->
                 val date = start.plusDays(index.toLong())
                 val row = byDay[date.toEpochDay()]
-                ExposureDailySummary(date, row?.activeDurationMillis ?: 0, row?.doseSed ?: 0.0, row?.sessionCount ?: 0)
+
+                ExposureDailySummary(
+                    date = date,
+                    activeDurationMillis = row?.activeDurationMillis ?: 0L,
+                    directSunDurationMillis = row?.directSunDurationMillis ?: 0L,
+                    shadeDurationMillis = row?.shadeDurationMillis ?: 0L,
+                    unknownDurationMillis = row?.unknownDurationMillis ?: 0L,
+                    doseSed = row?.doseSed ?: 0.0,
+                    sessionCount = row?.sessionCount ?: 0,
+                )
             }
         }
     }
 
     override fun observeWeek(containingDate: LocalDate): Flow<ExposureWeeklySummary> {
         val monday = containingDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-        return observeDaily(monday, monday.plusDays(7)).map { ExposureWeeklySummary(monday, it) }
+        return observeDaily(monday, monday.plusDays(7)).map {
+            ExposureWeeklySummary(monday, it)
+        }
     }
 
     override suspend fun deleteSession(sessionId: String): Result<Unit> =
