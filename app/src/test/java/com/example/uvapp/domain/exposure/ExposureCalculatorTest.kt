@@ -108,26 +108,30 @@ class ExposureCalculatorTest {
     }
 
     @Test
-    fun `remaining dose and presentation fraction can exceed the limit`() {
+    fun `remaining dose is clamped at zero after the limit is exceeded`() {
         assertEquals(
             2.0,
             ExposureCalculator.calculateRemainingDose(3.0, 1.0),
             EPSILON,
         )
         assertEquals(
-            -1.0,
+            0.0,
             ExposureCalculator.calculateRemainingDose(3.0, 4.0),
-            EPSILON,
+            0.0,
         )
+    }
+
+    @Test
+    fun `exposure fraction is clamped at one after the limit is exceeded`() {
         assertEquals(
             0.5,
             ExposureCalculator.calculateExposureFraction(3.0, 1.5),
             EPSILON,
         )
         assertEquals(
-            4.0 / 3.0,
+            1.0,
             ExposureCalculator.calculateExposureFraction(3.0, 4.0),
-            EPSILON,
+            0.0,
         )
     }
 
@@ -162,19 +166,15 @@ class ExposureCalculatorTest {
     }
 
     @Test
-    fun `remaining time can become negative after the threshold is exceeded`() {
+    fun `remaining time is zero when no dose remains`() {
         assertEquals(
-            -8.333333333333334,
-            ExposureCalculator.calculateRemainingMinutes(-1.0, 8.0)!!,
-            EPSILON,
+            0.0,
+            ExposureCalculator.calculateRemainingMinutes(0.0, 8.0)!!,
+            0.0,
         )
-    }
-
-    @Test
-    fun `remaining seconds preserve negative countdown`() {
         assertEquals(
-            -500L,
-            ExposureCalculator.calculateRemainingSeconds(-1.0, 8.0),
+            0L,
+            ExposureCalculator.calculateRemainingSeconds(0.0, 8.0),
         )
     }
 
