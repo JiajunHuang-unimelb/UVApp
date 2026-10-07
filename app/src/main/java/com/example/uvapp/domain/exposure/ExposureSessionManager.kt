@@ -82,7 +82,7 @@ class ExposureSessionManager {
     ): ExposureSnapshot {
         settleExposure(nowElapsedMs)
         this.skinType = skinType
-        if (status == ExposureStatus.RUNNING && remainingDoseSed() == 0.0) {
+        if (status == ExposureStatus.RUNNING && remainingDoseSed() <= 0.0) {
             status = ExposureStatus.COMPLETE
         }
         return snapshot()
@@ -180,7 +180,7 @@ class ExposureSessionManager {
 
         lastElapsedMs = nowElapsedMs
 
-        if (remainingDoseSed() == 0.0) {
+        if (remainingDoseSed() <= 0.0) {
             status = ExposureStatus.COMPLETE
         }
     }
