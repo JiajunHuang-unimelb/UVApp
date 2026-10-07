@@ -148,10 +148,7 @@ class ExposureSessionManager {
 
     private fun settleExposure(nowElapsedMs: Long) {
         val previousElapsedMs = lastElapsedMs ?: return
-        if (
-            (status != ExposureStatus.RUNNING && status != ExposureStatus.COMPLETE) ||
-            nowElapsedMs <= previousElapsedMs
-        ) {
+        if (status != ExposureStatus.RUNNING || nowElapsedMs <= previousElapsedMs) {
             return
         }
         val elapsedMillis = nowElapsedMs - previousElapsedMs
