@@ -1,5 +1,3 @@
-
-```kotlin
 package com.example.uvapp.domain.exposure
 
 import com.example.uvapp.domain.environment.AcousticContext
@@ -106,4 +104,3 @@ class ExposureContextDetector {
         return ExposureContext.UNKNOWN
     }
 }
-```
