@@ -859,8 +859,7 @@ class MainViewModel(
         val target =
             when {
                 !state.indoorDetected &&
-                        state.isWithinSavedIndoorLocation &&
-                        state.displayLux < INDOOR_ENTER_LUX -> true
+                        state.hasTrustworthyIndoorEntryEvidence() -> true
 
                 state.indoorDetected &&
                         (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
@@ -889,12 +888,21 @@ class MainViewModel(
 
     private fun confirmIndoorIfStillValid() {
         val state = _state.value
-        if (state.indoorDetected || !state.isWithinSavedIndoorLocation || state.displayLux >= INDOOR_ENTER_LUX) return
+        if (state.indoorDetected || !state.hasTrustworthyIndoorEntryEvidence()) return
 
         _state.update { it.copy(indoorDetected = true) }
         syncExposure()
         autoPauseForIndoor(sendAlert = true)
     }
+
+    /** Pocketed or contradictory readings cannot establish a new indoor state. */
+    private fun MainUiState.hasTrustworthyIndoorEntryEvidence(): Boolean =
+        isWithinSavedIndoorLocation &&
+            displayLux < INDOOR_ENTER_LUX &&
+            effectiveDeviceOccluded != true &&
+            effectiveIsMoving != true &&
+            effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
+            devicePosture != DevicePosture.FACE_DOWN
 
     private fun confirmOutdoorIfStillValid() {
         val state = _state.value

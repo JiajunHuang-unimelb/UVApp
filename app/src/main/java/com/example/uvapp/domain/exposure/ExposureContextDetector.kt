@@ -89,17 +89,10 @@ class ExposureContextDetector {
         }
 
         /*
-         * If the phone is occluded but the user is near a saved indoor
-         * location and there is no movement evidence, indoor becomes
-         * more plausible.
-         */
-        if (input.nearIndoorLocation) {
-            return ExposureContext.INDOOR
-        }
-
-        /*
-         * With an occluded phone and no reliable environmental evidence,
-         * we should avoid making a confident claim.
+         * A saved location cannot make an occluded lux reading trustworthy:
+         * the user may still be outdoors near their home with the phone in a
+         * pocket. Keep the result conservative until unobstructed evidence is
+         * available or the indoor state was confirmed before the occlusion.
          */
         return ExposureContext.UNKNOWN
     }
