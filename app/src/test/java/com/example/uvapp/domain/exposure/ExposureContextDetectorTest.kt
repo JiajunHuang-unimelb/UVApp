@@ -40,6 +40,37 @@ class ExposureContextDetectorTest {
         assertEquals(ExposureContext.UNKNOWN, result)
     }
 
+    @Test
+    fun `sound posture and motion can reject a misleading low light reading`() {
+        val activeSound =
+            detector.detect(
+                input(lux = 8_000, acousticContext = AcousticContext.ACTIVE_OUTDOOR_LIKELY),
+            )
+        val faceDown =
+            detector.detect(
+                input(lux = 8_000, posture = DevicePosture.FACE_DOWN),
+            )
+        val moving =
+            detector.detect(
+                input(lux = 8_000, isMoving = true),
+            )
+        val consistentShade =
+            detector.detect(
+                input(
+                    lux = 8_000,
+                    acousticContext = AcousticContext.QUIET_INDOOR_LIKELY,
+                    posture = DevicePosture.FACE_UP,
+                    isMoving = false,
+                ),
+            )
+
+        // Contradictory sensors keep dose calculation conservative; consistent evidence keeps shade.
+        assertEquals(ExposureContext.UNKNOWN, activeSound)
+        assertEquals(ExposureContext.UNKNOWN, faceDown)
+        assertEquals(ExposureContext.UNKNOWN, moving)
+        assertEquals(ExposureContext.SHADE, consistentShade)
+    }
+
     private fun input(
         lux: Int = 500,
         deviceOccluded: Boolean? = false,
