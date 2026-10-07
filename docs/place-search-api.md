@@ -34,5 +34,18 @@ The consuming UI must display `NominatimClient.ATTRIBUTION` and respect the
 Attribution, deployment-wide limits, and provider switching must be considered
 before a wider release.
 
-This change does not connect the search dialog or change `onPlaceSelected()`.
-The current UI still uses the demo list until it is wired to this interface.
+## Current UI integration
+
+`UVAppRoot` creates `PlaceRepositoryFactory` and injects the repository into
+`MainViewModel`. The search dialog submits through `onSearchSubmit()` when the
+user uses the keyboard Search action; changing the query only updates UI state.
+The ViewModel cancels the previous search and displays searching, no-results or
+failure status as appropriate. The dialog renders returned `displayName` values
+and displays OpenStreetMap attribution through `PlaceDataAttribution`.
+
+Selecting a result calls `onPlaceSelected(PlaceSearchResult)`, closes the dialog
+and observes/refreshes the UV forecast using that result's coordinates. The
+selected location is marked approximate so indoor-location logic does not treat
+it as the user's measured position. Search failure does not automatically switch
+to GPS; "Use current location" is a separate user action through the location
+permission flow.
