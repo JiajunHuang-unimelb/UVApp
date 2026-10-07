@@ -24,6 +24,22 @@ class ExposureContextDetectorTest {
         assertEquals(ExposureContext.UNKNOWN, result)
     }
 
+    @Test
+    fun `occluded moving phone uses conservative unknown context`() {
+        val result =
+            detector.detect(
+                input(
+                    lux = 25,
+                    deviceOccluded = true,
+                    nearIndoorLocation = true,
+                    isMoving = true,
+                ),
+            )
+
+        // Motion makes a pocket or bag more likely, so the low lux is not environmental evidence.
+        assertEquals(ExposureContext.UNKNOWN, result)
+    }
+
     private fun input(
         lux: Int = 500,
         deviceOccluded: Boolean? = false,
