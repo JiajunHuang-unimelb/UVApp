@@ -9,6 +9,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -19,11 +20,13 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.example.uvapp.MainActivity
 import com.example.uvapp.R
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
 import com.example.uvapp.domain.environment.AmbientLightFilter
+import com.example.uvapp.domain.environment.ExposureMonitoringPolicy
 import com.example.uvapp.domain.environment.LocationFixValidator
 import com.example.uvapp.domain.environment.LocationMonitoringPolicy
 import com.example.uvapp.domain.environment.LocationRequestFailurePolicy
@@ -102,7 +105,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NOTIFICATION_ID, createNotification())
+        startMonitoringForeground()
         acquireWakeLock()
         AndroidEnvironmentContextProvider.markUnavailable()
         startSensorMonitoring()
@@ -320,6 +323,25 @@ class ExposureMonitoringService : Service(), SensorEventListener {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) ==
             PackageManager.PERMISSION_GRANTED
+
+    private fun startMonitoringForeground() {
+        val hasLocationPermission =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        val serviceType =
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasLocationPermission ->
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+
+                else -> 0
+            }
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, createNotification(), serviceType)
+    }
 
     @SuppressLint("WakelockTimeout")
     private fun acquireWakeLock() {
