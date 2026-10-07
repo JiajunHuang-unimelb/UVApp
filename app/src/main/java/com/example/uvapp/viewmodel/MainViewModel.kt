@@ -432,18 +432,6 @@ class MainViewModel(
 
     fun onStartExposure() {
         restartExposureSession()
-    
-        val state = _state.value
-        val snapshot =
-            exposureSession.start(
-                skinType = state.skinType,
-                uvIndex = state.displayUv,
-                nowElapsedMs = exposureClockMillis,
-                context = state.displayContext.toExposureContext(),
-            )
-    
-        publishExposure(snapshot)
-    
         pauseNewSessionIfAlreadyIndoor()
     }
 
