@@ -26,34 +26,36 @@ object ExposureCalculator {
             elapsedMinutes.coerceAtLeast(0.0)
 
     /**
-     * Calculates the dose remaining from the personal daily dose limit.
+     * Calculates the non-negative dose remaining from the personal daily dose limit.
      *
-     * The result is allowed to be negative when the accumulated dose exceeds
-     * the personal dose limit.
+     * The result is clamped to zero when the accumulated dose exceeds
+     * the personal dose limit. The raw difference is still used separately
+     * when calculating the remaining exposure time.
      */
     fun calculateRemainingDose(
         doseLimitSed: Double,
         accumulatedDoseSed: Double,
-    ): Double = doseLimitSed - accumulatedDoseSed
+    ): Double =
+        (doseLimitSed - accumulatedDoseSed).coerceAtLeast(0.0)
 
     /**
      * Calculates the accumulated dose as a fraction of the personal dose limit.
      *
-     * The result is allowed to exceed 1.0 when the accumulated dose exceeds
-     * the personal dose limit.
+     * The result is clamped to 1.0 (100%) once the personal dose limit
+     * has been reached or exceeded.
      */
     fun calculateExposureFraction(
         doseLimitSed: Double,
         accumulatedDoseSed: Double,
     ): Double {
         require(doseLimitSed > 0.0) { "Dose limit must be positive" }
-        return accumulatedDoseSed / doseLimitSed
+        return (accumulatedDoseSed / doseLimitSed).coerceAtMost(1.0)
     }
 
     /**
      * Calculates the remaining exposure time at the current UV level.
      *
-     * The result is allowed to be negative when the accumulated dose has
+     * The remaining dose may be negative when the accumulated dose has
      * exceeded the personal dose limit.
      */
     fun calculateRemainingMinutes(
