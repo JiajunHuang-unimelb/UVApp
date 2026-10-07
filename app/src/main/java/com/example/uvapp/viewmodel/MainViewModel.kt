@@ -57,9 +57,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Weeks the Sun log can show: the current week plus the three before it. */
-const val SUN_LOG_WEEK_COUNT = 4
-
 /** Bottom-navigation destinations. */
 enum class Tab { HOME, FORECAST, SUN_LOG, SETTINGS }
 
@@ -139,10 +136,8 @@ data class MainUiState(
     val spf: Int = 15,
     val devModeEnabled: Boolean = false,
     val dev: DevUiState = DevUiState(),
-    /** Sun log weeks, oldest first, current week last; empty until the first read arrives. */
-    val sunLogWeeks: List<ExposureWeeklySummary> = emptyList(),
-    /** Sun log page (index into [sunLogWeeks]) last settled on; starts on the current week. */
-    val sunLogPage: Int = SUN_LOG_WEEK_COUNT - 1,
+    /** Week shown on the Sun log tab; null until the first read arrives. */
+    val sunLogWeek: ExposureWeeklySummary? = null,
     /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
     val sunLogShowsTime: Boolean = false,
     val sunscreenRemindersEnabled: Boolean = true,
@@ -252,7 +247,8 @@ class MainViewModel(
 
     // Exposure history (see docs/exposure-tracking-api.md for the save contract).
     private val historySaveMutex = Mutex()
-    private var sunLogWeeksJob: Job? = null
+    private var sunLogWeekJob: Job? = null
+    private var sunLogWeekDate: LocalDate = todayDate()
     private var historySessionId: String? = null
     private var historyStartedAtMillis = 0L
     private var historyZoneId: ZoneId = ZoneId.systemDefault()
@@ -355,7 +351,7 @@ class MainViewModel(
             locate()
         }
 
-        observeSunLogWeeks()
+        observeSunLogWeek(sunLogWeekDate)
     }
 
     // ---- User actions -------------------------------------------------------
@@ -364,8 +360,13 @@ class MainViewModel(
 
     fun onSunLogShowTime(showTime: Boolean) = _state.update { it.copy(sunLogShowsTime = showTime) }
 
-    /** Remembers the week the Sun log pager settled on, so it survives tab switches. */
-    fun onSunLogPageSettled(page: Int) = _state.update { it.copy(sunLogPage = page) }
+    fun onSunLogPreviousWeek() = observeSunLogWeek(sunLogWeekDate.minusDays(7))
+
+    fun onSunLogNextWeek() {
+        val next = sunLogWeekDate.plusDays(7)
+        if (next.isAfter(todayDate())) return
+        observeSunLogWeek(next)
+    }
 
     fun onSearchClick() = _state.update { it.copy(showSearchDialog = true) }
 
@@ -1274,25 +1275,17 @@ class MainViewModel(
             else -> ExposureRecordStatus.ACTIVE
         }
 
-    /**
-     * Loads every viewable Sun log week (the current Mon-Sun week and the ones before it)
-     * with one daily query, so all pager pages are ready before the user swipes. Called again
-     * by pull-to-refresh, which re-anchors the range to today.
-     */
-    fun observeSunLogWeeks() {
+    private fun observeSunLogWeek(date: LocalDate) {
         val repository = historyRepository ?: return
-        val today = todayDate()
-        val currentWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
-        val firstWeekStart = currentWeekStart.minusWeeks((SUN_LOG_WEEK_COUNT - 1).toLong())
-        val daysFlow = repository.observeDaily(firstWeekStart, currentWeekStart.plusWeeks(1))
-        sunLogWeeksJob?.cancel()
-        sunLogWeeksJob = viewModelScope.launch {
-            // observeDaily returns every day in the range (zero when empty), so 7-day chunks are weeks.
-            daysFlow.collect { days ->
-                val weeks = days.chunked(7).map { weekDays -> ExposureWeeklySummary(weekDays.first().date, weekDays) }
-                _state.update { it.copy(sunLogWeeks = weeks) }
+        sunLogWeekDate = date
+        val weekFlow = repository.observeWeek(date)
+        sunLogWeekJob?.cancel()
+        sunLogWeekJob =
+            viewModelScope.launch {
+                weekFlow.collect { week ->
+                    _state.update { it.copy(sunLogWeek = week) }
+                }
             }
-        }
     }
 
     private fun todayDate(): LocalDate =

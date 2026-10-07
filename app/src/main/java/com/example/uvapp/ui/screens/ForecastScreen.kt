@@ -41,7 +41,7 @@ fun ForecastScreen(
         modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 80.dp),
     ) {
         TopChrome(
             uv = state.selectedUv,

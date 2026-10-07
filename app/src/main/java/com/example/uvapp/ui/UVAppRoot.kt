@@ -4,8 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -27,8 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +46,7 @@ import com.example.uvapp.platform.environment.AndroidExposureMonitoringControlle
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
+import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
@@ -64,7 +61,6 @@ import com.example.uvapp.ui.theme.UvAppTheme
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
-import com.example.uvapp.viewmodel.SUN_LOG_WEEK_COUNT
 import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
 
@@ -75,7 +71,6 @@ import com.example.uvapp.viewmodel.Tab
  * [requestedTab] comes from a launch intent (the weekly widget); it is applied once
  * and then cleared through [onRequestedTabHandled].
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UVAppRoot(
     requestedTab: Tab? = null,
@@ -132,8 +127,6 @@ fun UVAppRoot(
 
     LaunchedEffect(requestedTab) {
         if (requestedTab != null) {
-            // The widget shows this week's total, so it always opens Sun log on this week.
-            if (requestedTab == Tab.SUN_LOG) mainViewModel.onSunLogPageSettled(SUN_LOG_WEEK_COUNT - 1)
             mainViewModel.onTabSelected(requestedTab)
             onRequestedTabHandled()
         }
@@ -319,9 +312,7 @@ fun UVAppRoot(
     }
 
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
-    // Pull-to-refresh spinner: on from the pull until the refresh it starts finishes loading.
-    var pullRefreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(mainState.isLoading) { if (!mainState.isLoading) pullRefreshing = false }
+
     val requestCurrentLocation =
         rememberLocationPermissionRequester(
             onPermissionGranted = {
@@ -451,40 +442,6 @@ fun UVAppRoot(
                         },
                         onEnhancedSensingToggle = toggleEnhancedSensing,
                     )
-                } else {
-                    // Pull down to refresh on every page except Settings. ForecastViewModel.refresh()
-                    // delegates to mainViewModel.onRefresh(); Sun log also re-anchors its weeks to today.
-                    PullToRefreshBox(
-                        isRefreshing = pullRefreshing,
-                        onRefresh = {
-                            pullRefreshing = true
-                            if (mainState.selectedTab == Tab.SUN_LOG) mainViewModel.observeSunLogWeeks()
-                            forecastViewModel.refresh()
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        when (mainState.selectedTab) {
-                            Tab.HOME -> HomeScreen(
-                                viewModel = mainViewModel,
-                                state = mainState,
-                                onLocate = requestCurrentLocation,
-                                indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions) },
-                            )
-                            Tab.FORECAST -> ForecastScreen(
-                                state = forecastState,
-                                onSearchClick = mainViewModel::onSearchClick,
-                                onLocate = requestCurrentLocation,
-                                onSelectDay = forecastViewModel::selectDay,
-                                onSelectTime = forecastViewModel::selectTime,
-                                onCurrentTime = forecastViewModel::selectCurrentTime,
-                            )
-                            else -> SunLogScreen(
-                                state = mainState,
-                                onPageSettled = mainViewModel::onSunLogPageSettled,
-                                onShowTime = mainViewModel::onSunLogShowTime,
-                            )
-                        }
-                    }
                 }
 
                 TopLoadingBar(
