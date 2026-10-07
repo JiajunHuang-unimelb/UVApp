@@ -57,6 +57,7 @@ import com.example.uvapp.ui.theme.UvAppTheme
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
+import com.example.uvapp.viewmodel.SUN_LOG_WEEK_COUNT
 import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
 
@@ -112,6 +113,8 @@ fun UVAppRoot(
     }
     LaunchedEffect(requestedTab) {
         if (requestedTab != null) {
+            // The widget shows this week's total, so it always opens Sun log on this week.
+            if (requestedTab == Tab.SUN_LOG) mainViewModel.onSunLogPageSettled(SUN_LOG_WEEK_COUNT - 1)
             mainViewModel.onTabSelected(requestedTab)
             onRequestedTabHandled()
         }
@@ -268,8 +271,7 @@ fun UVAppRoot(
                     )
                     Tab.SUN_LOG -> SunLogScreen(
                         state = mainState,
-                        onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
-                        onNextWeek = mainViewModel::onSunLogNextWeek,
+                        onPageSettled = mainViewModel::onSunLogPageSettled,
                         onShowTime = mainViewModel::onSunLogShowTime,
                     )
                     Tab.SETTINGS -> SettingsScreen(
