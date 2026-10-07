@@ -62,7 +62,7 @@ class ExposureSessionManagerTest {
     }
 
     @Test
-    fun `threshold completion allows further accumulation`() {
+    fun `threshold completion stops further accumulation`() {
         val manager = ExposureSessionManager()
     
         val start = 0L
@@ -90,7 +90,7 @@ class ExposureSessionManagerTest {
             1e-9,
         )
     
-        // Exposure continues after reaching the dose limit.
+        // Exposure stops after reaching the dose limit.
         val later = manager.refresh(thresholdTime + 60_000L)
     
         assertEquals(
@@ -98,7 +98,7 @@ class ExposureSessionManagerTest {
             later.status,
         )
         assertEquals(
-            1.20,
+            1.05,
             later.accumulatedDoseSed,
             1e-9,
         )
