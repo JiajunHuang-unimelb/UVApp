@@ -432,6 +432,18 @@ class MainViewModel(
 
     fun onStartExposure() {
         restartExposureSession()
+    
+        val state = _state.value
+        val snapshot =
+            exposureSession.start(
+                skinType = state.skinType,
+                uvIndex = state.displayUv,
+                nowElapsedMs = exposureClockMillis,
+                context = state.displayContext.toExposureContext(),
+            )
+    
+        publishExposure(snapshot)
+    
         pauseNewSessionIfAlreadyIndoor()
     }
 
@@ -718,11 +730,13 @@ class MainViewModel(
     }
 
     private fun restartExposureSession() {
-        monitoringController?.start()
+        monitoringController?.stop()
     
         val dbSessionId = java.util.UUID.randomUUID().toString()
         val sessionStartMs = exposureClockMillis
         val zoneId = java.time.ZoneId.systemDefault().id
+    
+        exposureSession.clear(exposureClockMillis)
     
         _state.update {
             it.copy(
@@ -731,19 +745,17 @@ class MainViewModel(
                 activeSessionId = dbSessionId,
                 activeSessionStartedAt = sessionStartMs,
                 activeSessionZoneId = zoneId,
+                exposureStatus = ExposureStatus.NOT_STARTED,
+                exposureStarted = false,
+                exposureRunning = false,
+                accumulatedDoseSed = 0.0,
+                exposureFraction = 0.0,
+                remainingSeconds = 0L,
+                totalBurnSeconds = 0L,
             )
         }
     
-        advanceExposureClock()
-    
-        val state = _state.value
-        val snapshot = exposureSession.start(
-            skinType = state.skinType,
-            uvIndex = state.displayUv,
-            nowElapsedMs = exposureClockMillis,
-            context = state.displayContext.toExposureContext(),
-        )
-        publishExposure(snapshot)
+        publishExposure(exposureSession.snapshot())
     }
     /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
     private fun evaluateIndoorTransition() {
