@@ -1,4 +1,3 @@
-```kotlin
 package com.example.uvapp.ui
 
 import androidx.activity.compose.BackHandler
@@ -490,4 +489,3 @@ fun UVAppRoot(
         }
     }
 }
-```
