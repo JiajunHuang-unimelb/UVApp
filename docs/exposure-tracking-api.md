@@ -1,57 +1,57 @@
-# 曝光历史：保存接口与接入说明
+# Exposure History: Persistence API and Integration Guide
 
-这个模块负责本地保存曝光记录，提供历史列表、每日和每周统计。计算模块提供剂量和各状态时长，MainViewModel 按日期组织累计记录并调用保存接口；前端负责展示。
+This module persists exposure records locally and provides history lists as well as daily and weekly summaries. The calculation module provides exposure dose and duration by context state. `MainViewModel` organizes cumulative records by date and calls the persistence API, while the frontend displays the results.
 
-当前 MainViewModel 已接入保存：会话建立、状态变化及运行中约每分钟保存完整累计记录，SunLog 页面读取历史统计。创建 Repository 本身不会自动产生记录。
+Persistence is already integrated into `MainViewModel`: it saves complete cumulative records when a session is created, when its state changes, and approximately once per minute while it is running. The SunLog screen reads historical summaries. Merely creating a Repository does not automatically generate records.
 
-## 分工边界
+## Responsibility Boundaries
 
-| 存储模块 | 计算模块及 MainViewModel |
+| Storage module | Calculation module and `MainViewModel` |
 | --- | --- |
-| 基础字段检查、事务保存、更新和删除 | UV 到剂量的计算及环境修正 |
-| 按已传入的日期做每日/每周汇总 | 排除暂停时间，生成各日有效时长和剂量 |
-| 查询、分页、缺失日期补零 | 根据会话时区拆分午夜边界，处理夏令时 |
-| 保持会话身份、防止较旧记录覆盖新记录 | 检查日期是否属于会话、有效时长是否超过实际经过时间、剂量与时长是否一致 |
-| 数据库迁移和写入失败处理 | 生成完整累计记录，决定保存时机和顺序重试 |
+| Basic field validation; transactional save, update, and delete operations | UV-to-dose calculations and environmental adjustments |
+| Daily/weekly aggregation using the dates supplied by the caller | Excluding paused time and generating daily active durations and doses |
+| Queries, pagination, and zero-filling missing dates | Splitting intervals at midnight based on the session time zone, including daylight-saving changes |
+| Preserving session identity and preventing older records from overwriting newer ones | Checking whether dates belong to the session, whether active duration exceeds actual elapsed time, and whether dose and duration are consistent |
+| Database migrations and write-failure handling | Producing complete cumulative records, deciding when to save, and coordinating sequential retries |
 
-存储层直接保存调用方提供的每日结果，不重新计算日界线或判断曝光结果是否合理。日期分配、时长与剂量的一致性属于调用方责任，不能将这些规则视为存储层已经提供的校验。
+The storage layer persists the caller-provided daily results directly. It does not recalculate day boundaries or determine whether exposure results are plausible. Date allocation and consistency between durations and dose are the caller's responsibilities; these rules must not be described as validations already provided by the storage layer.
 
-## 接入流程
+## Integration Flow
 
-1. 开始新会话时生成一次 `sessionId`，记住开始时间和时区。
-2. 运行过程中定期保存，也可在暂停和结束时保存。
-3. 每次传入这个会话截至当前的**完整每日累计记录**，不是本次新增值。
-4. 暂停和继续使用同一个 ID。重置时，选择保存会以 `COMPLETED` 保存旧会话；选择不保存会删除该会话已写入的历史。下一会话使用新 ID。
-5. 写入需要串行执行。当前 MainViewModel 使用 `historySaveMutex` 串行保存和删除；单次保存失败后，后续检查点仍携带完整累计记录，当前没有显式自动重试循环。
+1. Generate a `sessionId` once when a new session begins, and retain the start time and time zone.
+2. Save periodically while the session is running, and optionally on pause and completion.
+3. Each save must provide the session's **complete cumulative daily records up to that point**, not only the increments since the previous save.
+4. Pausing and resuming keep the same ID. On reset, choosing to save persists the old session as `COMPLETED`; choosing not to save deletes that session's previously written history. The next session uses a new ID.
+5. Writes must be serialized. The current `MainViewModel` uses `historySaveMutex` to serialize saves and deletes. If a save fails, subsequent checkpoints still carry complete cumulative records, but there is currently no explicit automatic retry loop.
 
-数据层按 ID 整体替换。同一会话重复保存不会增加记录数，也不会重复累加统计。相同保存时间允许修改状态、修正剂量/时长、删除错误的每日行；已完成记录也允许修正。
+The data layer replaces the entire record identified by its ID. Repeated saves for the same session do not increase the record count or double-count statistics. Saves with the same recorded-through time may change the status, correct dose or duration values, and remove erroneous daily rows. Completed records can also be corrected.
 
-失败重试应在同一个保存流程中处理：先重试当前记录，或用更新的完整记录替代它。更新记录保存成功后，不要再重试旧记录。时间较早的写入会失败；相同时间的写入按数据库执行顺序覆盖，因此仍需要顺序调用。
+Retries after a failure should be handled within the same serialized save flow: either retry the current record first or replace it with a newer complete record. Once the newer record has been saved successfully, do not retry the older one. Writes with an earlier recorded-through time are rejected; writes with the same recorded-through time overwrite each other in database execution order, so sequential calls are still required.
 
-## 需要传入的字段
+## Required Fields
 
-| 字段 | 含义 |
+| Field | Meaning |
 | --- | --- |
-| `sessionId` | 会话唯一 ID；同一会话及重试保持不变，新会话换新 ID |
-| `startedAtMillis` | UTC 毫秒时间戳，会话开始后固定 |
-| `recordedThroughMillis` | 本记录累计到的 UTC 毫秒时间戳，不能早于已保存的时间 |
-| `zoneId` | 开始时的时区，例如 `Australia/Melbourne`，同一会话固定 |
-| `status` | `ACTIVE`、`PAUSED`、`COMPLETED` |
-| `days` | 会话内各日期的完整累计数据；没有活动的日期可以省略 |
-| `days[].date` | 本会话时区中的本地日期，不能重复 |
-| `days[].activeDurationMillis` | 当前调用方写入的当日非室内累计时长，即下列三种状态时长之和；毫秒，排除暂停时间，不是剂量加权时长 |
-| `days[].directSunDurationMillis` | 当日直射光状态累计时长，毫秒 |
-| `days[].shadeDurationMillis` | 当日阴影状态累计时长，毫秒 |
-| `days[].unknownDurationMillis` | 当日未知环境状态累计时长，毫秒 |
-| `days[].doseSed` | 当日累计剂量，SED；有限且非负 |
+| `sessionId` | Unique session ID; unchanged within a session and across retries, with a new ID for each new session |
+| `startedAtMillis` | UTC timestamp in milliseconds; fixed when the session begins |
+| `recordedThroughMillis` | UTC timestamp in milliseconds through which this cumulative record is complete; must not precede the previously saved value |
+| `zoneId` | Time zone at session start, such as `Australia/Melbourne`; fixed for that session |
+| `status` | `ACTIVE`, `PAUSED`, or `COMPLETED` |
+| `days` | Complete cumulative data for each date in the session; dates with no activity may be omitted |
+| `days[].date` | Local date in the session's time zone; must not be duplicated |
+| `days[].activeDurationMillis` | Cumulative non-indoor duration for that date, as provided by the caller: the sum of the following three context-state durations; in milliseconds, excluding paused time, and not dose-weighted duration |
+| `days[].directSunDurationMillis` | Cumulative duration in direct sunlight for that date, in milliseconds |
+| `days[].shadeDurationMillis` | Cumulative duration in shade for that date, in milliseconds |
+| `days[].unknownDurationMillis` | Cumulative duration in an unknown environmental context for that date, in milliseconds |
+| `days[].doseSed` | Cumulative dose for that date, in SED; finite and non-negative |
 
-`ExposureDayTotal` 的六个参数都必须传入，三个新增时长字段没有构造默认值。时长来自计算器的 elapsed 时钟；开发模式的加速时钟不能直接当作真实墙钟时长。剂量由计算模块另行累计，存储层不根据这些时长重算剂量。
+All six parameters of `ExposureDayTotal` must be supplied; the three additional duration fields do not have constructor defaults. Durations come from the calculator's elapsed clock. An accelerated clock in development mode must not be treated directly as real wall-clock duration. Dose is accumulated separately by the calculation module; the storage layer does not recalculate dose from these durations.
 
-保存接口不需要快照版本号；数据库版本由 Room 管理。每次保存都替换整份记录，省略的旧日期也会被移除，因此正常更新必须包含以前仍有效的每日统计。
+The persistence API does not require a snapshot version number; Room manages the database version. Every save replaces the entire record, including removing previously saved dates omitted from the new record. Normal updates must therefore include all previously valid daily totals.
 
-跨午夜时由 MainViewModel 按会话时区拆分。例如 23:50 到次日 00:10，需要两个日期的统计。当前实现按两次检查点之间的墙钟时间比例分配剂量及各状态时长增量，并对时长取整；这是区间分配近似，不会重新计算午夜两侧各自的 UV 或环境。
+`MainViewModel` splits intervals that cross midnight according to the session time zone. For example, an interval from 23:50 to 00:10 on the next day requires totals for two dates. The current implementation apportions increments in dose and context-state durations in proportion to wall-clock time between checkpoints, rounding durations to whole milliseconds. This is an interval-allocation approximation; it does not recalculate the separate UV levels or environments on either side of midnight.
 
-## 调用示例
+## Usage Example
 
 ```kotlin
 val history = ExposureHistoryRepositoryFactory.create(applicationContext)
@@ -59,7 +59,7 @@ val zone = ZoneId.of("Australia/Melbourne")
 val start = LocalDate.of(2026, 9, 22).atTime(23, 50).atZone(zone).toInstant().toEpochMilli()
 val through = LocalDate.of(2026, 9, 23).atTime(0, 10).atZone(zone).toInstant().toEpochMilli()
 val record = ExposureRecord(
-    sessionId = savedSessionId, // 开始时生成一次
+    sessionId = savedSessionId, // Generate once when the session begins
     startedAtMillis = start,
     recordedThroughMillis = through,
     zoneId = zone.id,
@@ -83,10 +83,10 @@ val record = ExposureRecord(
         ),
     ),
 )
-// 在同一个顺序保存流程中调用，检查结果后再处理下一份记录。
+// Call this within the same serialized save flow; inspect the result before processing the next record.
 val result = history.save(record)
 if (result.isFailure) {
-    // 展示或记录错误；在此流程中决定重试或用更新的完整记录替代。
+    // Show or log the error; decide here whether to retry or replace it with a newer complete record.
 }
 
 val records = history.observeHistory(limit = 50, offset = 0)
@@ -96,32 +96,32 @@ val week = history.observeWeek(today)
 val checkpoint = history.getSession(savedSessionId)
 ```
 
-模型位于 `domain.model`，Factory 位于 `data.history`。日期使用 `java.time`。挂起方法应从协程调用；UI 收集查询返回的 Flow。用户确认删除后调用 `deleteSession` 或 `clearHistory`，并先停止相关待处理保存，避免删除后又写回来。
+The models are in `domain.model`, and the factory is in `data.history`. Dates use `java.time`. Call suspending methods from coroutines; the UI collects the `Flow` returned by queries. After the user confirms deletion, call `deleteSession` or `clearHistory`, and first stop any related pending saves so that deleted records are not written again.
 
-## 存储层保留的检查和查询规则
+## Storage-Layer Validation and Query Rules
 
-- 会话 ID 有效，开始时间/时区固定，保存时间不倒退。
-- 时间戳基本范围和时区标识有效；日期不重复，每日四个时长字段非负，剂量有限且非负；保存时检查总 active 时长不溢出、总剂量有限。
-- 存储层不校验 active 时长是否等于三个状态时长之和，也不校验每日日期分配、时长上限或零时长与剂量的关系；这些属于调用方责任。
-- 会话和每日行在一个事务中替换；中途失败会回滚整次写入。
-- 写入失败返回 `Result.failure`；协程取消继续抛出。读取失败不会伪装成零曝光。
-- 历史按开始时间倒序排列；查询支持分页。每日查询范围为 `[start, endExclusive)`，最多 366 天，缺失日期补零。
-- 每周为周一到周日；统计包含运行中、暂停和已完成记录。每日会话数只统计当天有有效曝光的会话，不能相加当作每周独立会话数。
-- 每日和每周查询分别汇总四个时长字段及剂量；无记录日期的各字段补零。会话数仍以 `activeDurationMillis > 0` 判断。
-- 历史使用会话开始时的时区；后续手机时区变化不重新划分旧数据。
+- The session ID must be valid; the start time and time zone remain fixed, and the recorded-through time must not move backwards.
+- Timestamps must fall within basic valid ranges, and the time-zone ID must be valid. Dates must not be duplicated; all four daily duration fields must be non-negative, and doses must be finite and non-negative. On save, the total active duration is checked for overflow and the total dose for finiteness.
+- The storage layer does **not** check that active duration equals the sum of the three context-state durations. It also does not validate daily date allocation, duration upper limits, or relationships between zero duration and dose. These checks are the caller's responsibility.
+- The session and its daily rows are replaced in a single transaction. Any failure during the operation rolls back the entire write.
+- Write failures return `Result.failure`; coroutine cancellation continues to propagate by throwing. Read failures are not disguised as zero exposure.
+- History is ordered by session start time in descending order, and queries support pagination. Daily queries cover `[start, endExclusive)`, with a maximum span of 366 days; missing dates are zero-filled.
+- Weeks run from Monday through Sunday. Aggregations include active, paused, and completed records. The daily session count includes only sessions with valid exposure on that date; daily counts cannot simply be added to obtain the number of distinct sessions in a week.
+- Daily and weekly queries separately aggregate all four duration fields and dose. All fields are zero-filled for dates without records. Session counts continue to use the condition `activeDurationMillis > 0`.
+- Historical records use the time zone captured at session start. A later change to the phone's time zone does not redistribute old records across dates.
 
-`getSession` 返回最后一次保存的记录。它不负责补算未观察到的曝光，也不包含完整的计算器恢复状态；进程退出前尚未保存的部分可能丢失。
+`getSession` returns the last saved record. It does not fill in exposure that was never observed, nor does it contain the calculator's complete state for restoration. Any exposure accumulated but not saved before the process exits may be lost.
 
-## 存储与验证
+## Storage and Verification
 
-数据库统一为 `uvapp.db`，版本 4，包含 `uv_readings`、`place_names`、`exposure_sessions` 和 `exposure_days`。缓存更新与清空曝光历史仅操作各自的表，不使用整库删除重建。以后结构变更必须提供显式迁移。
+The database has been consolidated into `uvapp.db`, version 4, containing `uv_readings`, `place_names`, `exposure_sessions`, and `exposure_days`. Cache updates and exposure-history clearing affect only their respective tables; they do not delete and recreate the entire database. Future schema changes must include explicit migrations.
 
-当前已注册 `MIGRATION_3_4`：为 `exposure_days` 增加 `directSunDurationMillis`、`shadeDurationMillis`、`unknownDurationMillis` 三个非空整数列，SQL 默认值均为 0；迁移 SQL 不改写原有 active 时长和剂量。旧记录的 active 时长原先仅累计直射光，新记录则累计三种非室内状态。迁移没有回填旧记录的状态明细，因此旧记录可能出现 active 非零而三个新增字段均为零，不能按新记录的等式反推旧数据。
+`MIGRATION_3_4` is currently registered. It adds three non-null integer columns to `exposure_days`: `directSunDurationMillis`, `shadeDurationMillis`, and `unknownDurationMillis`, each with a SQL default of 0. The migration SQL does not rewrite existing active durations or doses. In old records, active duration previously accumulated only direct-sunlight time; in new records, it accumulates all three non-indoor context states. The migration does not backfill the state-specific breakdown of old records. Consequently, older records may have a nonzero active duration while all three new fields remain zero; the new-record equality must not be used to infer values for historical data.
 
-代码未提供版本 1/2 到版本 4 的迁移，也不复制旧 `exposure_history.db` 中的记录。3→4 的 Room schema 兼容性及旧数据保留仍需迁移测试确认；清除应用数据不能替代迁移验证。清除数据或卸载会删除曝光记录、缓存、设置及保存的室内地点。DataStore 仍保存设置和室内地点；历史 schema 文件仅作结构参考，不能代替迁移测试结果。
+The code does not provide migrations from database versions 1 or 2 to version 4, nor does it copy records from the former `exposure_history.db`. Room schema compatibility and preservation of old data for the 3→4 migration still require migration testing. Clearing app data is not a substitute for migration verification. Clearing data or uninstalling the app deletes exposure records, caches, settings, and saved indoor places. DataStore continues to hold settings and saved indoor places. Historical schema files are structural references only and cannot replace the results of migration tests.
 
-曝光历史表不存位置坐标或账号信息，不自动过期，不提供云同步。曝光记录保留至用户删除、清除应用数据或卸载；当前备份规则排除数据库。
+The exposure-history tables do not store location coordinates or account information, do not expire records automatically, and do not offer cloud synchronization. Records remain until the user deletes them, clears app data, or uninstalls the app. Current backup rules exclude the database.
 
-- `ExposureHistoryDatabaseTest` 已适配版本 4 断言及六参数每日模型，并于 2026-10-08 在 Medium_Phone Android 模拟器上定向运行，8 项测试全部通过。覆盖四张表创建、缓存与历史隔离、分类时长保存和重开后读取、重复保存与修正、基础输入/时间保护、同日多会话及同周多日期汇总、缺失日期补零、删除级联、清空历史、三个分类时长的负数拒绝及事务回滚。此结果验证存储层，不包含 3→4 升级迁移。
+- `ExposureHistoryDatabaseTest` has been updated for version 4 assertions and the six-parameter daily model. On **2026-10-08**, its targeted run on the **Medium_Phone Android emulator passed all eight tests**. Coverage includes creation of all four tables; isolation between caches and history; persistence and reopening of category-specific durations; repeated saves and corrections; basic input and timestamp protections; same-day multi-session and same-week multi-date aggregation; zero-filling missing dates; cascading deletes; clearing history; rejection of negative values in the three context-specific durations; and transactional rollback. These results validate the storage layer, **not** the 3→4 upgrade migration.
 
-`MainViewModelTest` 当前被整体注释，不能视为保存入口已通过测试。主流程和历史 UI 已接入，但 MainViewModel 的保存/丢弃行为及历史 UI 仍需回归验证，3→4 的 Room schema 兼容性和旧数据保留仍需独立迁移测试；上述 8 项存储测试通过不能替代这些验证。
+The entire `MainViewModelTest` class is currently commented out and cannot be treated as proof that the save entry point has passed testing. Although the main flow and history UI are integrated, `MainViewModel` save/discard behavior and the history UI still need regression verification. Room schema compatibility and preservation of existing data during the 3→4 upgrade still require a separate migration test. The eight passing storage tests do not replace these checks.
