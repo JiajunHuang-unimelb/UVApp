@@ -65,6 +65,9 @@ import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
 
+private const val FIRST_RUN_PREFS = "first_run"
+private const val KEY_INDOOR_FEATURES_PROMPTED = "indoor_features_prompted"
+
 /**
  * App shell: theme wiring, shared chrome (loading bar, refresh, bottom nav),
  * tab content and the search-dialog overlay. ViewModels are activity-scoped;
@@ -214,12 +217,26 @@ fun UVAppRoot(
         mutableStateOf(EnhancedSensingPermissions())
     }
 
+    // One-time offer, shown after the first Start, to turn on both indoor features.
+    // Kept outside backed-up preferences so a fresh install offers it again.
+    val firstRunPrefs =
+        remember(applicationContext) {
+            applicationContext.getSharedPreferences(FIRST_RUN_PREFS, android.content.Context.MODE_PRIVATE)
+        }
+    var showIndoorFeaturesPrompt by remember { mutableStateOf(false) }
+    var enableSuggestionsAfterSensing by remember { mutableStateOf(false) }
+
     val finishEnhancedPermissionRequest: (EnhancedSensingPermissions) -> Unit = { updated ->
         enhancedPermissions = updated
         settingsViewModel.setEnhancedSensingEnabled(updated.hasAnyGrantedCapability)
         if (mainViewModel.state.value.exposureStarted) {
             // Refresh permission-dependent registrations without restarting the exposure session.
             monitoringController.start()
+        }
+        if (enableSuggestionsAfterSensing) {
+            // Ask for notifications only after the sensor requests so prompts never overlap.
+            enableSuggestionsAfterSensing = false
+            enableSuggestions()
         }
     }
 
@@ -332,6 +349,16 @@ fun UVAppRoot(
 
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
 
+    LaunchedEffect(mainState.exposureStarted) {
+        if (!mainState.exposureStarted || firstRunPrefs.getBoolean(KEY_INDOOR_FEATURES_PROMPTED, false)) {
+            return@LaunchedEffect
+        }
+        firstRunPrefs.edit().putBoolean(KEY_INDOOR_FEATURES_PROMPTED, true).apply()
+        if (!settingsState.enhancedSensingEnabled || !indoorState.data.suggestionsEnabled) {
+            showIndoorFeaturesPrompt = true
+        }
+    }
+
     LaunchedEffect(mainState.devModeEnabled) {
         if (!mainState.devModeEnabled) {
             indoorViewModel.setDemoEnabled(false)
@@ -362,6 +389,42 @@ fun UVAppRoot(
         accent = settingsState.accent,
     ) {
         IndoorSuggestionDialog(indoorViewModel, indoorState)
+
+        if (showIndoorFeaturesPrompt) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showIndoorFeaturesPrompt = false },
+                title = { Text("Turn on indoor features?") },
+                text = {
+                    Text(
+                        "Enhanced sensing and Suggest indoor places let the app notice when " +
+                            "you're indoors and offer to save the place, so tracking pauses there.\n\n" +
+                            "If you leave them off, you won't get indoor place suggestions, and " +
+                            "sound and motion won't be used to judge your surroundings. You can " +
+                            "turn them on anytime in Settings.",
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showIndoorFeaturesPrompt = false
+                            if (settingsState.enhancedSensingEnabled) {
+                                enableSuggestions()
+                            } else {
+                                enableSuggestionsAfterSensing = !indoorState.data.suggestionsEnabled
+                                requestMicrophone()
+                            }
+                        },
+                    ) {
+                        Text("Turn on")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showIndoorFeaturesPrompt = false }) {
+                        Text("Not now")
+                    }
+                },
+            )
+        }
 
         if (showEnhanceSensingRationale) {
             androidx.compose.material3.AlertDialog(

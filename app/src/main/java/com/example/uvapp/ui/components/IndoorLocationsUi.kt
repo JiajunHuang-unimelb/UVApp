@@ -41,6 +41,13 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
     Column(panelModifier) {
         if (settings) {
+            SettingsSwitchRow(
+                title = "Suggest indoor places",
+                subtitle = "Ask to save a place after I pause in low light",
+                checked = state.data.suggestionsEnabled,
+                onToggle = { if (!state.data.suggestionsEnabled) enableSuggestions() else vm.enableSuggestions(false) },
+            )
+            Spacer(Modifier.height(8.dp))
             Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(2.dp))
             Text(
@@ -62,13 +69,6 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
             TextButton(onClick = { vm.dismissInvitation() }) { Text("Not now", color = if (settings) colors.accent else Color.Unspecified) }
         }
         if (settings) {
-            Spacer(Modifier.height(8.dp))
-            SettingsSwitchRow(
-                title = "Suggest indoor places",
-                subtitle = "Ask to save a place after I pause in low light",
-                checked = state.data.suggestionsEnabled,
-                onToggle = { if (!state.data.suggestionsEnabled) enableSuggestions() else vm.enableSuggestions(false) },
-            )
             state.data.locations.forEach { place ->
                 HorizontalDivider(color = colors.outline)
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
