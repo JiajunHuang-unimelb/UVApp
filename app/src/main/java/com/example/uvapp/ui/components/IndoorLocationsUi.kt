@@ -9,7 +9,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,7 +42,7 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         if (settings) {
             SettingsSwitchRow(
                 title = "Suggest indoor places",
-                subtitle = "Ask to save a place after I pause in low light",
+                subtitle = "Offer to save a place when you're still in low light",
                 checked = state.data.suggestionsEnabled,
                 onToggle = { if (!state.data.suggestionsEnabled) enableSuggestions() else vm.enableSuggestions(false) },
             )
@@ -66,7 +65,6 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
         if (!state.data.invitationDismissed && state.data.locations.isEmpty()) {
             Text("Save Home, University or Work to get started.", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = { vm.dismissInvitation() }) { Text("Not now", color = if (settings) colors.accent else Color.Unspecified) }
         }
         if (settings) {
             state.data.locations.forEach { place ->
