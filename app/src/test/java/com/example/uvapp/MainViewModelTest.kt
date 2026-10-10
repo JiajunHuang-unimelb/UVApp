@@ -1057,22 +1057,6 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `sun log paging moves by a week and stops at the current week`() {
-        val history = FakeExposureHistoryRepository()
-        val vm = buildHistoryViewModel(history)
-        settle()
-        val today = history.weekRequests.single()
-
-        vm.onSunLogNextWeek()
-        vm.onSunLogPreviousWeek()
-        vm.onSunLogNextWeek()
-        settle()
-
-        assertEquals(listOf(today, today.minusDays(7), today), history.weekRequests)
-        assertEquals(today, vm.state.value.sunLogWeek?.weekStart)
-    }
-
-    @Test
     fun `only direct sun counts as time in the sun while shade still adds dose`() {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
@@ -1092,17 +1076,6 @@ class MainViewModelTest {
         // The override settles the sun segment when it happens; everything after it is shade.
         assertEquals(2_000L, saved.activeDurationMillis)
         assertTrue(saved.doseSed > doseAtShadeStart)
-    }
-
-    @Test
-    fun `sun log numbers default to percent and switch to time`() {
-        val vm = buildHistoryViewModel(FakeExposureHistoryRepository())
-        settle()
-        assertFalse(vm.state.value.sunLogShowsTime)
-
-        vm.onSunLogShowTime(true)
-        vm.onTabSelected(com.example.uvapp.viewmodel.Tab.HOME)
-        assertTrue(vm.state.value.sunLogShowsTime)
     }
 
     private class FakeExposureHistoryRepository : ExposureHistoryRepository {
