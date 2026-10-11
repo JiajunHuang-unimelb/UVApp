@@ -2,11 +2,12 @@ package com.example.uvapp.domain.exposure
 
 import com.example.uvapp.domain.model.SkinType
 
-class ExposureSessionManager {
+class ExposureSessionManager(private val useDailyBudget: Boolean = false) {
     private var skinType = SkinType.II
     private var currentUvIndex = 0.0
     private var currentContext = ExposureContext.UNKNOWN
     private var accumulatedDoseSed = 0.0
+    private var dailyDoseSed: Double? = null
 
     private var directSunDurationMillis = 0L
     private var shadeDurationMillis = 0L
@@ -20,15 +21,18 @@ class ExposureSessionManager {
         uvIndex: Double,
         nowElapsedMs: Long,
         context: ExposureContext = ExposureContext.UNKNOWN,
+        initialDailyDoseSed: Double? = null,
     ): ExposureSnapshot {
         this.skinType = skinType
         currentUvIndex = uvIndex.coerceAtLeast(0.0)
         currentContext = context
         accumulatedDoseSed = 0.0
+        dailyDoseSed = initialDailyDoseSed
         directSunDurationMillis = 0L
         shadeDurationMillis = 0L
         unknownDurationMillis = 0L
         status = ExposureStatus.RUNNING
+        completeIfDailyLimitReached()
         lastElapsedMs = nowElapsedMs
         return snapshot()
     }
@@ -59,6 +63,7 @@ class ExposureSessionManager {
     fun clear(nowElapsedMs: Long): ExposureSnapshot {
         settleExposure(nowElapsedMs)
         accumulatedDoseSed = 0.0
+        dailyDoseSed = null
         directSunDurationMillis = 0L
         shadeDurationMillis = 0L
         unknownDurationMillis = 0L
@@ -82,10 +87,25 @@ class ExposureSessionManager {
     ): ExposureSnapshot {
         settleExposure(nowElapsedMs)
         this.skinType = skinType
-        if (status == ExposureStatus.RUNNING && remainingDoseSed() <= 0.0) {
+        if (!useDailyBudget && status == ExposureStatus.RUNNING && remainingDoseSed() <= 0.0) {
             status = ExposureStatus.COMPLETE
         }
         return snapshot()
+    }
+
+    /** Daily budget includes other records plus only today's part of this session. */
+    fun updateDailyDose(doseSed: Double?): ExposureSnapshot {
+        require(doseSed == null || (doseSed.isFinite() && doseSed >= 0.0))
+        dailyDoseSed = doseSed
+        completeIfDailyLimitReached()
+        return snapshot()
+    }
+
+    private fun completeIfDailyLimitReached() {
+        if (useDailyBudget && dailyDoseSed != null &&
+            (status == ExposureStatus.RUNNING || status == ExposureStatus.PAUSED) &&
+            remainingDoseSed() <= 0.0
+        ) status = ExposureStatus.COMPLETE
     }
 
     fun updateContext(
@@ -99,10 +119,11 @@ class ExposureSessionManager {
 
     fun snapshot(): ExposureSnapshot {
         val doseLimitSed = ExposureCalculator.calculatePersonalDoseLimit(skinType)
+        val doseForLimit = if (useDailyBudget) dailyDoseSed else accumulatedDoseSed
         val remainingDoseSed =
             ExposureCalculator.calculateRemainingDose(
                 doseLimitSed,
-                accumulatedDoseSed,
+                doseForLimit ?: doseLimitSed,
             )
 
         return ExposureSnapshot(
@@ -116,22 +137,22 @@ class ExposureSessionManager {
             exposureFraction =
                 ExposureCalculator.calculateExposureFraction(
                     doseLimitSed,
-                    accumulatedDoseSed,
+                    doseForLimit ?: 0.0,
                 ),
             estimatedRemainingMinutes =
-                ExposureCalculator.calculateRemainingMinutes(
+                if (doseForLimit == null) null else ExposureCalculator.calculateRemainingMinutes(
                     remainingDoseSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
                 ),
             estimatedRemainingSeconds =
-                ExposureCalculator.calculateRemainingSeconds(
+                if (doseForLimit == null) null else ExposureCalculator.calculateRemainingSeconds(
                     remainingDoseSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
                 ),
             estimatedTotalSeconds =
-                ExposureCalculator.calculateRemainingSeconds(
+                if (doseForLimit == null) null else ExposureCalculator.calculateRemainingSeconds(
                     doseLimitSed,
                     currentUvIndex,
                     currentContext.doseRateFactor,
@@ -143,6 +164,7 @@ class ExposureSessionManager {
             directSunDurationMillis = directSunDurationMillis,
             shadeDurationMillis = shadeDurationMillis,
             unknownDurationMillis = unknownDurationMillis,
+            dailyAccumulatedDoseSed = doseForLimit,
         )
     }
 
@@ -181,7 +203,8 @@ class ExposureSessionManager {
 
         lastElapsedMs = nowElapsedMs
 
-        if (remainingDoseSed() <= 0.0) {
+        // Daily mode is finalized after the caller allocates this interval to calendar days.
+        if (!useDailyBudget && remainingDoseSed() <= 0.0) {
             status = ExposureStatus.COMPLETE
         }
     }
@@ -189,7 +212,7 @@ class ExposureSessionManager {
     private fun remainingDoseSed(): Double =
         ExposureCalculator.calculateRemainingDose(
             ExposureCalculator.calculatePersonalDoseLimit(skinType),
-            accumulatedDoseSed,
+            if (useDailyBudget) dailyDoseSed ?: 0.0 else accumulatedDoseSed,
         )
 
     private companion object {

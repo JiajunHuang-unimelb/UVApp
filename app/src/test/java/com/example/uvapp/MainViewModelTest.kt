@@ -12,6 +12,7 @@ import com.example.uvapp.domain.location.CurrentLocationProvider
 import com.example.uvapp.domain.location.LocationResult
 import com.example.uvapp.domain.model.Coordinates
 import com.example.uvapp.domain.model.ExposureDailySummary
+import com.example.uvapp.domain.model.ExposureDayTotal
 import com.example.uvapp.domain.model.ExposureRecord
 import com.example.uvapp.domain.model.ExposureRecordStatus
 import com.example.uvapp.domain.model.ExposureWeeklySummary
@@ -34,6 +35,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -103,7 +107,7 @@ class MainViewModelTest {
 
         vm.onOverrideUvToggle()
         vm.onUvOverride(1.0)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         val state = vm.state.value
         assertEquals(1.0, state.displayUv, 0.0)
@@ -120,7 +124,7 @@ class MainViewModelTest {
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
         assertEquals(0L, vm.state.value.remainingSeconds)
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         val runningRemaining = vm.state.value.remainingSeconds
 
@@ -142,7 +146,7 @@ class MainViewModelTest {
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
         assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
         assertEquals(0L, vm.state.value.remainingSeconds)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(vm.state.value.totalBurnSeconds, vm.state.value.remainingSeconds)
     }
@@ -159,7 +163,7 @@ class MainViewModelTest {
             )
 
         assertEquals(1, monitoring.stopCount)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(1, monitoring.startCount)
 
         vm.onPauseExposure()
@@ -174,7 +178,7 @@ class MainViewModelTest {
         val vm = buildLocatedViewModel()
         settle()
         alignToTick()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         val before = vm.state.value.remainingSeconds
 
         mainDispatcher.scheduler.advanceTimeBy(3_000)
@@ -187,7 +191,7 @@ class MainViewModelTest {
     fun `speed60x makes the countdown tick 60 seconds per tick`() {
         val vm = buildLocatedViewModel()
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         vm.onSpeedToggle()
         val before = vm.state.value.remainingSeconds
 
@@ -204,7 +208,7 @@ class MainViewModelTest {
         settle()
         vm.onOverrideUvToggle()
         vm.onUvOverride(12.0)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         vm.onSpeedToggle()
 
         mainDispatcher.scheduler.advanceTimeBy(10_000)
@@ -235,7 +239,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setLux(500)
         mainDispatcher.scheduler.runCurrent()
@@ -253,7 +257,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setLux(500)
         environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
@@ -273,7 +277,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setDeviceOccluded(true)
         mainDispatcher.scheduler.runCurrent()
@@ -291,7 +295,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setLux(500)
         environment.setDeviceOccluded(true)
@@ -313,7 +317,7 @@ class MainViewModelTest {
         val vm = buildEnvironmentViewModel(environment)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         val state = vm.state.value
         val conservativeTotalSeconds =
@@ -338,7 +342,7 @@ class MainViewModelTest {
         val vm = buildEnvironmentViewModel(environment)
         settle()
         alignToTick()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         val shadeTotalSeconds = vm.state.value.totalBurnSeconds
         assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
 
@@ -374,7 +378,7 @@ class MainViewModelTest {
             )
         val vm = buildEnvironmentViewModel(environment)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
 
         mainDispatcher.scheduler.advanceTimeBy(10_000)
@@ -398,7 +402,7 @@ class MainViewModelTest {
         val vm = buildEnvironmentViewModel(environment)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
@@ -409,7 +413,7 @@ class MainViewModelTest {
         val environment = MockEnvironmentContextProvider()
         val vm = buildEnvironmentViewModel(environment, FakeExposureAlertGateway())
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setLux(500)
         mainDispatcher.scheduler.runCurrent()
@@ -426,7 +430,7 @@ class MainViewModelTest {
         vm.onLuxChange(500)
         assertEquals(500, vm.state.value.displayLux)
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         val sensorLux = vm.state.value.lux
         assertEquals(null, vm.state.value.luxOverride)
         assertEquals(sensorLux, vm.state.value.displayLux)
@@ -442,7 +446,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setNearIndoorLocation(true)
         mainDispatcher.scheduler.runCurrent()
@@ -460,7 +464,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         vm.onOverrideLightToggle()
         vm.onLightOverride(LightContext.INDOOR)
@@ -481,7 +485,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setLux(500)
         environment.setNearIndoorLocation(true)
@@ -521,7 +525,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         environment.setLux(500)
         environment.setNearIndoorLocation(true)
@@ -552,7 +556,7 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         vm.onPauseExposure()
 
         environment.setLux(500)
@@ -586,7 +590,7 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
         assertTrue(vm.state.value.indoorDetected)
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
 
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
         assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
@@ -774,7 +778,7 @@ class MainViewModelTest {
         )
         vm.onUseCurrentLocation()
         mainDispatcher.scheduler.runCurrent()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         mainDispatcher.scheduler.advanceTimeBy(3000)
         mainDispatcher.scheduler.runCurrent()
         val remaining = vm.state.value.remainingSeconds
@@ -828,7 +832,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(2)
         vm.onPauseExposure()
         tick(1)
@@ -849,7 +853,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         flush()
 
         val saved = history.saved.single()
@@ -863,7 +867,7 @@ class MainViewModelTest {
         settle()
 
         // Virtual time is 701 ms here, so none of these steps lines up with a ticker iteration.
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(2_000L)
         vm.onPauseExposure()
         advance(500L)
@@ -882,7 +886,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(1_500L)
         vm.onOverrideLightToggle()
         vm.onLightOverride(LightContext.SHADE)
@@ -902,7 +906,7 @@ class MainViewModelTest {
         settle()
     
         // First exposure session
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(2)
     
         vm.onResetSession(save = true)
@@ -910,7 +914,7 @@ class MainViewModelTest {
         assertEquals(null, vm.state.value.activeSessionId)
         tick(1)
         assertEquals(2, history.saved.size)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(1)
     
         // Pause the new session.
@@ -955,7 +959,7 @@ class MainViewModelTest {
         settle()
         alignToTick()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(59)
         assertEquals(1, history.saved.size)
 
@@ -972,7 +976,7 @@ class MainViewModelTest {
         settle()
 
         vm.onSpeedToggle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(20)
 
         assertEquals(ExposureStatus.COMPLETE, vm.state.value.exposureStatus)
@@ -991,7 +995,7 @@ class MainViewModelTest {
         wallClockBefore(midnight, 3_000L)
 
         // Start 3 s before midnight, pause 1 s after it; a tick lands exactly on midnight.
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(4)
         vm.onPauseExposure()
         flush()
@@ -1012,7 +1016,7 @@ class MainViewModelTest {
         alignToTick()
         wallClockBefore(midnight, 3_000L)
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(3)
         vm.onResetSession(save = true)
         flush()
@@ -1032,7 +1036,7 @@ class MainViewModelTest {
         wallClockBefore(midnight, 1_250L)
 
         // Ticks land at midnight -0.25 s and +0.75 s, so that tick segment is split 250/750 ms.
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(2_500L)
         vm.onPauseExposure()
         flush()
@@ -1049,7 +1053,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(2)
         vm.onPauseExposure()
         tick(1)
@@ -1069,7 +1073,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history, onSaved = { notified++ })
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(2)
         vm.onPauseExposure()
         tick(1)
@@ -1105,7 +1109,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history)
         settle()
 
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         tick(2)
         vm.onOverrideLightToggle()
         vm.onLightOverride(LightContext.SHADE)
@@ -1139,7 +1143,7 @@ class MainViewModelTest {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         val startedAt = NOW_MILLIS + mainDispatcher.scheduler.currentTime
         advance(437L)
         vm.onResetSession(save = true)
@@ -1163,7 +1167,7 @@ class MainViewModelTest {
         val vm = buildHistoryViewModel(history)
         settle()
         assertEquals(null, vm.state.value.activeSessionId)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         flush()
         val first = history.saved.single()
         val generation = vm.state.value.exposureSessionId
@@ -1189,7 +1193,7 @@ class MainViewModelTest {
         var notified = 0
         val vm = buildHistoryViewModel(history, onSaved = { notified++ })
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(1_250L)
         vm.onPauseExposure()
         flush()
@@ -1213,15 +1217,18 @@ class MainViewModelTest {
         val history = FakeExposureHistoryRepository().apply { saveDelayMillis = 2_000L }
         val vm = buildHistoryViewModel(history)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         val oldId = vm.state.value.activeSessionId
         advance(100L) // First save is suspended while holding the history mutex.
         vm.onPauseExposure() // Queue another checkpoint.
         vm.onResetSession(save = false)
-        vm.onStartExposure()
-        val newId = vm.state.value.activeSessionId
-        assertNotEquals(oldId, newId)
+        vm.onStartExposure(); flush()
+        assertTrue(vm.state.value.exposureStarting)
+        assertEquals(null, vm.state.value.activeSessionId)
         advance(6_000L)
+        val newId = vm.state.value.activeSessionId
+        assertNotEquals(null, newId)
+        assertNotEquals(oldId, newId)
         assertEquals(listOf(oldId), history.deletedIds)
         assertEquals(setOf(newId), history.records.keys)
         assertTrue(history.saved.none { it.sessionId == oldId && it.status == ExposureRecordStatus.COMPLETED })
@@ -1235,7 +1242,7 @@ class MainViewModelTest {
         vm.onResetSession(save = true)
         vm.onResumeExposure()
         assertEquals(0, vm.state.value.exposureSessionId)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(250L)
         vm.onResetSession(save = false)
         flush()
@@ -1257,10 +1264,10 @@ class MainViewModelTest {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(1_500L)
         val before = vm.state.value
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(before.activeSessionId, vm.state.value.activeSessionId)
         assertEquals(before.exposureSessionId, vm.state.value.exposureSessionId)
         assertEquals(before.accumulatedDoseSed, vm.state.value.accumulatedDoseSed, 0.0)
@@ -1275,7 +1282,7 @@ class MainViewModelTest {
         val vm = buildEnvironmentViewModel(environment)
         settle()
         advance(10_000L)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
         vm.onResetSession(save = true)
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
@@ -1285,7 +1292,7 @@ class MainViewModelTest {
         advance(10_000L)
         assertFalse(vm.state.value.indoorDetected)
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
     }
 
@@ -1295,11 +1302,11 @@ class MainViewModelTest {
         val alerts = FakeExposureAlertGateway()
         val vm = buildEnvironmentViewModel(environment, alerts)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(10_000L)
         assertEquals(1, alerts.callCount)
         vm.onResetSession(save = false)
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(2_000L)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureSnapshot.status)
         assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
@@ -1312,7 +1319,7 @@ class MainViewModelTest {
         val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
         val vm = buildEnvironmentViewModel(environment)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(5_000L)
         vm.onActiveToggle()
         assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
@@ -1330,7 +1337,7 @@ class MainViewModelTest {
         val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
         val vm = buildEnvironmentViewModel(environment)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(5_000L)
         vm.onAudioToggle()
         assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
@@ -1347,7 +1354,7 @@ class MainViewModelTest {
         val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
         val vm = buildEnvironmentViewModel(environment)
         settle()
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         advance(10_000L)
         environment.setDeviceOccluded(true)
         environment.setLux(100_000)
@@ -1367,7 +1374,7 @@ class MainViewModelTest {
         val environment = MockEnvironmentContextProvider(initialLux = 8_000, initiallyDeviceOccluded = false)
         val vm = buildEnvironmentViewModel(environment)
         settle() // Time 701, not aligned with the periodic tick.
-        vm.onStartExposure()
+        vm.onStartExposure(); flush()
         environment.setDeviceOccluded(true)
         flush()
         advance(3_100L) // The 3 s candidate is ready, but the next tick is still pending.
@@ -1376,6 +1383,338 @@ class MainViewModelTest {
         flush()
         assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureSnapshot.status)
+    }
+
+    private fun recordedDose(
+        id: String,
+        date: LocalDate,
+        dose: Double,
+        status: ExposureRecordStatus = ExposureRecordStatus.COMPLETED,
+    ): ExposureRecord {
+        val start = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        return ExposureRecord(
+            sessionId = id, startedAtMillis = start, recordedThroughMillis = start + 60_000L,
+            zoneId = ZoneId.systemDefault().id, status = status,
+            days = listOf(ExposureDayTotal(date, 60_000L, 60_000L, 0L, 0L, dose)),
+        )
+    }
+
+    private fun historyToday(): LocalDate =
+        java.time.Instant.ofEpochMilli(NOW_MILLIS + mainDispatcher.scheduler.currentTime + wallOffsetMillis)
+            .atZone(ZoneId.systemDefault()).toLocalDate()
+
+    private fun useUvEight(vm: MainViewModel) {
+        vm.onOverrideUvToggle()
+        vm.onUvOverride(8.0)
+    }
+
+    @Test
+    fun `start subtracts all today's saved dose but not yesterday or tomorrow`() {
+        val history = FakeExposureHistoryRepository()
+        val today = historyToday()
+        history.seed(recordedDose("completed", today, 0.2))
+        history.seed(recordedDose("paused", today, 0.1, ExposureRecordStatus.PAUSED))
+        history.seed(recordedDose("checkpoint", today, 0.1, ExposureRecordStatus.ACTIVE))
+        history.seed(recordedDose("yesterday", today.minusDays(1), 0.9))
+        history.seed(recordedDose("tomorrow", today.plusDays(1), 0.9))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onSunLogPreviousWeek()
+        vm.onStartExposure(); flush()
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        assertEquals(500L, vm.state.value.totalBurnSeconds)
+        assertEquals(0.6, vm.state.value.remainingDoseSed, 1e-9)
+        assertEquals(0.4, vm.state.value.exposureSnapshot.dailyAccumulatedDoseSed!!, 1e-9)
+        assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
+        assertEquals(0.0, history.saved.last().doseSed, 0.0)
+    }
+
+    @Test
+    fun `save then start consumes remaining daily allowance without copying old dose into history`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        advance(60_000L)
+        vm.onResetSession(save = true)
+        vm.onStartExposure(); flush()
+        assertEquals(440L, vm.state.value.remainingSeconds)
+        assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
+        advance(30_000L)
+        vm.onResetSession(save = true); flush()
+        assertEquals(2, history.records.size)
+        assertEquals(0.18, history.records.values.sumOf { it.doseSed }, 1e-9)
+        assertEquals(listOf(0.06, 0.12), history.records.values.map { it.doseSed }.sorted().map { kotlin.math.round(it * 100) / 100 })
+    }
+
+    @Test
+    fun `current session checkpoints are excluded from stored daily allowance`() {
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("earlier", historyToday(), 0.4))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        advance(60_000L)
+        vm.onPauseExposure(); flush()
+        assertEquals(0.12, history.saved.last().doseSed, 1e-9)
+        assertEquals(0.52, vm.state.value.exposureSnapshot.dailyAccumulatedDoseSed!!, 1e-9)
+        assertEquals(240L, vm.state.value.remainingSeconds)
+        vm.onResumeExposure(); flush()
+        assertEquals(240L, vm.state.value.remainingSeconds)
+        advance(10_000L)
+        vm.onPauseExposure(); flush()
+        assertEquals(230L, vm.state.value.remainingSeconds)
+    }
+
+    @Test
+    fun `new viewmodel reads persisted exposure from an earlier app session`() {
+        val history = FakeExposureHistoryRepository()
+        val first = buildHistoryViewModel(history)
+        settle()
+        useUvEight(first)
+        first.onStartExposure(); flush()
+        advance(60_000L)
+        first.onResetSession(save = true); flush()
+        val reopened = buildHistoryViewModel(history)
+        settle()
+        useUvEight(reopened)
+        reopened.onStartExposure(); flush()
+        assertEquals(440L, reopened.state.value.remainingSeconds)
+    }
+
+    @Test
+    fun `next start waits for pending save before reading daily allowance`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        advance(10_000L)
+        history.saveDelayMillis = 2_000L
+        vm.onResetSession(save = true)
+        vm.onStartExposure(); flush()
+        assertTrue(vm.state.value.exposureStarting)
+        assertFalse(vm.state.value.exposureStarted)
+        advance(1_999L)
+        assertFalse(vm.state.value.exposureStarted)
+        advance(1L)
+        assertFalse(vm.state.value.exposureStarting)
+        assertEquals(490L, vm.state.value.remainingSeconds)
+        assertEquals(0L, vm.state.value.exposureSnapshot.activeDurationMillis)
+    }
+
+    @Test
+    fun `discard removes only current session from next daily allowance`() {
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("earlier", historyToday(), 0.4))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        advance(10_000L)
+        vm.onPauseExposure(); flush()
+        assertEquals(290L, vm.state.value.remainingSeconds)
+        vm.onResetSession(save = false)
+        vm.onStartExposure(); flush()
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        assertEquals(0.4, history.records.values.sumOf { it.doseSed }, 1e-9)
+    }
+
+    @Test
+    fun `saved daily dose at the limit starts completed without counting another interval`() {
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("earlier", historyToday(), 1.0))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        assertEquals(ExposureStatus.COMPLETE, vm.state.value.exposureStatus)
+        assertEquals(0L, vm.state.value.remainingSeconds)
+        advance(60_000L)
+        assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
+    }
+
+    @Test
+    fun `small remaining daily allowance completes before this session reaches its own full limit`() {
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("earlier", historyToday(), 0.995))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        advance(3_000L)
+        assertEquals(ExposureStatus.COMPLETE, vm.state.value.exposureStatus)
+        assertEquals(0L, vm.state.value.remainingSeconds)
+        assertEquals(0.006, vm.state.value.accumulatedDoseSed, 1e-9)
+        advance(10_000L)
+        assertEquals(0.006, vm.state.value.accumulatedDoseSed, 1e-9)
+    }
+
+    @Test
+    fun `new calendar day restores allowance and keeps yesterday's history`() {
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("yesterday", historyToday(), 0.4))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        vm.onResetSession(save = true); flush()
+        wallOffsetMillis += 86_400_000L
+        vm.onStartExposure(); flush()
+        assertEquals(500L, vm.state.value.remainingSeconds)
+        assertEquals(0.4, history.records["yesterday"]!!.doseSed, 0.0)
+    }
+
+    @Test
+    fun `session spanning midnight subtracts only today's part of live and saved exposure`() {
+        val day = LocalDate.of(2026, 10, 11)
+        val midnight = day.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("day-one", day, 0.4))
+        history.seed(recordedDose("day-two", day.plusDays(1), 0.2))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 1_250L)
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        advance(2_500L)
+        vm.onPauseExposure(); flush()
+        assertEquals(0.005, vm.state.value.accumulatedDoseSed, 1e-9)
+        assertEquals(0.2025, vm.state.value.exposureSnapshot.dailyAccumulatedDoseSed!!, 1e-9)
+        assertEquals(399L, vm.state.value.remainingSeconds)
+        assertEquals(listOf(day, day.plusDays(1)), history.saved.last().days.map { it.date })
+        vm.onResetSession(save = true)
+        vm.onStartExposure(); flush()
+        assertEquals(399L, vm.state.value.remainingSeconds)
+    }
+
+    @Test
+    fun `midnight loading hides allowance and preserves manual pause`() {
+        val day = LocalDate.of(2026, 10, 11)
+        val midnight = day.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("next-day", day.plusDays(1), 0.3))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 1_000L)
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        history.dailyReadDelayMillis = 1_000L
+        advance(1_000L)
+        assertTrue(vm.state.value.dailyDoseLoading)
+        assertEquals(Long.MAX_VALUE, vm.state.value.remainingSeconds)
+        advance(500L)
+        vm.onPauseExposure(); flush()
+        advance(500L)
+        assertFalse(vm.state.value.dailyDoseLoading)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
+        assertEquals(0.301, vm.state.value.exposureSnapshot.dailyAccumulatedDoseSed!!, 1e-9)
+    }
+
+    @Test
+    fun `history loading cannot start tracking early or create duplicate sessions`() {
+        val history = FakeExposureHistoryRepository().apply { dailyReadDelayMillis = 2_000L }
+        history.seed(recordedDose("earlier", historyToday(), 0.4))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure()
+        vm.onStartExposure(); flush()
+        assertTrue(vm.state.value.exposureStarting)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        advance(1_999L)
+        assertEquals(0L, vm.state.value.exposureSessionId)
+        advance(1L)
+        assertEquals(1L, vm.state.value.exposureSessionId)
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
+    }
+
+    @Test
+    fun `cancelled history load cannot start later or clear another request's loading state`() {
+        val history = FakeExposureHistoryRepository().apply { dailyReadDelayMillis = 2_000L }
+        val vm = buildHistoryViewModel(history)
+        settle()
+        vm.onStartExposure(); flush()
+        advance(500L)
+        vm.onResetSession(save = false)
+        vm.onStartExposure(); flush()
+        assertTrue(vm.state.value.exposureStarting)
+        advance(1_500L)
+        assertFalse(vm.state.value.exposureStarted)
+        assertTrue(vm.state.value.exposureStarting)
+        advance(500L)
+        assertEquals(1L, vm.state.value.exposureSessionId)
+    }
+
+    @Test
+    fun `failed history read blocks start until retry instead of assuming zero dose`() {
+        val history = FakeExposureHistoryRepository().apply { failDailyReads = true }
+        history.seed(recordedDose("earlier", historyToday(), 0.4))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        assertFalse(vm.state.value.exposureStarted)
+        assertFalse(vm.state.value.exposureStarting)
+        assertTrue(vm.state.value.dailyDoseError != null)
+        assertTrue(history.saved.isEmpty())
+        history.failDailyReads = false
+        vm.onStartExposure(); flush()
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        assertEquals(null, vm.state.value.dailyDoseError)
+    }
+
+    @Test
+    fun `other records update today's allowance without changing this session dose`() {
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("earlier", historyToday(), 0.2))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        advance(10_000L)
+        vm.onPauseExposure(); flush()
+        assertEquals(390L, vm.state.value.remainingSeconds)
+        history.seed(recordedDose("earlier", historyToday(), 0.4))
+        flush()
+        assertEquals(290L, vm.state.value.remainingSeconds)
+        assertEquals(0.02, vm.state.value.accumulatedDoseSed, 1e-9)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
+    }
+
+    @Test
+    fun `failed new-day history read hides allowance until retry and keeps manual pause`() {
+        val day = LocalDate.of(2026, 10, 11)
+        val midnight = day.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val history = FakeExposureHistoryRepository()
+        history.seed(recordedDose("next-day", day.plusDays(1), 0.4))
+        val vm = buildHistoryViewModel(history)
+        settle()
+        alignToTick()
+        wallClockBefore(midnight, 1_000L)
+        useUvEight(vm)
+        vm.onStartExposure(); flush()
+        vm.onPauseExposure(); flush()
+        history.failDailyReads = true
+        advance(1_000L)
+        assertTrue(vm.state.value.dailyDoseError != null)
+        assertEquals(Long.MAX_VALUE, vm.state.value.remainingSeconds)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
+        history.failDailyReads = false
+        vm.onRetryDailyDose(); flush()
+        assertEquals(null, vm.state.value.dailyDoseError)
+        assertEquals(300L, vm.state.value.remainingSeconds)
+        assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
     }
 
     private class FakeExposureHistoryRepository : ExposureHistoryRepository {
@@ -1387,13 +1726,21 @@ class MainViewModelTest {
             private set
         var failSaves = false
         var saveDelayMillis = 0L
+        var dailyReadDelayMillis = 0L
+        var failDailyReads = false
+        private val recordChanges = MutableStateFlow(0L)
+
+        fun seed(record: ExposureRecord) {
+            records[record.sessionId] = record
+            recordChanges.value++
+        }
 
         override suspend fun save(record: ExposureRecord): Result<Unit> {
             saveAttempts++
             delay(saveDelayMillis)
             if (failSaves) return Result.failure(IllegalStateException("write failed"))
             saved += record
-            records[record.sessionId] = record
+            seed(record)
             return Result.success(Unit)
         }
 
@@ -1408,7 +1755,18 @@ class MainViewModelTest {
         override fun observeDaily(
             start: LocalDate,
             endExclusive: LocalDate,
-        ): Flow<List<ExposureDailySummary>> = flowOf(emptyList())
+            excludingSessionId: String?,
+        ): Flow<List<ExposureDailySummary>> = flow {
+            delay(dailyReadDelayMillis)
+            if (failDailyReads) error("History unavailable")
+            emitAll(recordChanges.map {
+                records.values.filter { it.sessionId != excludingSessionId }
+                    .flatMap { it.days }
+                    .filter { it.date >= start && it.date < endExclusive }
+                    .groupBy { it.date }
+                    .map { (date, days) -> ExposureDailySummary(date = date, doseSed = days.sumOf { it.doseSed }) }
+            })
+        }
 
         // weekStart echoes the requested date so tests can see which week is shown.
         override fun observeWeek(containingDate: LocalDate): Flow<ExposureWeeklySummary> {
@@ -1419,10 +1777,15 @@ class MainViewModelTest {
         override suspend fun deleteSession(sessionId: String): Result<Unit> {
             deletedIds += sessionId
             records.remove(sessionId)
+            recordChanges.value++
             return Result.success(Unit)
         }
 
-        override suspend fun clearHistory(): Result<Unit> = Result.success(Unit)
+        override suspend fun clearHistory(): Result<Unit> {
+            records.clear()
+            recordChanges.value++
+            return Result.success(Unit)
+        }
     }
 
     private class FakeLocationProvider(
