@@ -79,6 +79,7 @@ class MainViewModelTest {
             locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
             forecastRepository = FakeForecastRepository(),
             nowMillis = { NOW_MILLIS },
+            elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
         )
 
     private fun buildEnvironmentViewModel(
@@ -92,6 +93,7 @@ class MainViewModelTest {
             environmentContextProvider = environment,
             alertGateway = alerts,
             nowMillis = { NOW_MILLIS },
+            elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
         )
 
     @Test
@@ -109,43 +111,40 @@ class MainViewModelTest {
         assertEquals(state.totalBurnSeconds, state.remainingSeconds)
     }
 
-
     @Test
     fun `exposure lifecycle is authoritative`() {
         val vm = buildLocatedViewModel()
         settle()
-    
+        alignToTick()
+
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
         assertEquals(0L, vm.state.value.remainingSeconds)
-    
+
         vm.onStartExposure()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         val runningRemaining = vm.state.value.remainingSeconds
-    
+
         vm.onPauseExposure()
         mainDispatcher.scheduler.advanceTimeBy(3_000)
         mainDispatcher.scheduler.runCurrent()
-    
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
         assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
         assertEquals(runningRemaining, vm.state.value.remainingSeconds)
-    
+
         vm.onResumeExposure()
         mainDispatcher.scheduler.advanceTimeBy(1_000)
         mainDispatcher.scheduler.runCurrent()
-    
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(null, vm.state.value.pauseReason)
         assertEquals(runningRemaining - 1L, vm.state.value.remainingSeconds)
-    
-        vm.onResetSession(save = false)
-    
+
+        vm.onResetSession(save = true)
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
         assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
-        assertEquals(
-            vm.state.value.totalBurnSeconds,
-            vm.state.value.remainingSeconds,
-        )
+        assertEquals(0L, vm.state.value.remainingSeconds)
+        vm.onStartExposure()
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(vm.state.value.totalBurnSeconds, vm.state.value.remainingSeconds)
     }
 
     @Test
@@ -156,6 +155,7 @@ class MainViewModelTest {
                 settingsViewModel = SettingsViewModel(FakeUserPreferencesRepository()),
                 monitoringController = monitoring,
                 nowMillis = { NOW_MILLIS },
+                elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
             )
 
         assertEquals(1, monitoring.stopCount)
@@ -173,6 +173,7 @@ class MainViewModelTest {
     fun `countdown ticks down one second per real second`() {
         val vm = buildLocatedViewModel()
         settle()
+        alignToTick()
         vm.onStartExposure()
         val before = vm.state.value.remainingSeconds
 
@@ -321,7 +322,7 @@ class MainViewModelTest {
                 uvIndex = state.displayUv,
                 contextFactor = ExposureContext.UNKNOWN.doseRateFactor,
             )
-        /*assertEquals(ExposureContext.UNKNOWN, state.exposureContext)*/
+        assertEquals(ExposureContext.UNKNOWN, state.exposureSnapshot.context)
         assertEquals(conservativeTotalSeconds, state.totalBurnSeconds)
         assertEquals(ExposureStatus.RUNNING, state.exposureStatus)
         assertFalse(state.indoorDetected)
@@ -336,21 +337,30 @@ class MainViewModelTest {
             )
         val vm = buildEnvironmentViewModel(environment)
         settle()
+        alignToTick()
         vm.onStartExposure()
         val shadeTotalSeconds = vm.state.value.totalBurnSeconds
-        /*assertEquals(ExposureContext.SHADE, vm.state.value.exposureContext)*/
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
 
         environment.setDeviceOccluded(true)
         mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
+        advance(2_999L)
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
+        advance(1L)
         val coveredTotalSeconds = vm.state.value.totalBurnSeconds
 
-        /*assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureContext)*/
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
         assertTrue(coveredTotalSeconds < shadeTotalSeconds)
 
         environment.setDeviceOccluded(false)
         mainDispatcher.scheduler.runCurrent()
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
+        advance(9_999L)
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
+        advance(1L)
 
-        /*assertEquals(ExposureContext.SHADE, vm.state.value.exposureContext)*/
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
         assertTrue(vm.state.value.totalBurnSeconds > coveredTotalSeconds)
     }
 
@@ -360,18 +370,20 @@ class MainViewModelTest {
             MockEnvironmentContextProvider(
                 initialLux = 500,
                 initiallyNearIndoorLocation = true,
-                initiallyDeviceOccluded = true,
+                initiallyDeviceOccluded = false,
             )
         val vm = buildEnvironmentViewModel(environment)
         settle()
         vm.onStartExposure()
-        /*assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureContext)*/
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
 
         mainDispatcher.scheduler.advanceTimeBy(10_000)
         mainDispatcher.scheduler.runCurrent()
 
         assertTrue(vm.state.value.indoorDetected)
-        /*assertEquals(ExposureContext.INDOOR, vm.state.value.exposureContext)*/
+        environment.setDeviceOccluded(true)
+        flush()
+        assertEquals(ExposureContext.INDOOR, vm.state.value.exposureSnapshot.context)
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
         assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
     }
@@ -388,7 +400,7 @@ class MainViewModelTest {
 
         vm.onStartExposure()
 
-        /*assertEquals(ExposureContext.SHADE, vm.state.value.exposureContext)*/
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
     }
 
@@ -600,6 +612,7 @@ class MainViewModelTest {
                 forecastRepository = forecastRepository,
                 placeRepository = placeRepository,
                 nowMillis = { NOW_MILLIS },
+                elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
             )
 
         // init() already triggers locate() automatically when both repositories
@@ -627,6 +640,7 @@ class MainViewModelTest {
                 forecastRepository = FakeForecastRepository(),
                 placeRepository = FailingPlaceRepository(),
                 nowMillis = { NOW_MILLIS },
+                elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
             )
         settle()
 
@@ -643,6 +657,7 @@ class MainViewModelTest {
         forecastRepository = forecastRepository,
         placeRepository = placeRepository,
         nowMillis = { NOW_MILLIS },
+        elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
     )
 
     @Test
@@ -711,6 +726,7 @@ class MainViewModelTest {
                 locationProvider = FakeLocationProvider(LocationResult.Timeout),
                 forecastRepository = forecastRepository,
                 nowMillis = { NOW_MILLIS },
+                elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
             )
         settle()
 
@@ -732,6 +748,7 @@ class MainViewModelTest {
                 locationProvider = locationProvider,
                 forecastRepository = forecastRepository,
                 nowMillis = { NOW_MILLIS },
+                elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
             )
         // init() already fired the first (slow) request; this call must cancel it.
         settle()
@@ -753,6 +770,7 @@ class MainViewModelTest {
             locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
             forecastRepository = FakeForecastRepository(),
             nowMillis = { NOW_MILLIS },
+            elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
         )
         vm.onUseCurrentLocation()
         mainDispatcher.scheduler.runCurrent()
@@ -780,6 +798,7 @@ class MainViewModelTest {
             locationProvider = FakeLocationProvider(LocationResult.Success(PRECISE_FIX)),
             forecastRepository = FakeForecastRepository(),
             nowMillis = { NOW_MILLIS + mainDispatcher.scheduler.currentTime + wallOffsetMillis },
+            elapsedRealtimeMillis = { mainDispatcher.scheduler.currentTime },
             historyRepository = history,
             onHistorySaved = onSaved,
         )
@@ -792,10 +811,10 @@ class MainViewModelTest {
         mainDispatcher.scheduler.runCurrent()
     }
 
-    /** Moves to the next whole virtual second, so a session starts exactly on a ticker iteration. */
     /** Runs saves launched by the last action without moving virtual time. */
     private fun flush() = mainDispatcher.scheduler.runCurrent()
 
+    /** Moves to the next whole virtual second, so a session starts exactly on a ticker iteration. */
     private fun alignToTick() = advance(1_000L - mainDispatcher.scheduler.currentTime % 1_000L)
 
     /** Shifts the wall clock so that "now" is [millisBefore] ms before [midnight]. */
@@ -837,8 +856,7 @@ class MainViewModelTest {
         assertEquals(ExposureRecordStatus.ACTIVE, saved.status)
         assertEquals(0L, saved.activeDurationMillis)
     }
-    /*
-    @Test temp
+    @Test
     fun `pause and resume between ticks keep the exact direct-sun time`() {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
@@ -851,13 +869,12 @@ class MainViewModelTest {
         advance(500L)
         vm.onResumeExposure()
         advance(500L)
-        vm.onResetTimer()
+        vm.onResetSession(save = true)
         flush()
 
         val completed = history.saved.first { it.status == ExposureRecordStatus.COMPLETED }
         assertEquals(2_500L, completed.activeDurationMillis)
     }
-    */
 
     @Test
     fun `a light change between ticks closes the sun segment at that moment`() {
@@ -873,11 +890,13 @@ class MainViewModelTest {
         vm.onPauseExposure()
         flush()
 
-        assertEquals(1_500L, history.saved.last().activeDurationMillis)
+        val saved = history.saved.last()
+        assertEquals(3_500L, saved.activeDurationMillis)
+        assertEquals(1_500L, saved.days.sumOf { it.directSunDurationMillis })
+        assertEquals(2_000L, saved.days.sumOf { it.shadeDurationMillis })
     }
-   /*temp
     @Test
-    fun `restart completes the old session before starting a new session`() {
+    fun `save reset completes the old session and waits for an explicit new start`() {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
@@ -886,9 +905,12 @@ class MainViewModelTest {
         vm.onStartExposure()
         tick(2)
     
-        // Restart: old session should be completed,
-        // then a new session should start with a new sessionId.
-        vm.onResetTimer()
+        vm.onResetSession(save = true)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.activeSessionId)
+        tick(1)
+        assertEquals(2, history.saved.size)
+        vm.onStartExposure()
         tick(1)
     
         // Pause the new session.
@@ -916,14 +938,15 @@ class MainViewModelTest {
         // The completed session must contain the exposure accumulated
         // before the restart.
         assertTrue(oldCompleted.doseSed > 0.0)
+        assertEquals(2_000L, oldCompleted.activeDurationMillis)
+        assertEquals(1_000L, newPaused.activeDurationMillis)
     
-        // Restart must create a genuinely new session.
+        // Only an explicit new Start creates a new session.
         assertNotEquals(oldCompleted.sessionId, newActive.sessionId)
     
         // Pausing the new session must not create another session.
         assertEquals(newActive.sessionId, newPaused.sessionId)
     }
-    */
 
     @Test
     fun `running session is checkpointed once a minute`() {
@@ -979,7 +1002,6 @@ class MainViewModelTest {
         assertEquals(1_000L, days[1].activeDurationMillis)
         assertEquals(3.0, days[0].doseSed / days[1].doseSed, 1e-9)
     }
-    /* temp
     @Test
     fun `a session ending exactly at local midnight adds nothing to the next day`() {
         val firstDay = LocalDate.of(2026, 10, 2)
@@ -992,14 +1014,13 @@ class MainViewModelTest {
 
         vm.onStartExposure()
         tick(3)
-        vm.onResetTimer()
+        vm.onResetSession(save = true)
         flush()
 
         val completed = history.saved.first { it.status == ExposureRecordStatus.COMPLETED }
         assertEquals(listOf(firstDay), completed.days.map { it.date })
         assertEquals(3_000L, completed.days.single().activeDurationMillis)
     }
-    */
     @Test
     fun `a segment between ticks is split at midnight by time on each side`() {
         val firstDay = LocalDate.of(2026, 10, 2)
@@ -1079,7 +1100,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `only direct sun counts as time in the sun while shade still adds dose`() {
+    fun `history separates direct sun and shade and counts both as active time`() {
         val history = FakeExposureHistoryRepository()
         val vm = buildHistoryViewModel(history)
         settle()
@@ -1096,7 +1117,9 @@ class MainViewModelTest {
 
         val saved = history.saved.last()
         // The override settles the sun segment when it happens; everything after it is shade.
-        assertEquals(2_000L, saved.activeDurationMillis)
+        assertEquals(5_000L, saved.activeDurationMillis)
+        assertEquals(2_000L, saved.days.sumOf { it.directSunDurationMillis })
+        assertEquals(3_000L, saved.days.sumOf { it.shadeDurationMillis })
         assertTrue(saved.doseSed > doseAtShadeStart)
     }
 
@@ -1111,27 +1134,276 @@ class MainViewModelTest {
         assertTrue(vm.state.value.sunLogShowsTime)
     }
 
+    @Test
+    fun `save settles the final fractional second using elapsed time rather than epoch time`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        vm.onStartExposure()
+        val startedAt = NOW_MILLIS + mainDispatcher.scheduler.currentTime
+        advance(437L)
+        vm.onResetSession(save = true)
+        flush()
+
+        val completed = history.saved.last()
+        assertEquals(ExposureRecordStatus.COMPLETED, completed.status)
+        assertEquals(startedAt, completed.startedAtMillis)
+        assertEquals(startedAt + 437L, completed.recordedThroughMillis)
+        assertEquals(437L, completed.activeDurationMillis)
+        // UVI 7.1 -> 0.001775 SED/s, for exactly 0.437 seconds in direct sun.
+        assertEquals(0.001775 * 0.437, completed.doseSed, 1e-10)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureSnapshot.status)
+        assertEquals(0L, vm.state.value.exposureSnapshot.activeDurationMillis)
+        assertEquals(0.0, vm.state.value.exposureSnapshot.accumulatedDoseSed, 0.0)
+    }
+
+    @Test
+    fun `active metadata and snapshot match the persisted session across pause and resume`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        assertEquals(null, vm.state.value.activeSessionId)
+        vm.onStartExposure()
+        flush()
+        val first = history.saved.single()
+        val generation = vm.state.value.exposureSessionId
+        assertEquals(first.sessionId, vm.state.value.activeSessionId)
+        assertEquals(first.startedAtMillis, vm.state.value.activeSessionStartedAt)
+        assertEquals(first.zoneId, vm.state.value.activeSessionZoneId)
+        advance(1_250L)
+        vm.onPauseExposure()
+        flush()
+        val state = vm.state.value
+        assertEquals(ExposureStatus.PAUSED, state.exposureSnapshot.status)
+        assertEquals(state.accumulatedDoseSed, state.exposureSnapshot.accumulatedDoseSed, 0.0)
+        assertEquals(1_250L, state.exposureSnapshot.activeDurationMillis)
+        assertEquals(state.exposureSnapshot.accumulatedDoseSed, history.saved.last().doseSed, 1e-10)
+        vm.onResumeExposure()
+        assertEquals(generation, vm.state.value.exposureSessionId)
+        assertEquals(first.sessionId, vm.state.value.activeSessionId)
+    }
+
+    @Test
+    fun `discard deletes checkpoints and notifies history consumers`() {
+        val history = FakeExposureHistoryRepository()
+        var notified = 0
+        val vm = buildHistoryViewModel(history, onSaved = { notified++ })
+        settle()
+        vm.onStartExposure()
+        advance(1_250L)
+        vm.onPauseExposure()
+        flush()
+        val id = history.saved.first().sessionId
+        val before = notified
+        assertTrue(history.records.containsKey(id))
+        vm.onResetSession(save = false)
+        flush()
+        assertEquals(listOf(id), history.deletedIds)
+        assertTrue(history.records.isEmpty())
+        assertEquals(before + 1, notified)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.activeSessionId)
+        assertEquals(null, vm.state.value.activeSessionStartedAt)
+        assertEquals(null, vm.state.value.activeSessionZoneId)
+        assertEquals(null, vm.state.value.pauseReason)
+    }
+
+    @Test
+    fun `queued saves cannot resurrect a discarded session or delete the next session`() {
+        val history = FakeExposureHistoryRepository().apply { saveDelayMillis = 2_000L }
+        val vm = buildHistoryViewModel(history)
+        settle()
+        vm.onStartExposure()
+        val oldId = vm.state.value.activeSessionId
+        advance(100L) // First save is suspended while holding the history mutex.
+        vm.onPauseExposure() // Queue another checkpoint.
+        vm.onResetSession(save = false)
+        vm.onStartExposure()
+        val newId = vm.state.value.activeSessionId
+        assertNotEquals(oldId, newId)
+        advance(6_000L)
+        assertEquals(listOf(oldId), history.deletedIds)
+        assertEquals(setOf(newId), history.records.keys)
+        assertTrue(history.saved.none { it.sessionId == oldId && it.status == ExposureRecordStatus.COMPLETED })
+    }
+
+    @Test
+    fun `repeated reset and stale resume leave an idle session untouched`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        vm.onResetSession(save = true)
+        vm.onResumeExposure()
+        assertEquals(0, vm.state.value.exposureSessionId)
+        vm.onStartExposure()
+        advance(250L)
+        vm.onResetSession(save = false)
+        flush()
+        val generation = vm.state.value.exposureSessionId
+        val saves = history.saveAttempts
+        vm.onResetSession(save = true)
+        vm.onResetSession(save = false)
+        vm.onResumeExposure()
+        flush()
+        assertEquals(generation, vm.state.value.exposureSessionId)
+        assertEquals(saves, history.saveAttempts)
+        assertEquals(1, history.deletedIds.size)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.activeSessionId)
+    }
+
+    @Test
+    fun `duplicate start preserves accumulated exposure and session identity`() {
+        val history = FakeExposureHistoryRepository()
+        val vm = buildHistoryViewModel(history)
+        settle()
+        vm.onStartExposure()
+        advance(1_500L)
+        val before = vm.state.value
+        vm.onStartExposure()
+        assertEquals(before.activeSessionId, vm.state.value.activeSessionId)
+        assertEquals(before.exposureSessionId, vm.state.value.exposureSessionId)
+        assertEquals(before.accumulatedDoseSed, vm.state.value.accumulatedDoseSed, 0.0)
+        vm.onResetSession(save = true)
+        flush()
+        assertEquals(1_500L, history.saved.last().activeDurationMillis)
+    }
+
+    @Test
+    fun `reset indoors waits for start and leaving indoors does not resume an idle session`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+        advance(10_000L)
+        vm.onStartExposure()
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
+        vm.onResetSession(save = true)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        assertEquals(null, vm.state.value.pauseReason)
+        environment.setNearIndoorLocation(false)
+        flush()
+        advance(10_000L)
+        assertFalse(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
+        vm.onStartExposure()
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+    }
+
+    @Test
+    fun `new start after indoor reset is paused without an extra indoor alert`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
+        val alerts = FakeExposureAlertGateway()
+        val vm = buildEnvironmentViewModel(environment, alerts)
+        settle()
+        vm.onStartExposure()
+        advance(10_000L)
+        assertEquals(1, alerts.callCount)
+        vm.onResetSession(save = false)
+        vm.onStartExposure()
+        advance(2_000L)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureSnapshot.status)
+        assertEquals(ExposurePauseReason.INDOOR_DETECTED, vm.state.value.pauseReason)
+        assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
+        assertEquals(1, alerts.callCount)
+    }
+
+    @Test
+    fun `motion override cancels indoor entry and clearing it requires a fresh debounce`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+        vm.onStartExposure()
+        advance(5_000L)
+        vm.onActiveToggle()
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
+        advance(2_000L)
+        vm.onActiveToggle()
+        advance(9_999L)
+        assertFalse(vm.state.value.indoorDetected)
+        advance(1L)
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+    }
+
+    @Test
+    fun `sound override cancels indoor entry and clearing it requires a fresh debounce`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+        vm.onStartExposure()
+        advance(5_000L)
+        vm.onAudioToggle()
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
+        advance(2_000L)
+        vm.onAudioToggle()
+        advance(9_999L)
+        assertFalse(vm.state.value.indoorDetected)
+        advance(1L)
+        assertTrue(vm.state.value.indoorDetected)
+    }
+
+    @Test
+    fun `covered bright reading does not resume a confirmed indoor session`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 500, initiallyNearIndoorLocation = true)
+        val vm = buildEnvironmentViewModel(environment)
+        settle()
+        vm.onStartExposure()
+        advance(10_000L)
+        environment.setDeviceOccluded(true)
+        environment.setLux(100_000)
+        flush()
+        advance(11_000L)
+        assertTrue(vm.state.value.indoorDetected)
+        assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
+        environment.setNearIndoorLocation(false)
+        flush()
+        advance(10_000L)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
+    }
+
+    @Test
+    fun `sensor update publishes a newly stable context between ticker callbacks`() {
+        val environment = MockEnvironmentContextProvider(initialLux = 8_000, initiallyDeviceOccluded = false)
+        val vm = buildEnvironmentViewModel(environment)
+        settle() // Time 701, not aligned with the periodic tick.
+        vm.onStartExposure()
+        environment.setDeviceOccluded(true)
+        flush()
+        advance(3_100L) // The 3 s candidate is ready, but the next tick is still pending.
+        assertEquals(ExposureContext.SHADE, vm.state.value.exposureSnapshot.context)
+        environment.setLux(7_999)
+        flush()
+        assertEquals(ExposureContext.UNKNOWN, vm.state.value.exposureSnapshot.context)
+        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureSnapshot.status)
+    }
+
     private class FakeExposureHistoryRepository : ExposureHistoryRepository {
         val saved = mutableListOf<ExposureRecord>()
+        val records = mutableMapOf<String, ExposureRecord>()
+        val deletedIds = mutableListOf<String>()
         val weekRequests = mutableListOf<LocalDate>()
         var saveAttempts = 0
             private set
         var failSaves = false
+        var saveDelayMillis = 0L
 
         override suspend fun save(record: ExposureRecord): Result<Unit> {
             saveAttempts++
+            delay(saveDelayMillis)
             if (failSaves) return Result.failure(IllegalStateException("write failed"))
             saved += record
+            records[record.sessionId] = record
             return Result.success(Unit)
         }
 
         override suspend fun getSession(sessionId: String): ExposureRecord? =
-            saved.lastOrNull { it.sessionId == sessionId }
+            records[sessionId]
 
         override fun observeHistory(
             limit: Int,
             offset: Int,
-        ): Flow<List<ExposureRecord>> = flowOf(saved.toList())
+        ): Flow<List<ExposureRecord>> = flowOf(records.values.toList())
 
         override fun observeDaily(
             start: LocalDate,
@@ -1144,7 +1416,11 @@ class MainViewModelTest {
             return flowOf(ExposureWeeklySummary(containingDate, emptyList()))
         }
 
-        override suspend fun deleteSession(sessionId: String): Result<Unit> = Result.success(Unit)
+        override suspend fun deleteSession(sessionId: String): Result<Unit> {
+            deletedIds += sessionId
+            records.remove(sessionId)
+            return Result.success(Unit)
+        }
 
         override suspend fun clearHistory(): Result<Unit> = Result.success(Unit)
     }
@@ -1289,7 +1565,7 @@ class MainViewModelTest {
     }
 
     private companion object {
-        const val NOW_MILLIS = 1_800_000L
+        const val NOW_MILLIS = 1_790_000_000_000L
         val CARLTON =
             PlaceSearchResult(
                 name = "Carlton",
