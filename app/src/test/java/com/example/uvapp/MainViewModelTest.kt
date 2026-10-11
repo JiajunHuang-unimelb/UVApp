@@ -109,36 +109,43 @@ class MainViewModelTest {
         assertEquals(state.totalBurnSeconds, state.remainingSeconds)
     }
 
+
     @Test
     fun `exposure lifecycle is authoritative`() {
         val vm = buildLocatedViewModel()
         settle()
-
+    
         assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
         assertEquals(0L, vm.state.value.remainingSeconds)
-
+    
         vm.onStartExposure()
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         val runningRemaining = vm.state.value.remainingSeconds
-
+    
         vm.onPauseExposure()
         mainDispatcher.scheduler.advanceTimeBy(3_000)
         mainDispatcher.scheduler.runCurrent()
+    
         assertEquals(ExposureStatus.PAUSED, vm.state.value.exposureStatus)
         assertEquals(ExposurePauseReason.MANUAL, vm.state.value.pauseReason)
         assertEquals(runningRemaining, vm.state.value.remainingSeconds)
-
+    
         vm.onResumeExposure()
         mainDispatcher.scheduler.advanceTimeBy(1_000)
         mainDispatcher.scheduler.runCurrent()
+    
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(null, vm.state.value.pauseReason)
         assertEquals(runningRemaining - 1L, vm.state.value.remainingSeconds)
-
-        vm.onResetTimer()
+    
+        vm.onResetSession(save = false)
+    
         assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
         assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
-        assertEquals(vm.state.value.totalBurnSeconds, vm.state.value.remainingSeconds)
+        assertEquals(
+            vm.state.value.totalBurnSeconds,
+            vm.state.value.remainingSeconds,
+        )
     }
 
     @Test
