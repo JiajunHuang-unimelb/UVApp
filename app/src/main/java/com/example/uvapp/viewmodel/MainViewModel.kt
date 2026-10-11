@@ -304,7 +304,6 @@ class MainViewModel(
             viewModelScope.launch {
                 provider.samples.collect { sample ->
                     latestEnvironmentSample = sample
-                    val previousExposureContext = detectExposureContext()
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
@@ -322,10 +321,7 @@ class MainViewModel(
                         )
                     }
                     evaluateIndoorTransition()
-                    val currentExposureContext = detectExposureContext()
-                    if (currentExposureContext != previousExposureContext) {
-                        syncExposure()
-                    }
+                    syncExposure()
                 }
             }
         }
@@ -472,8 +468,12 @@ class MainViewModel(
     }
     
     fun onStartExposure() {
-        restartExposureSession()
-    
+        if (_state.value.exposureStarted) return
+        advanceExposureClock()
+        exposureContextStabilizer.reset()
+        _state.update { it.copy(exposureSessionId = it.exposureSessionId + 1, luxOverride = null) }
+        evaluateIndoorTransition()
+        openHistorySession(nowMillis())
         val state = _state.value
     
         val snapshot =
@@ -499,10 +499,7 @@ class MainViewModel(
 
     fun onResumeExposure() {
         if (_state.value.indoorDetected) return
-        if (!_state.value.exposureStarted) {
-            restartExposureSession()
-            return
-        }
+        if (_state.value.exposureStatus != ExposureStatus.PAUSED) return
         monitoringController?.start()
         syncExposure()
         publishExposure(exposureSession.resume(exposureClockMillis))
@@ -519,18 +516,20 @@ class MainViewModel(
 
     fun onResetSession(save: Boolean) {
         if (!_state.value.exposureStarted) return
-    
+        // Exposure uses elapsed time; calendar time is only for history dates.
+        advanceExposureClock()
         if (save) {
             closeHistorySession()
         } else {
             discardHistorySession()
         }
     
-        restartExposureSession()
+        resetExposureSession()
     }
+
+    @Deprecated("Use onResetSession(save) to explicitly choose whether to keep history")
     fun onResetTimer() {
-        restartExposureSession()
-        pauseNewSessionIfAlreadyIndoor()
+        onResetSession(save = true)
     }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
@@ -539,14 +538,9 @@ class MainViewModel(
     fun onLuxChange(lux: Int) {
         if (_state.value.exposureStarted) return
         val clamped = lux.coerceIn(0, MAX_LUX)
-        val previous = detectExposureContext()
-
         _state.update { it.copy(luxOverride = clamped) }
         evaluateIndoorTransition()
-        val current = detectExposureContext()
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
     // ---- Developer-mode overrides -------------------------------------------
@@ -562,7 +556,6 @@ class MainViewModel(
     }.also { syncExposure() }
 
     fun onOverrideLightToggle() {
-        val previous = detectExposureContext()
     
         _state.update {
             it.copy(
@@ -574,15 +567,10 @@ class MainViewModel(
     
         evaluateIndoorTransition()
     
-        val current = detectExposureContext()
-    
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
     fun onLightOverride(context: LightContext) {
-        val previous = detectExposureContext()
     
         _state.update {
             it.copy(
@@ -594,17 +582,16 @@ class MainViewModel(
     
         evaluateIndoorTransition()
     
-        val current = detectExposureContext()
-    
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
-    fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
+    fun onAudioToggle() {
+        _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
+        evaluateIndoorTransition()
+        syncExposure()
+    }
 
     fun onOccludedToggle() {
-        val previous = detectExposureContext()
     
         _state.update {
             it.copy(
@@ -616,11 +603,7 @@ class MainViewModel(
     
         evaluateIndoorTransition()
     
-        val current = detectExposureContext()
-    
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
@@ -636,7 +619,11 @@ class MainViewModel(
         evaluateIndoorTransition()
     }
 
-    fun onActiveToggle() = _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
+    fun onActiveToggle() {
+        _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
+        evaluateIndoorTransition()
+        syncExposure()
+    }
 
     fun onTestReapplyAlert() {
         alertGateway?.previewReapplyReminder()
@@ -827,30 +814,19 @@ class MainViewModel(
             }
     }
 
-    private fun restartExposureSession() {
-        monitoringController?.stop()
-    
-        val dbSessionId = java.util.UUID.randomUUID().toString()
-        val sessionStartMs = exposureClockMillis
-        val zoneId = java.time.ZoneId.systemDefault().id
-    
+    private fun resetExposureSession() {
         exposureSession.clear(exposureClockMillis)
         exposureContextStabilizer.reset()
+        historySessionId = null
+        historyDays.clear()
+        lastHistoryStatus = ExposureStatus.NOT_STARTED
 
         _state.update {
             it.copy(
-                exposureSessionId = it.exposureSessionId + 1,
                 luxOverride = null,
-                activeSessionId = dbSessionId,
-                activeSessionStartedAt = sessionStartMs,
-                activeSessionZoneId = zoneId,
-                exposureStatus = ExposureStatus.NOT_STARTED,
-                exposureStarted = false,
-                exposureRunning = false,
-                accumulatedDoseSed = 0.0,
-                exposureFraction = 0.0,
-                remainingSeconds = 0L,
-                totalBurnSeconds = 0L,
+                activeSessionId = null,
+                activeSessionStartedAt = null,
+                activeSessionZoneId = null,
             )
         }
     
@@ -859,13 +835,14 @@ class MainViewModel(
     /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
     private fun evaluateIndoorTransition() {
         val state = _state.value
+        val input = state.exposureContextInput()
         val target =
             when {
                 !state.indoorDetected &&
-                        state.hasTrustworthyIndoorEntryEvidence() -> true
+                        exposureContextDetector.canEnterIndoor(input) -> true
 
                 state.indoorDetected &&
-                        (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+                        exposureContextDetector.canExitIndoor(input) -> false
 
                 else -> null
             }
@@ -891,25 +868,16 @@ class MainViewModel(
 
     private fun confirmIndoorIfStillValid() {
         val state = _state.value
-        if (state.indoorDetected || !state.hasTrustworthyIndoorEntryEvidence()) return
+        if (state.indoorDetected || !exposureContextDetector.canEnterIndoor(state.exposureContextInput())) return
 
         _state.update { it.copy(indoorDetected = true) }
         syncExposure()
         autoPauseForIndoor(sendAlert = true)
     }
 
-    /** Pocketed or contradictory readings cannot establish a new indoor state. */
-    private fun MainUiState.hasTrustworthyIndoorEntryEvidence(): Boolean =
-        isWithinSavedIndoorLocation &&
-            displayLux < INDOOR_ENTER_LUX &&
-            effectiveDeviceOccluded != true &&
-            effectiveIsMoving != true &&
-            effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
-            devicePosture != DevicePosture.FACE_DOWN
-
     private fun confirmOutdoorIfStillValid() {
         val state = _state.value
-        val exitStillValid = !state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX
+        val exitStillValid = exposureContextDetector.canExitIndoor(state.exposureContextInput())
         if (!state.indoorDetected || !exitStillValid) return
 
         val shouldResume = state.pauseReason == ExposurePauseReason.INDOOR_DETECTED
@@ -973,6 +941,7 @@ class MainViewModel(
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
+                exposureSnapshot = snapshot,
                 exposureStatus = snapshot.status,
                 pauseReason = if (snapshot.status == ExposureStatus.PAUSED) reason else null,
                 exposureStarted = snapshot.isStarted,
@@ -1000,13 +969,7 @@ class MainViewModel(
         if (snapshot.status == ExposureStatus.COMPLETE && previousStatus != ExposureStatus.COMPLETE) {
             alertGateway?.notifyExposureLimitReached()
         }
-        if (
-            snapshot.status in setOf(
-                ExposureStatus.COMPLETE,
-                ExposureStatus.NOT_STARTED,
-            ) &&
-            previousStatus != snapshot.status
-        ) {
+        if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
             monitoringController?.stop()
         }
         recordHistory()
@@ -1066,6 +1029,14 @@ class MainViewModel(
         historyStartedAtMillis = now
         historyZoneId = ZoneId.systemDefault()
         historyDays.clear()
+        lastHistoryStatus = ExposureStatus.NOT_STARTED
+        _state.update {
+            it.copy(
+                activeSessionId = historySessionId,
+                activeSessionStartedAt = now,
+                activeSessionZoneId = historyZoneId.id,
+            )
+        }
     
         lastHistoryWallMillis = now
         lastHistoryDoseSed = 0.0
@@ -1077,7 +1048,7 @@ class MainViewModel(
         lastRecordedThroughMillis = now
     }
 
-    /** Saves the session being replaced; called before start() resets the dose. */
+    /** Capture the final elapsed-time segment before clearing the session. */
     private fun closeHistorySession() {
         val sessionId = historySessionId ?: return
         val repository = historyRepository ?: return
@@ -1085,7 +1056,7 @@ class MainViewModel(
         val now = nowMillis()
     
         // Settle the final exposure interval.
-        val snapshot = exposureSession.refresh(now)
+        val snapshot = exposureSession.refresh(exposureClockMillis)
     
         // Add the final dose/duration delta to the in-memory history.
         addHistoryDelta(snapshot, now)
@@ -1105,45 +1076,21 @@ class MainViewModel(
         historySessionId = null
     
         viewModelScope.launch {
-            historySaveMutex.withLock {
-                val saved = repository.save(record).isSuccess
-                val callback = onHistorySaved
-                if (saved && callback != null) {
-                    callback()
-                }
-            }
+            val saved = historySaveMutex.withLock { repository.save(record).isSuccess }
+            if (saved) onHistorySaved?.invoke()
         }
-    
-        exposureSession.clear(now)
     }
     private fun discardHistorySession() {
         val sessionId = historySessionId
         val repository = historyRepository
-        val now = nowMillis()
-    
         // Detach the history session immediately.
         historySessionId = null
     
-        // Discard all in-memory exposure data.
-        exposureSession.clear(now)
-    
-       // Reset history bookkeeping.
-        historyDays.clear()
-        lastHistoryDoseSed = 0.0
-        lastHistoryDirectSunDurationMillis = 0L
-        lastHistoryShadeDurationMillis = 0L
-        lastHistoryUnknownDurationMillis = 0L
-        lastHistoryWallMillis = now
-        lastHistoryStatus = ExposureStatus.NOT_STARTED
-        lastHistoryContext = ExposureContext.UNKNOWN
-        lastHistorySaveWallMillis = now
-        lastRecordedThroughMillis = now
-    
         if (repository != null && sessionId != null) {
             viewModelScope.launch {
-                historySaveMutex.withLock {
-                    repository.deleteSession(sessionId)
-                }
+                // Delete after every queued checkpoint, so none can resurrect this session.
+                val deleted = historySaveMutex.withLock { repository.deleteSession(sessionId).isSuccess }
+                if (deleted) onHistorySaved?.invoke()
             }
         }
     }
@@ -1318,20 +1265,20 @@ class MainViewModel(
 
     private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
         minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
+    private fun MainUiState.exposureContextInput(): ExposureContextInput =
+        ExposureContextInput(
+            indoorDetected = indoorDetected,
+            lux = displayLux,
+            deviceOccluded = effectiveDeviceOccluded,
+            isMoving = effectiveIsMoving,
+            nearIndoorLocation = isWithinSavedIndoorLocation,
+            acousticContext = effectiveAcousticContext,
+            posture = devicePosture,
+        )
+
     private fun detectExposureContext(): ExposureContext {
         val state = _state.value
-    
-        val raw = exposureContextDetector.detect(
-            ExposureContextInput(
-                indoorDetected = state.indoorDetected,
-                lux = state.displayLux,
-                deviceOccluded = state.effectiveDeviceOccluded,
-                isMoving = state.effectiveIsMoving,
-                nearIndoorLocation = state.isWithinSavedIndoorLocation,
-                acousticContext = state.effectiveAcousticContext,
-                posture = state.devicePosture,
-            ),
-        )
+        val raw = exposureContextDetector.detect(state.exposureContextInput())
 
         // Developer overrides should still take effect instantly on the debug card.
         if (state.dev.overrideLight || state.dev.simulateOccluded || state.dev.simulateActive || state.dev.overrideAudio) {
@@ -1343,8 +1290,6 @@ class MainViewModel(
     private companion object {
         const val DEFAULT_LUX = 38_200
         const val MAX_LUX = 100_000
-        const val INDOOR_ENTER_LUX = 1_000
-        const val INDOOR_EXIT_LUX = 2_000
         const val INDOOR_TRANSITION_DELAY_MILLIS = 10_000L
         const val HISTORY_CHECKPOINT_MILLIS = 60_000L
     }

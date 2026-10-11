@@ -159,56 +159,98 @@ class IndoorLocationsTest {
         assertEquals(2, locationRequests)
         assertNotNull(repo.data.value.pending)
     }
-    @Test fun `suggestion allows conversational audio but blocks sustained loud activity`() {
+    /** Each sensor scenario starts with a fresh session and an unused suggestion allowance. */
+    private fun suggestionFor(
+        acousticContext: AcousticContext = AcousticContext.UNCERTAIN,
+        moving: Boolean = false,
+        activity: StepActivity = StepActivity.STATIONARY,
+        stepsSinceStart: Int = 0,
+        recentSteps: Int = 0,
+    ): IndoorSuggestion? {
         val repo = Memory()
         repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
-        val environment = MockEnvironmentContextProvider()
+        val environment = MockEnvironmentContextProvider(initialLux = 500)
         val main = main(environment)
-        val vm = IndoorLocationsViewModel(repo, provider(), main, now = { 10_000 })
+        IndoorLocationsViewModel(repo, provider(), main, now = { 10_000 })
         dispatcher.scheduler.runCurrent()
-        vm.requestSave(); dispatcher.scheduler.runCurrent()
-        vm.dismiss(); dispatcher.scheduler.runCurrent()
         main.onStartExposure()
-        main.onOverrideLightToggle()
-        main.onLightOverride(LightContext.INDOOR)
-
-        environment.setAcoustic(-60.0, AcousticContext.QUIET_INDOOR_LIKELY)
-        environment.setMotion(DevicePosture.FACE_UP, isMoving = true)
-        environment.setStepActivity(0, 0, activity = StepActivity.STATIONARY)
+        val soundLevel = when (acousticContext) {
+            AcousticContext.QUIET_INDOOR_LIKELY -> -60.0
+            AcousticContext.UNCERTAIN -> -30.0
+            AcousticContext.ACTIVE_OUTDOOR_LIKELY -> -10.0
+        }
+        environment.setAcoustic(soundLevel, acousticContext)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = moving)
+        environment.setStepActivity(stepsSinceStart, 0, recentSteps = recentSteps, activity = activity)
         dispatcher.scheduler.runCurrent()
+        assertTrue(main.state.value.exposureRunning)
+        val pendingWhileRunning = repo.data.value.pending
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
-        assertNull(repo.data.value.pending)
+        assertEquals(pendingWhileRunning, repo.data.value.pending)
+        return repo.data.value.pending
+    }
 
-        main.onResumeExposure()
-        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
-        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
-        dispatcher.scheduler.runCurrent()
-        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
-        assertNotNull(repo.data.value.pending)
-        vm.dismiss(); dispatcher.scheduler.runCurrent()
+    @Test fun `suggestion blocks movement even with quiet audio`() {
+        assertNull(suggestionFor(acousticContext = AcousticContext.QUIET_INDOOR_LIKELY, moving = true))
+    }
 
-        main.onStartExposure()
-        environment.setAcoustic(-10.0, AcousticContext.ACTIVE_OUTDOOR_LIKELY)
-        environment.setStepActivity(10, 10, recentSteps = 0, activity = StepActivity.STATIONARY)
-        dispatcher.scheduler.runCurrent()
-        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
-        assertNull(repo.data.value.pending)
+    @Test fun `suggestion allows conversational audio while stationary`() {
+        assertNotNull(suggestionFor(acousticContext = AcousticContext.UNCERTAIN))
+    }
 
-        main.onStartExposure()
-        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
-        environment.setStepActivity(10, 10, recentSteps = 3, activity = StepActivity.WALKING)
-        dispatcher.scheduler.runCurrent()
-        main.onPauseExposure(); dispatcher.scheduler.runCurrent()
-        assertNull(repo.data.value.pending)
+    @Test fun `suggestion blocks sustained loud activity while stationary`() {
+        assertNull(suggestionFor(acousticContext = AcousticContext.ACTIVE_OUTDOOR_LIKELY, stepsSinceStart = 10))
+    }
 
-        main.onStartExposure()
+    @Test fun `suggestion blocks walking despite conversational audio`() {
+        assertNull(suggestionFor(activity = StepActivity.WALKING, stepsSinceStart = 10, recentSteps = 3))
+    }
+
+    @Test fun `suggestion allows incidental steps that remain stationary`() {
         val tracker = StepCounterTracker()
         tracker.update(100f, 0L)
         val incidentalSteps = tracker.update(102f, 1_000L)!!
-        environment.setStepActivity(incidentalSteps.stepsSinceStart, 0, recentSteps = incidentalSteps.recentSteps, activity = incidentalSteps.activity)
+        assertEquals(StepActivity.STATIONARY, incidentalSteps.activity)
+        assertNotNull(suggestionFor(
+            activity = incidentalSteps.activity,
+            stepsSinceStart = incidentalSteps.stepsSinceStart,
+            recentSteps = incidentalSteps.recentSteps,
+        ))
+    }
+
+    @Test fun `dismissed suggestion stays suppressed until an explicit new session`() {
+        val repo = Memory()
+        repo.data.value = IndoorLocationsData(suggestionsEnabled = true)
+        val environment = MockEnvironmentContextProvider(initialLux = 500)
+        val main = main(environment)
+        val vm = IndoorLocationsViewModel(repo, provider(), main, now = { 10_000 })
+        environment.setAcoustic(-30.0, AcousticContext.UNCERTAIN)
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        environment.setStepActivity(0, 0, recentSteps = 0, activity = StepActivity.STATIONARY)
         dispatcher.scheduler.runCurrent()
+        main.onStartExposure(); dispatcher.scheduler.runCurrent()
+        val firstCandidateId = repo.data.value.pending!!.id
+        val firstSession = main.state.value.exposureSessionId
+        vm.dismiss(); dispatcher.scheduler.runCurrent()
+
         main.onPauseExposure(); dispatcher.scheduler.runCurrent()
-        assertNotNull(repo.data.value.pending)
+        main.onStartExposure(); dispatcher.scheduler.runCurrent() // Cannot replace a paused session.
+        assertEquals(firstSession, main.state.value.exposureSessionId)
+        assertEquals(com.example.uvapp.domain.exposure.ExposureStatus.PAUSED, main.state.value.exposureStatus)
+        main.onResumeExposure(); dispatcher.scheduler.runCurrent()
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = true)
+        dispatcher.scheduler.runCurrent()
+        environment.setMotion(DevicePosture.FACE_UP, isMoving = false)
+        dispatcher.scheduler.runCurrent()
+        assertTrue(main.state.value.exposureRunning)
+        assertNull(repo.data.value.pending)
+
+        main.onResetSession(save = false); dispatcher.scheduler.runCurrent()
+        assertEquals(com.example.uvapp.domain.exposure.ExposureStatus.NOT_STARTED, main.state.value.exposureStatus)
+        assertNull(repo.data.value.pending)
+        main.onStartExposure(); dispatcher.scheduler.runCurrent()
+        assertNotEquals(firstSession, main.state.value.exposureSessionId)
+        assertNotEquals(firstCandidateId, repo.data.value.pending!!.id)
     }
     @Test fun `missing microphone evidence blocks suggestion until it becomes available`() {
         val repo = Memory()

@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ fix/exposure-session-lifecycle ]
   pull_request:
-    branches: [ main ]
+    branches: [ fix/exposure-session-lifecycle ]
 
 concurrency:
   group: ci-${{ github.ref }}
