@@ -15,11 +15,19 @@ data class MotionReading(
     val isMoving: Boolean,
 )
 
-/** Classifies accelerometer samples using posture plus short-window magnitude variance. */
+/**
+ * Classifies accelerometer samples using posture plus sustained deviation from the window median.
+ *
+ * A single knock on the table produces one or two outlying samples. Counting how many recent
+ * samples stray from the median, instead of using the window's variance, keeps such a spike from
+ * marking the phone as moving for the whole window, while walking or shaking keeps enough samples
+ * outlying to be detected within about a second.
+ */
 class MotionClassifier(
     private val windowSize: Int = DEFAULT_WINDOW_SIZE,
 ) {
     private val magnitudes = ArrayDeque<Double>()
+    private var moving = false
 
     init {
         require(windowSize >= MIN_SAMPLES)
@@ -45,15 +53,18 @@ class MotionClassifier(
                 abs(zRatio) <= UPRIGHT_RATIO -> DevicePosture.UPRIGHT
                 else -> DevicePosture.TILTED
             }
-        val isMoving =
-            magnitudes.size >= MIN_SAMPLES &&
-                standardDeviation(magnitudes) >= MOVEMENT_STANDARD_DEVIATION
-        return MotionReading(posture = posture, isMoving = isMoving)
+        moving = magnitudes.size >= MIN_SAMPLES && isSustainedMovement()
+        return MotionReading(posture = posture, isMoving = moving)
     }
 
-    private fun standardDeviation(values: Collection<Double>): Double {
-        val average = values.average()
-        return sqrt(values.sumOf { value -> (value - average) * (value - average) } / values.size)
+    private fun isSustainedMovement(): Boolean {
+        val median = magnitudes.sorted().let { sorted -> sorted[sorted.size / 2] }
+        val outlying =
+            magnitudes
+                .takeLast(RECENT_SAMPLES)
+                .count { magnitude -> abs(magnitude - median) >= MOVEMENT_DEVIATION }
+        // Hysteresis: start on clear evidence, stop once the shaking has mostly left the recent samples.
+        return outlying >= if (moving) STOP_OUTLYING_SAMPLES else START_OUTLYING_SAMPLES
     }
 
     private companion object {
@@ -61,6 +72,9 @@ class MotionClassifier(
         const val MIN_SAMPLES = 5
         const val FACE_UP_RATIO = 0.72
         const val UPRIGHT_RATIO = 0.35
-        const val MOVEMENT_STANDARD_DEVIATION = 0.45
+        const val MOVEMENT_DEVIATION = 0.6
+        const val RECENT_SAMPLES = 8
+        const val START_OUTLYING_SAMPLES = 4
+        const val STOP_OUTLYING_SAMPLES = 2
     }
 }
