@@ -27,6 +27,7 @@ import com.example.uvapp.R
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
 import com.example.uvapp.domain.environment.AmbientLightFilter
 import com.example.uvapp.domain.environment.ExposureMonitoringPolicy
+import com.example.uvapp.domain.environment.IndoorProximityRule
 import com.example.uvapp.domain.environment.LocationFixValidator
 import com.example.uvapp.domain.environment.LocationMonitoringPolicy
 import com.example.uvapp.domain.environment.LocationRequestFailurePolicy
@@ -36,10 +37,10 @@ import com.example.uvapp.domain.environment.ProximityDebouncer
 import com.example.uvapp.domain.environment.SensorRegistrationPolicy
 import com.example.uvapp.domain.environment.SensorRegistrationStatus
 import com.example.uvapp.domain.environment.SensorFreshnessTracker
+import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.domain.environment.StepActivityReading
 import com.example.uvapp.domain.environment.StepCounterTracker
 import com.example.uvapp.domain.model.IndoorLocation
-import com.example.uvapp.domain.model.contains
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -99,10 +100,18 @@ class ExposureMonitoringService : Service(), SensorEventListener {
     private val locationCallback =
         object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                latestLocation = result.lastLocation
+                keepIfPrecise(result.lastLocation)
                 publishIndoorProximity(SystemClock.elapsedRealtime())
             }
         }
+
+    /** A coarse fix leaves the last precise one in place until that one ages out. */
+    private fun keepIfPrecise(location: Location?) {
+        val accuracyMeters = location?.takeIf { it.hasAccuracy() }?.accuracy
+        if (LocationFixValidator.shouldReplace(accuracyMeters, MAX_LOCATION_ACCURACY_METERS)) {
+            latestLocation = location
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -454,22 +463,20 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                 ?.elapsedRealtimeNanos
                 ?.takeIf { it > 0L }
                 ?.div(NANOS_PER_MILLISECOND)
-        val isUsable =
-            preciseLocationAvailable &&
-                location != null &&
-                location.hasAccuracy() &&
-                LocationFixValidator.isUsable(
-                    accuracyMeters = location.accuracy,
-                    fixElapsedMillis = fixElapsedMillis,
-                    nowElapsedMillis = nowElapsedMillis,
-                    maxAccuracyMeters = MAX_LOCATION_ACCURACY_METERS,
-                    maxAgeMillis = MAX_LOCATION_AGE_MILLIS,
-                )
+        val heldFix =
+            location
+                ?.takeIf { preciseLocationAvailable && it.hasAccuracy() }
+                ?.let { IndoorProximityRule.HeldFix(it.latitude, it.longitude, it.accuracy, fixElapsedMillis) }
         nearIndoorLocation =
-            isUsable &&
-                savedLocations.any { saved ->
-                    saved.contains(location!!.latitude, location.longitude)
-                }
+            IndoorProximityRule.isNear(
+                fix = heldFix,
+                savedLocations = savedLocations,
+                nowElapsedMillis = nowElapsedMillis,
+                // Step data, not the jittery accelerometer flag: no steps means the user has not left.
+                userStationary = latestStepReading?.activity == StepActivity.STATIONARY,
+                maxAccuracyMeters = MAX_LOCATION_ACCURACY_METERS,
+                maxAgeMillis = MAX_LOCATION_AGE_MILLIS,
+            )
         AndroidEnvironmentContextProvider.updateIndoorProximity(nearIndoorLocation)
         applyLocationPolicy(nowElapsedMillis)
     }
@@ -513,7 +520,7 @@ class ExposureMonitoringService : Service(), SensorEventListener {
                     if (generation != freshLocationGeneration) return@addOnSuccessListener
                     if (location != null) {
                         locationFailurePolicy.recordSuccess()
-                        latestLocation = location
+                        keepIfPrecise(location)
                         publishIndoorProximity(SystemClock.elapsedRealtime())
                     } else {
                         handleLocationFailure(error = null, continuousRegistrationFailed = false)
