@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [ fix/daily-exposure-budget ]
+    branches: [ main ]
   pull_request:
-    branches: [ fix/daily-exposure-budget ]
+    branches: [ main ]
 
 concurrency:
   group: ci-${{ github.ref }}
