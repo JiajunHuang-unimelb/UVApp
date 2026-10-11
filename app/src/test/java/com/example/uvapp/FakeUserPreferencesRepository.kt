@@ -18,12 +18,17 @@ class FakeUserPreferencesRepository(initial: UserPreferences = UserPreferences()
         mutablePreferences.value = mutablePreferences.value.copy(spf = spf)
     }
 
+    override suspend fun setEnhancedSensingEnabled(enabled: Boolean) {
+        mutablePreferences.value = mutablePreferences.value.copy(enhancedSensingEnabled = enabled)
+    }
+
     override suspend fun completeOnboarding(skinType: SkinType, spf: Int) {
         mutablePreferences.value =
             UserPreferences(
                 onboardingCompleted = true,
                 skinType = skinType,
                 spf = spf,
+                enhancedSensingEnabled = mutablePreferences.value.enhancedSensingEnabled,
             )
     }
 }

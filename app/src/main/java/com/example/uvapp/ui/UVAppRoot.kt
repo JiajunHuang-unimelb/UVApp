@@ -316,6 +316,13 @@ fun UVAppRoot(
         }
     }
 
+    // The saved "on" choice must not outlive permissions revoked in system settings.
+    LaunchedEffect(settingsState.enhancedSensingEnabled) {
+        if (settingsState.enhancedSensingEnabled && !hasAnyEnhancedSensingPermission(applicationContext)) {
+            settingsViewModel.setEnhancedSensingEnabled(false)
+        }
+    }
+
     DisposableEffect(
         lifecycle,
         microphoneMonitor,
@@ -580,4 +587,16 @@ fun UVAppRoot(
             }
         }
     }
+}
+
+private fun hasAnyEnhancedSensingPermission(context: android.content.Context): Boolean {
+    fun granted(permission: String) =
+        androidx.core.content.ContextCompat.checkSelfPermission(context, permission) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    return granted(android.Manifest.permission.RECORD_AUDIO) ||
+        granted(android.Manifest.permission.CAMERA) ||
+        // Before Android 10 activity recognition needs no runtime permission.
+        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q ||
+        granted(android.Manifest.permission.ACTIVITY_RECOGNITION)
 }

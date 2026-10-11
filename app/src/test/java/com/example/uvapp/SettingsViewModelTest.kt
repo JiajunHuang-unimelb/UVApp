@@ -88,4 +88,25 @@ class SettingsViewModelTest {
         assertEquals(SkinType.V, repository.preferences.value.skinType)
         assertEquals(50, repository.preferences.value.spf)
     }
+
+    @Test
+    fun `enhanced sensing choice is saved and restored after restart`() = runTest(dispatcher) {
+        val repository = FakeUserPreferencesRepository()
+        val vm = SettingsViewModel(repository)
+        runCurrent()
+        assertFalse(vm.state.value.enhancedSensingEnabled)
+
+        vm.setEnhancedSensingEnabled(true)
+        runCurrent()
+        assertTrue(repository.preferences.value.enhancedSensingEnabled)
+
+        // A new ViewModel stands in for the app process being restarted.
+        val restarted = SettingsViewModel(repository)
+        runCurrent()
+        assertTrue(restarted.state.value.enhancedSensingEnabled)
+
+        restarted.setEnhancedSensingEnabled(false)
+        runCurrent()
+        assertFalse(repository.preferences.value.enhancedSensingEnabled)
+    }
 }
