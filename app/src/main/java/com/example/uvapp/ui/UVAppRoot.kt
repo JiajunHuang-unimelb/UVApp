@@ -155,7 +155,9 @@ fun UVAppRoot(
             main = mainViewModel,
             notifySuggestion = notifier::show,
             reportIndoorProximity = { near ->
-                AndroidEnvironmentContextProvider.updateIndoorProximity(near == true)
+                // Without a fresh precise fix this view has no answer; leave the monitoring
+                // service's GPS-based result in place instead of overwriting it with false.
+                near?.let(AndroidEnvironmentContextProvider::updateIndoorProximity)
             },
         )
     }
