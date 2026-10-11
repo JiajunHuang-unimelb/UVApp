@@ -1000,7 +1000,13 @@ class MainViewModel(
         if (snapshot.status == ExposureStatus.COMPLETE && previousStatus != ExposureStatus.COMPLETE) {
             alertGateway?.notifyExposureLimitReached()
         }
-        if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
+        if (
+            snapshot.status in setOf(
+                ExposureStatus.COMPLETE,
+                ExposureStatus.NOT_STARTED,
+            ) &&
+            previousStatus != snapshot.status
+        ) {
             monitoringController?.stop()
         }
         recordHistory()
