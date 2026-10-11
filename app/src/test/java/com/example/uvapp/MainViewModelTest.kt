@@ -140,7 +140,7 @@ class MainViewModelTest {
     
         vm.onResetSession(save = false)
     
-        assertEquals(ExposureStatus.RUNNING, vm.state.value.exposureStatus)
+        assertEquals(ExposureStatus.NOT_STARTED, vm.state.value.exposureStatus)
         assertEquals(0.0, vm.state.value.accumulatedDoseSed, 0.0)
         assertEquals(
             vm.state.value.totalBurnSeconds,
