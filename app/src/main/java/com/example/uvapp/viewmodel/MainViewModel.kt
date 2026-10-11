@@ -38,6 +38,7 @@ import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.domain.exposure.ExposureContextDetector
 import com.example.uvapp.domain.exposure.ExposureContextInput
+import com.example.uvapp.domain.exposure.ExposureContextStabilizer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -233,6 +234,7 @@ class MainViewModel(
 
     private val exposureSession = ExposureSessionManager()
     private val exposureContextDetector = ExposureContextDetector()
+    private val exposureContextStabilizer = ExposureContextStabilizer()
     private val sunProtection = SunProtectionTracker()
     private var exposureClockMillis = elapsedRealtimeMillis()
 
@@ -833,7 +835,8 @@ class MainViewModel(
         val zoneId = java.time.ZoneId.systemDefault().id
     
         exposureSession.clear(exposureClockMillis)
-    
+        exposureContextStabilizer.reset()
+
         _state.update {
             it.copy(
                 exposureSessionId = it.exposureSessionId + 1,
@@ -1312,7 +1315,7 @@ class MainViewModel(
     private fun detectExposureContext(): ExposureContext {
         val state = _state.value
     
-        return exposureContextDetector.detect(
+        val raw = exposureContextDetector.detect(
             ExposureContextInput(
                 indoorDetected = state.indoorDetected,
                 lux = state.displayLux,
@@ -1323,6 +1326,13 @@ class MainViewModel(
                 posture = state.devicePosture,
             ),
         )
+
+        // Developer overrides should still take effect instantly on the debug card.
+        if (state.dev.overrideLight || state.dev.simulateOccluded || state.dev.simulateActive || state.dev.overrideAudio) {
+            exposureContextStabilizer.reset()
+            return raw
+        }
+        return exposureContextStabilizer.update(raw, elapsedRealtimeMillis())
     }
     private companion object {
         const val DEFAULT_LUX = 38_200

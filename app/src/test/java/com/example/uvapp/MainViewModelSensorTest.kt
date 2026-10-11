@@ -48,8 +48,13 @@ class MainViewModelSensorTest {
 
         environment.setDeviceOccluded(false)
         dispatcher.scheduler.runCurrent()
+        // Moving to a lower dose rate has to hold steady first, so tilting cannot flip the countdown.
+        assertEquals(conservativeSeconds, viewModel.state.value.totalBurnSeconds)
 
-        // Once unobstructed, the same 8,000 lux reading is trustworthy shade evidence again.
+        dispatcher.scheduler.advanceTimeBy(11_000)
+        dispatcher.scheduler.runCurrent()
+
+        // Once unobstructed for long enough, the same 8,000 lux reading is trustworthy shade evidence again.
         val shadeSeconds = viewModel.state.value.totalBurnSeconds
         assertTrue(shadeSeconds > conservativeSeconds)
     }
