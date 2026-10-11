@@ -46,7 +46,6 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-/*temp
 /**
  * Uses a dedicated [StandardTestDispatcher] (not the implicit one from `runTest`) so we can
  * advance virtual time in bounded steps via [advanceTimeBy]. MainViewModel's countdown ticker
@@ -1309,4 +1308,4 @@ class MainViewModelTest {
                 isMock = false,
             )
     }
-}*/
+}
