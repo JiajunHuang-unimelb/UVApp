@@ -52,6 +52,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -108,6 +111,9 @@ data class MainUiState(
     val exposureSessionId: Long = 0L,
     val exposureStarted: Boolean = false,
     val exposureRunning: Boolean = false,
+    val exposureStarting: Boolean = false,
+    val dailyDoseLoading: Boolean = false,
+    val dailyDoseError: String? = null,
     val accumulatedDoseSed: Double = 0.0,
     val doseLimitSed: Double = 1.0,
     val remainingDoseSed: Double = 1.0,
@@ -232,7 +238,7 @@ class MainViewModel(
 
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
-    private val exposureSession = ExposureSessionManager()
+    private val exposureSession = ExposureSessionManager(useDailyBudget = true)
     private val exposureContextDetector = ExposureContextDetector()
     private val exposureContextStabilizer = ExposureContextStabilizer()
     private val sunProtection = SunProtectionTracker()
@@ -249,6 +255,11 @@ class MainViewModel(
 
     // Exposure history (see docs/exposure-tracking-api.md for the save contract).
     private val historySaveMutex = Mutex()
+    private var exposureStartJob: Job? = null
+    private var exposureStartRequest = 0L
+    private var dailyDoseJob: Job? = null
+    private var dailyDoseKey: Pair<LocalDate, String?>? = null
+    private var otherDailyDoseSed: Double? = null
     private var sunLogWeekJob: Job? = null
     private var sunLogWeekDate: LocalDate = todayDate()
     private var historySessionId: String? = null
@@ -459,6 +470,9 @@ class MainViewModel(
     }
 
     fun onRefresh() {
+        if (_state.value.dailyDoseError != null && _state.value.exposureStarted) {
+            onRetryDailyDose()
+        }
         val fix = _state.value.locationFix
         if (fix != null && forecastRepository != null) {
             refreshForecast(fix)
@@ -466,14 +480,54 @@ class MainViewModel(
             locate()
         }
     }
+
+    fun onRetryDailyDose() {
+        if (_state.value.exposureStarted) {
+            observeDailyDose(historyDate(nowMillis()), historySessionId)
+        } else {
+            onStartExposure()
+        }
+    }
     
     fun onStartExposure() {
-        if (_state.value.exposureStarted) return
+        if (_state.value.exposureStarted || _state.value.exposureStarting) return
+        val repository = historyRepository
+        if (repository == null) {
+            startExposure(0.0)
+            return
+        }
+        _state.update { it.copy(exposureStarting = true, dailyDoseError = null) }
+        val request = ++exposureStartRequest
+        exposureStartJob = viewModelScope.launch {
+            try {
+                // Wait for the previous Save/Discard before reading the next session's allowance.
+                var date: LocalDate
+                var dose: Double
+                do {
+                    date = todayDate()
+                    dose = historySaveMutex.withLock {
+                        repository.observeDaily(date, date.plusDays(1)).first().sumOf { it.doseSed }
+                    }
+                } while (date != todayDate())
+                require(dose.isFinite() && dose >= 0.0)
+                startExposure(dose)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _state.update { it.copy(dailyDoseError = "Unable to read today's exposure. Tap Start to retry.") }
+            } finally {
+                if (request == exposureStartRequest) _state.update { it.copy(exposureStarting = false) }
+            }
+        }
+    }
+
+    private fun startExposure(previousDailyDoseSed: Double) {
         advanceExposureClock()
         exposureContextStabilizer.reset()
         _state.update { it.copy(exposureSessionId = it.exposureSessionId + 1, luxOverride = null) }
         evaluateIndoorTransition()
         openHistorySession(nowMillis())
+        observeDailyDose(historyDate(nowMillis()), historySessionId, previousDailyDoseSed)
         val state = _state.value
     
         val snapshot =
@@ -482,11 +536,12 @@ class MainViewModel(
                 uvIndex = state.displayUv,
                 nowElapsedMs = exposureClockMillis,
                 context = detectExposureContext(),
+                initialDailyDoseSed = previousDailyDoseSed,
             )
     
         publishExposure(snapshot)
     
-        monitoringController?.start()
+        if (_state.value.exposureStatus == ExposureStatus.RUNNING) monitoringController?.start()
     
         pauseNewSessionIfAlreadyIndoor()
     }
@@ -515,6 +570,11 @@ class MainViewModel(
     fun onSunscreenNotificationsAllowed() = sunProtection.reset()
 
     fun onResetSession(save: Boolean) {
+        if (_state.value.exposureStarting) {
+            exposureStartRequest++
+            exposureStartJob?.cancel()
+            _state.update { it.copy(exposureStarting = false) }
+        }
         if (!_state.value.exposureStarted) return
         // Exposure uses elapsed time; calendar time is only for history dates.
         advanceExposureClock()
@@ -815,6 +875,10 @@ class MainViewModel(
     }
 
     private fun resetExposureSession() {
+        dailyDoseJob?.cancel()
+        dailyDoseJob = null
+        dailyDoseKey = null
+        otherDailyDoseSed = null
         exposureSession.clear(exposureClockMillis)
         exposureContextStabilizer.reset()
         historySessionId = null
@@ -827,6 +891,8 @@ class MainViewModel(
                 activeSessionId = null,
                 activeSessionStartedAt = null,
                 activeSessionZoneId = null,
+                dailyDoseLoading = false,
+                dailyDoseError = null,
             )
         }
     
@@ -936,7 +1002,16 @@ class MainViewModel(
             }
     }
 
-    private fun publishExposure(snapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
+    private fun publishExposure(sessionSnapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
+        var snapshot = sessionSnapshot
+        if (snapshot.isStarted) {
+            val now = nowMillis()
+            addHistoryDelta(snapshot, now)
+            val date = historyDate(now)
+            if (dailyDoseKey != (date to historySessionId)) observeDailyDose(date, historySessionId)
+            val dailyDose = otherDailyDoseSed?.let { it + (historyDays[date]?.doseSed ?: 0.0) }
+            snapshot = exposureSession.updateDailyDose(dailyDose)
+        }
         val previousStatus = _state.value.exposureStatus
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
@@ -999,6 +1074,35 @@ class MainViewModel(
 
     // ---- Exposure history -----------------------------------------------------
 
+    /** Query other sessions atomically; this session's saved checkpoints are replaced by its live daily total. */
+    private fun observeDailyDose(date: LocalDate, sessionId: String?, initialDose: Double? = null) {
+        dailyDoseJob?.cancel()
+        val key = date to sessionId
+        dailyDoseKey = key
+        otherDailyDoseSed = if (historyRepository == null) 0.0 else initialDose
+        _state.update { it.copy(dailyDoseLoading = otherDailyDoseSed == null, dailyDoseError = null) }
+        val repository = historyRepository ?: return
+        dailyDoseJob = viewModelScope.launch {
+            repository.observeDaily(date, date.plusDays(1), excludingSessionId = sessionId)
+                .map { days -> days.sumOf { it.doseSed }.also { require(it.isFinite() && it >= 0.0) } }
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    if (dailyDoseKey == key) {
+                        otherDailyDoseSed = null
+                        _state.update { it.copy(dailyDoseLoading = false, dailyDoseError = "Unable to read today's exposure. Please retry.") }
+                        if (_state.value.exposureStarted) syncExposure()
+                    }
+                }
+                .collect { dose ->
+                    if (dailyDoseKey != key) return@collect
+                    val changed = otherDailyDoseSed != dose
+                    otherDailyDoseSed = dose
+                    _state.update { it.copy(dailyDoseLoading = false, dailyDoseError = null) }
+                    if (changed && _state.value.exposureStarted) syncExposure()
+                }
+        }
+    }
+
     /**
      * Runs after every publishExposure(), so each start, pause, resume, context change and
      * tick settles the segment before it under that segment's own status and context.
@@ -1007,13 +1111,12 @@ class MainViewModel(
     private fun recordHistory() {
         if (historyRepository == null) return
         val snapshot = exposureSession.snapshot()
+        if (!snapshot.isStarted) return
         val now = nowMillis()
         val opened = historySessionId == null
         if (opened) {
             if (snapshot.status == ExposureStatus.NOT_STARTED) return
             openHistorySession(now)
-        } else {
-            addHistoryDelta(snapshot, now)
         }
         val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =

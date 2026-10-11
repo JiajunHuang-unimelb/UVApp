@@ -94,6 +94,11 @@ fun HomeScreen(
                 ErrorBanner(message)
                 Spacer(Modifier.height(10.dp))
             }
+            state.dailyDoseError?.let { message ->
+                ErrorBanner(message)
+                TextButton(onClick = viewModel::onRetryDailyDose) { Text("Retry") }
+                Spacer(Modifier.height(10.dp))
+            }
 
             TopChrome(
                 uv = state.displayUv,
@@ -114,6 +119,7 @@ fun HomeScreen(
                 exposureStatus = state.exposureStatus,
                 onPrimaryAction = onPrimaryAction,
                 onReset = onResetClick,
+                preparing = state.exposureStarting || state.dailyDoseLoading,
             )
 
             Spacer(Modifier.height(8.dp))

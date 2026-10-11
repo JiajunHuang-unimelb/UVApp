@@ -28,11 +28,12 @@ class RoomExposureHistoryRepository(private val dao: ExposureHistoryDao) : Expos
     override fun observeDaily(
         start: LocalDate,
         endExclusive: LocalDate,
+        excludingSessionId: String?,
     ): Flow<List<ExposureDailySummary>> {
         val count = ChronoUnit.DAYS.between(start, endExclusive)
         require(count in 1..366) { "Daily query requires 1..366 days" }
 
-        return dao.observeDaily(start.toEpochDay(), endExclusive.toEpochDay()).map { rows ->
+        return dao.observeDaily(start.toEpochDay(), endExclusive.toEpochDay(), excludingSessionId).map { rows ->
             val byDay = rows.associateBy { it.epochDay }
 
             List(count.toInt()) { index ->
