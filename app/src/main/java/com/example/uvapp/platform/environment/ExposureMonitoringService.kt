@@ -26,7 +26,6 @@ import com.example.uvapp.MainActivity
 import com.example.uvapp.R
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
 import com.example.uvapp.domain.environment.AmbientLightFilter
-import com.example.uvapp.domain.environment.ExposureMonitoringPolicy
 import com.example.uvapp.domain.environment.IndoorProximityRule
 import com.example.uvapp.domain.environment.LocationFixValidator
 import com.example.uvapp.domain.environment.LocationMonitoringPolicy
@@ -289,20 +288,22 @@ class ExposureMonitoringService : Service(), SensorEventListener {
 
     private fun refreshStepCounterMonitoring() {
         val hasPermission = hasActivityRecognitionPermission()
-        if (ExposureMonitoringPolicy.shouldRegisterStepCounter(hasPermission, stepCounterRegistered)) {
-            stepCounterRegistered =
-                registerSensor(stepCounterSensor) {
+        stepCounterRegistered =
+            StepCounterRegistrationCoordinator(
+                register = {
+                    registerSensor(stepCounterSensor) {
+                        latestStepReading = null
+                        AndroidEnvironmentContextProvider.updateSteps(null)
+                    }
+                },
+                unregister = {
+                    stepCounterSensor?.let { sensor -> sensorManager?.unregisterListener(this, sensor) }
+                },
+                clearReading = {
                     latestStepReading = null
                     AndroidEnvironmentContextProvider.updateSteps(null)
-                }
-        } else if (!hasPermission) {
-            if (stepCounterRegistered) {
-                stepCounterSensor?.let { sensor -> sensorManager?.unregisterListener(this, sensor) }
-            }
-            stepCounterRegistered = false
-            latestStepReading = null
-            AndroidEnvironmentContextProvider.updateSteps(null)
-        }
+                },
+            ).refresh(hasPermission, stepCounterRegistered)
     }
 
     private fun registerSensor(
