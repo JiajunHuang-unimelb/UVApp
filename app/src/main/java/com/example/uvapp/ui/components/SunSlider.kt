@@ -39,7 +39,8 @@ fun SunSlider(
     Canvas(
         modifier
             .fillMaxWidth()
-            .height(controlHeight)
+            // Drawn centred, so a taller control only grows the touch area to 48 dp.
+            .height(maxOf(controlHeight, 48.dp))
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     onFractionChange((offset.x / size.width).coerceIn(0f, 1f))

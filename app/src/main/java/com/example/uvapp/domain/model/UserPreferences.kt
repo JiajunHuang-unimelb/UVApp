@@ -5,5 +5,4 @@ data class UserPreferences(
     val onboardingCompleted: Boolean = false,
     val skinType: SkinType = SkinType.II,
     val spf: Int = 15,
-    val enhancedSensingEnabled: Boolean = false,
 )

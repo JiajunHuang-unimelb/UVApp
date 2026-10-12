@@ -4,6 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -25,10 +29,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
@@ -47,7 +53,6 @@ import com.example.uvapp.platform.environment.AndroidExposureMonitoringControlle
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
-import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
@@ -62,11 +67,10 @@ import com.example.uvapp.ui.theme.UvAppTheme
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
+import com.example.uvapp.viewmodel.SUN_LOG_WEEK_COUNT
 import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
-
-private const val FIRST_RUN_PREFS = "first_run"
-private const val KEY_INDOOR_FEATURES_PROMPTED = "indoor_features_prompted"
+import kotlinx.coroutines.delay
 
 /**
  * App shell: theme wiring, shared chrome (loading bar, refresh, bottom nav),
@@ -75,6 +79,7 @@ private const val KEY_INDOOR_FEATURES_PROMPTED = "indoor_features_prompted"
  * [requestedTab] comes from a launch intent (the weekly widget); it is applied once
  * and then cleared through [onRequestedTabHandled].
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UVAppRoot(
     requestedTab: Tab? = null,
@@ -131,6 +136,8 @@ fun UVAppRoot(
 
     LaunchedEffect(requestedTab) {
         if (requestedTab != null) {
+            // The widget shows this week's total, so it always opens Sun log on this week.
+            if (requestedTab == Tab.SUN_LOG) mainViewModel.onSunLogPageSettled(SUN_LOG_WEEK_COUNT - 1)
             mainViewModel.onTabSelected(requestedTab)
             onRequestedTabHandled()
         }
@@ -155,9 +162,7 @@ fun UVAppRoot(
             main = mainViewModel,
             notifySuggestion = notifier::show,
             reportIndoorProximity = { near ->
-                // Without a fresh precise fix this view has no answer; leave the monitoring
-                // service's GPS-based result in place instead of overwriting it with false.
-                near?.let(AndroidEnvironmentContextProvider::updateIndoorProximity)
+                AndroidEnvironmentContextProvider.updateIndoorProximity(near == true)
             },
         )
     }
@@ -219,26 +224,12 @@ fun UVAppRoot(
         mutableStateOf(EnhancedSensingPermissions())
     }
 
-    // One-time offer, shown after the first Start, to turn on both indoor features.
-    // Kept outside backed-up preferences so a fresh install offers it again.
-    val firstRunPrefs =
-        remember(applicationContext) {
-            applicationContext.getSharedPreferences(FIRST_RUN_PREFS, android.content.Context.MODE_PRIVATE)
-        }
-    var showIndoorFeaturesPrompt by remember { mutableStateOf(false) }
-    var enableSuggestionsAfterSensing by remember { mutableStateOf(false) }
-
     val finishEnhancedPermissionRequest: (EnhancedSensingPermissions) -> Unit = { updated ->
         enhancedPermissions = updated
         settingsViewModel.setEnhancedSensingEnabled(updated.hasAnyGrantedCapability)
         if (mainViewModel.state.value.exposureStarted) {
             // Refresh permission-dependent registrations without restarting the exposure session.
             monitoringController.start()
-        }
-        if (enableSuggestionsAfterSensing) {
-            // Ask for notifications only after the sensor requests so prompts never overlap.
-            enableSuggestionsAfterSensing = false
-            enableSuggestions()
         }
     }
 
@@ -316,13 +307,6 @@ fun UVAppRoot(
         }
     }
 
-    // The saved "on" choice must not outlive permissions revoked in system settings.
-    LaunchedEffect(settingsState.enhancedSensingEnabled) {
-        if (settingsState.enhancedSensingEnabled && !hasAnyEnhancedSensingPermission(applicationContext)) {
-            settingsViewModel.setEnhancedSensingEnabled(false)
-        }
-    }
-
     DisposableEffect(
         lifecycle,
         microphoneMonitor,
@@ -358,16 +342,6 @@ fun UVAppRoot(
 
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(mainState.exposureStarted) {
-        if (!mainState.exposureStarted || firstRunPrefs.getBoolean(KEY_INDOOR_FEATURES_PROMPTED, false)) {
-            return@LaunchedEffect
-        }
-        firstRunPrefs.edit().putBoolean(KEY_INDOOR_FEATURES_PROMPTED, true).apply()
-        if (!settingsState.enhancedSensingEnabled || !indoorState.data.suggestionsEnabled) {
-            showIndoorFeaturesPrompt = true
-        }
-    }
-
     LaunchedEffect(mainState.devModeEnabled) {
         if (!mainState.devModeEnabled) {
             indoorViewModel.setDemoEnabled(false)
@@ -375,7 +349,15 @@ fun UVAppRoot(
     }
 
     val forecastState by forecastViewModel.state.collectAsStateWithLifecycle()
-
+    // Pull-to-refresh spinner: on from the pull until the refresh it starts finishes loading.
+    var pullRefreshing by remember { mutableStateOf(false) }
+    // Holds the spinner briefly after loading ends, so even an instant refresh is seen to happen.
+    LaunchedEffect(mainState.isLoading, pullRefreshing) {
+        if (pullRefreshing && !mainState.isLoading) {
+            delay(600)
+            pullRefreshing = false
+        }
+    }
     val requestCurrentLocation =
         rememberLocationPermissionRequester(
             onPermissionGranted = {
@@ -398,42 +380,6 @@ fun UVAppRoot(
         accent = settingsState.accent,
     ) {
         IndoorSuggestionDialog(indoorViewModel, indoorState)
-
-        if (showIndoorFeaturesPrompt) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showIndoorFeaturesPrompt = false },
-                title = { Text("Turn on indoor features?") },
-                text = {
-                    Text(
-                        "Enhanced sensing and Suggest indoor places let the app notice when " +
-                            "you're indoors and offer to save the place, so tracking pauses there.\n\n" +
-                            "If you leave them off, you won't get indoor place suggestions, and " +
-                            "sound and motion won't be used to judge your surroundings. You can " +
-                            "turn them on anytime in Settings.",
-                    )
-                },
-                confirmButton = {
-                    androidx.compose.material3.TextButton(
-                        onClick = {
-                            showIndoorFeaturesPrompt = false
-                            if (settingsState.enhancedSensingEnabled) {
-                                enableSuggestions()
-                            } else {
-                                enableSuggestionsAfterSensing = !indoorState.data.suggestionsEnabled
-                                requestMicrophone()
-                            }
-                        },
-                    ) {
-                        Text("Turn on")
-                    }
-                },
-                dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { showIndoorFeaturesPrompt = false }) {
-                        Text("Not now")
-                    }
-                },
-            )
-        }
 
         if (showEnhanceSensingRationale) {
             androidx.compose.material3.AlertDialog(
@@ -490,38 +436,8 @@ fun UVAppRoot(
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
-                when (mainState.selectedTab) {
-                    Tab.HOME -> HomeScreen(
-                        viewModel = mainViewModel,
-                        state = mainState,
-                        onLocate = requestCurrentLocation,
-                        indoorContent = {
-                            IndoorLocationsPanel(
-                                indoorViewModel,
-                                indoorState,
-                                requestSave,
-                                enableSuggestions,
-                            )
-                        },
-                    )
-
-                    Tab.FORECAST -> ForecastScreen(
-                        state = forecastState,
-                        onSearchClick = mainViewModel::onSearchClick,
-                        onLocate = requestCurrentLocation,
-                        onSelectDay = forecastViewModel::selectDay,
-                        onSelectTime = forecastViewModel::selectTime,
-                        onCurrentTime = forecastViewModel::selectCurrentTime,
-                    )
-
-                    Tab.SUN_LOG -> SunLogScreen(
-                        state = mainState,
-                        onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
-                        onNextWeek = mainViewModel::onSunLogNextWeek,
-                        onShowTime = mainViewModel::onSunLogShowTime,
-                    )
-
-                    Tab.SETTINGS -> SettingsScreen(
+                if (mainState.selectedTab == Tab.SETTINGS) {
+                    SettingsScreen(
                         viewModel = settingsViewModel,
                         state = settingsState,
                         indoorContent = {
@@ -541,22 +457,53 @@ fun UVAppRoot(
                         },
                         onEnhancedSensingToggle = toggleEnhancedSensing,
                     )
+                } else {
+                    // Pull down to refresh on every page except Settings. ForecastViewModel.refresh()
+                    // delegates to mainViewModel.onRefresh(); Sun log also re-anchors its weeks to today.
+                    val pullState = rememberPullToRefreshState()
+                    PullToRefreshBox(
+                        isRefreshing = pullRefreshing,
+                        onRefresh = {
+                            pullRefreshing = true
+                            if (mainState.selectedTab == Tab.SUN_LOG) mainViewModel.observeSunLogWeeks()
+                            forecastViewModel.refresh()
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        state = pullState,
+                    ) {
+                        // The page follows the pull and stays shifted under the spinner while refreshing.
+                        Box(
+                            Modifier.graphicsLayer {
+                                translationY = pullState.distanceFraction * PullToRefreshDefaults.PositionalThreshold.toPx()
+                            },
+                        ) {
+                            when (mainState.selectedTab) {
+                                Tab.HOME -> HomeScreen(
+                                    viewModel = mainViewModel,
+                                    state = mainState,
+                                    onLocate = requestCurrentLocation,
+                                    indoorContent = { IndoorLocationsPanel(indoorViewModel, indoorState, requestSave, enableSuggestions) },
+                                )
+                                Tab.FORECAST -> ForecastScreen(
+                                    state = forecastState,
+                                    onSearchClick = mainViewModel::onSearchClick,
+                                    onLocate = requestCurrentLocation,
+                                    onSelectDay = forecastViewModel::selectDay,
+                                    onSelectTime = forecastViewModel::selectTime,
+                                    onCurrentTime = forecastViewModel::selectCurrentTime,
+                                )
+                                else -> SunLogScreen(
+                                    state = mainState,
+                                    onPageSettled = mainViewModel::onSunLogPageSettled,
+                                    onShowTime = mainViewModel::onSunLogShowTime,
+                                )
+                            }
+                        }
+                    }
                 }
 
-                TopLoadingBar(
-                    mainState.isLoading,
-                    Modifier.align(Alignment.TopCenter),
-                )
-
-                RefreshButton(
-                    isLoading = mainState.isLoading,
-                    // ForecastViewModel.refresh() delegates to mainViewModel.onRefresh().
-                    // Calling both here would fire the same refresh twice.
-                    onClick = forecastViewModel::refresh,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 4.dp, end = 16.dp),
-                )
+                // Automatic loads show the thin top bar; a pull shows its own spinner instead.
+                TopLoadingBar(mainState.isLoading && !pullRefreshing, Modifier.align(Alignment.TopCenter))
 
                 BottomNav(
                     selected = mainState.selectedTab,
@@ -587,16 +534,4 @@ fun UVAppRoot(
             }
         }
     }
-}
-
-private fun hasAnyEnhancedSensingPermission(context: android.content.Context): Boolean {
-    fun granted(permission: String) =
-        androidx.core.content.ContextCompat.checkSelfPermission(context, permission) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-
-    return granted(android.Manifest.permission.RECORD_AUDIO) ||
-        granted(android.Manifest.permission.CAMERA) ||
-        // Before Android 10 activity recognition needs no runtime permission.
-        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q ||
-        granted(android.Manifest.permission.ACTIVITY_RECOGNITION)
 }

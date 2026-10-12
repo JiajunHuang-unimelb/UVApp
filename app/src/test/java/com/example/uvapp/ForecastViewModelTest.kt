@@ -141,6 +141,22 @@ class ForecastViewModelTest {
     }
 
     @Test
+    fun `selectCurrentTime returns from another day to today`() {
+        val readings = listOf(
+            hourlyReading(dayOffset = 0, hour = 12, uv = 8.5),
+            hourlyReading(dayOffset = 1, hour = 12, uv = 4.2),
+        )
+        val (vm, _) = buildViewModel(readings)
+        vm.selectDay(1)
+        vm.selectTime(9 * 60)
+
+        vm.selectCurrentTime()
+
+        assertEquals(0, vm.state.value.selectedDayIndex)
+        assertEquals(14 * 60 + 30, vm.state.value.selectedTimeMinutes)
+    }
+
+    @Test
     fun `selectTime clamps to the sunrise-sunset window when it is known`() {
         // Melbourne's coordinates (from FakeLocationProvider) paired with a
         // matching civil offset yield a real, ordered sunrise-sunset window.

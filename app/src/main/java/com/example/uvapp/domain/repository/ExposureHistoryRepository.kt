@@ -21,11 +21,10 @@ interface ExposureHistoryRepository {
         offset: Int = 0,
     ): Flow<List<ExposureRecord>>
 
-    /** Uses recorded local dates; optionally exclude a live session to avoid counting its checkpoints twice. */
+    /** Uses recorded local dates, inclusive start and exclusive end, maximum 366 days. */
     fun observeDaily(
         start: LocalDate,
         endExclusive: LocalDate,
-        excludingSessionId: String? = null,
     ): Flow<List<ExposureDailySummary>>
 
     fun observeWeek(containingDate: LocalDate): Flow<ExposureWeeklySummary>

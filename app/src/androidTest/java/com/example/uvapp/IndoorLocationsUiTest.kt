@@ -25,7 +25,6 @@ class IndoorLocationsUiTest {
             override val preferences = MutableStateFlow(UserPreferences())
             override suspend fun setSkinType(skinType: SkinType) {}
             override suspend fun setSpf(spf: Int) {}
-            override suspend fun setEnhancedSensingEnabled(enabled: Boolean) {}
             override suspend fun completeOnboarding(skinType: SkinType, spf: Int) {}
         }
         val provider = object : CurrentLocationProvider {
