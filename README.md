@@ -72,26 +72,42 @@ View (Compose) ──events──▶ ViewModel ──StateFlow──▶ immutabl
 
 Use JDK 21 and an Android SDK matching `app/build.gradle.kts` (currently compile
 and target SDK 37). Configure the SDK location in untracked `local.properties`.
+For command-line builds, set `JAVA_HOME` to a JDK 21 installation or make Java 21
+available on `PATH`. Android Studio's Gradle JDK setting does not automatically
+configure the Java used by a separate terminal.
+
+Run these commands from the repository root:
+
+```powershell
+.\gradlew.bat assembleDebug           # Build app APK -> app/build/outputs/apk/debug/
+.\gradlew.bat testDebugUnitTest       # Run JVM unit tests
+.\gradlew.bat assembleDebugAndroidTest # Build instrumentation test APK; does not run tests
+```
+
+Install the app APK on a device/emulator to run the app. Initial dependency
+resolution may require network access; offline builds require the necessary
+dependencies and SDK packages to already be installed.
+
+Android instrumentation tests require a connected device/emulator. Run them with:
+
+```powershell
+.\gradlew.bat connectedDebugAndroidTest # Run the Android instrumentation test suite
+```
+
+`MainViewModelTest` is enabled. JVM unit tests and Android instrumentation tests
+are separate; successful JVM tests do not validate Android database migrations.
+
+## Database migrations
 
 Database version 4 uses one `uvapp.db` for UV/place caches and exposure history.
 The registered migration chain is 1→2→3→4: 1→2 adds the place-name cache, 2→3
 creates the exposure-history tables and indexes, and 3→4 adds direct-sun, shade
-and unknown duration columns with SQL defaults of zero. Existing caches and
-history are retained; old duration breakdowns are not backfilled. The former
-separate `exposure_history.db` still has no import path.
-`AppDatabaseMigrationTest` covers upgrades from versions 1, 2 and 3 to version 4.
-The tests have been compiled and their schema assets packaged, but have not yet
-been run on a device/emulator. Clearing app data is not migration validation.
-See the [history storage guide](docs/exposure-tracking-api.md) before testing upgrades.
+and unknown duration columns with SQL defaults of zero. The migrations are
+designed to preserve existing caches and history; old duration breakdowns are
+not backfilled. The former separate `exposure_history.db` still has no import path.
 
-```powershell
-.\gradlew.bat assembleDebug          # APK -> app/build/outputs/apk/debug/
-.\gradlew.bat testDebugUnitTest      # Enabled JVM tests
-.\gradlew.bat assembleDebugAndroidTest # Compile Android instrumentation tests
-```
-
-Install the APK on a device/emulator to run the app. Initial dependency resolution
-may require network access; offline builds require the necessary dependencies
-and SDK packages to already be installed. Android instrumentation tests require
-a connected device/emulator and are separate from JVM tests. `MainViewModelTest`
-is enabled. Successful JVM tests do not validate Android database/migration scenarios.
+`AppDatabaseMigrationTest` contains upgrade cases from versions 1, 2 and 3 to
+version 4. The tests have been compiled and their schema assets packaged, but
+have not yet been run on a device/emulator. Clearing app data is not migration
+validation. See the [history storage guide](docs/exposure-tracking-api.md) before
+testing upgrades.
