@@ -434,7 +434,6 @@ fun SafeTimerCard(
     onPrimaryAction: () -> Unit,
     onReset: (() -> Unit)? = null, 
     modifier: Modifier = Modifier,
-    preparing: Boolean = false,
 ) {
     val colors = UvTheme
     val finite = totalBurnSeconds < Long.MAX_VALUE
@@ -478,9 +477,7 @@ fun SafeTimerCard(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (exposureStatus == ExposureStatus.COMPLETE) {
-                            "00:00"
-                        } else if (finite && exposureStatus != ExposureStatus.NOT_STARTED) {
+                        if (finite && exposureStatus != ExposureStatus.NOT_STARTED) {
                             BurnCalculator.formatRemaining(remainingSeconds)
                         } else {
                             "--:--"
@@ -490,7 +487,7 @@ fun SafeTimerCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        if (preparing) "Loading today's exposure…" else when (exposureStatus) {
+                        when (exposureStatus) {
                             ExposureStatus.NOT_STARTED -> "Ready to track exposure"
                             ExposureStatus.RUNNING -> "Exposure tracking active"
                             ExposureStatus.PAUSED -> "Exposure tracking paused"
@@ -512,11 +509,11 @@ fun SafeTimerCard(
                             .height(44.dp)
                             .clip(RoundedCornerShape(22.dp))
                             .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
-                            .clickable(enabled = !preparing, onClick = onPrimaryAction),
+                            .clickable(onClick = onPrimaryAction),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (preparing) "Loading…" else "Start",
+                            "Start",
                             color = if (isWarning) colors.error else colors.accent,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,

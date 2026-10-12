@@ -21,8 +21,6 @@ data class ExposureSnapshot(
     val directSunDurationMillis: Long,
     val shadeDurationMillis: Long,
     val unknownDurationMillis: Long,
-    /** Calendar-day total for the allowance; accumulatedDoseSed remains session-only. */
-    val dailyAccumulatedDoseSed: Double? = accumulatedDoseSed,
 ) {
     val isStarted: Boolean get() = status != ExposureStatus.NOT_STARTED
     val isRunning: Boolean get() = status == ExposureStatus.RUNNING

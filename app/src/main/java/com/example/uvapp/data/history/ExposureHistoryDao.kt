@@ -33,7 +33,6 @@ abstract class ExposureHistoryDao {
                SUM(CASE WHEN activeDurationMillis > 0 THEN 1 ELSE 0 END) AS sessionCount
         FROM exposure_days
         WHERE epochDay >= :startDay AND epochDay < :endDay
-          AND (:excludingSessionId IS NULL OR sessionId != :excludingSessionId)
         GROUP BY epochDay
         ORDER BY epochDay ASC
         """,
@@ -41,7 +40,6 @@ abstract class ExposureHistoryDao {
     abstract fun observeDaily(
         startDay: Long,
         endDay: Long,
-        excludingSessionId: String? = null,
     ): Flow<List<ExposureDayAggregate>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

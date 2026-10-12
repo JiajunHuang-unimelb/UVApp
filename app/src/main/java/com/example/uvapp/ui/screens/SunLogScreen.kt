@@ -237,10 +237,7 @@ private fun WeekChartCard(
                         if (showTime) {
                             label = formatSunTime(day.activeDurationMillis)
                         } else {
-                            label = (day.doseSed / limitSed * 100)
-                                .coerceIn(0.0, 100.0)
-                                .roundToLong()
-                                .toString() + "%"
+                            label = (day.doseSed / limitSed * 100).roundToLong().toString() + "%"
                             if (day.doseSed > limitSed) labelColor = colors.error
                         }
                     }

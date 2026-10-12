@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,14 +42,7 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
         }
     Column(panelModifier) {
         if (settings) {
-            SettingsSwitchRow(
-                title = "Suggest indoor places",
-                subtitle = "Offer to save a place when you're still in low light",
-                checked = state.data.suggestionsEnabled,
-                onToggle = { if (!state.data.suggestionsEnabled) enableSuggestions() else vm.enableSuggestions(false) },
-            )
-            Spacer(Modifier.height(8.dp))
-            Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Indoor locations", color = colors.onBackground, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(2.dp))
             Text(
                 if (state.data.locations.isEmpty()) "Automatic indoor detection needs a saved location. Manual tracking is available."
@@ -76,6 +70,13 @@ fun IndoorLocationsPanel(vm: IndoorLocationsViewModel, state: IndoorLocationsUiS
             )
         }
         if (settings) {
+            Spacer(Modifier.height(8.dp))
+            SettingsSwitchRow(
+                title = "Suggest indoor places",
+                subtitle = "Ask to save a place after I pause in low light",
+                checked = state.data.suggestionsEnabled,
+                onToggle = { if (!state.data.suggestionsEnabled) enableSuggestions() else vm.enableSuggestions(false) },
+            )
             state.data.locations.forEach { place ->
                 HorizontalDivider(color = colors.outline)
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {

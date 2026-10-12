@@ -171,66 +171,6 @@ class ExposureSessionManagerTest {
         assertEquals(0.0, snapshot.accumulatedDoseSed, 0.0)
     }
 
-    @Test
-    fun `daily allowance reduces countdown without seeding session history`() {
-        val manager = ExposureSessionManager(useDailyBudget = true)
-        val start = manager.start(SkinType.II, 8.0, 0L, initialDailyDoseSed = 0.4)
-        assertEquals(0.0, start.accumulatedDoseSed, 0.0)
-        assertEquals(0.4, start.dailyAccumulatedDoseSed!!, EPSILON)
-        assertEquals(0.6, start.remainingDoseSed, EPSILON)
-        assertEquals(300L, start.estimatedRemainingSeconds)
-        assertEquals(500L, start.estimatedTotalSeconds)
-        assertEquals(0.4, start.exposureFraction, EPSILON)
-    }
-
-    @Test
-    fun `daily remaining dose is recalculated at the current shade factor and UV`() {
-        val manager = ExposureSessionManager(useDailyBudget = true)
-        val start = manager.start(SkinType.II, 8.0, 0L, ExposureContext.SHADE, initialDailyDoseSed = 0.4)
-        assertEquals(1_000L, start.estimatedRemainingSeconds)
-        val lowerUv = manager.updateUvIndex(4.0, 0L)
-        assertEquals(2_000L, lowerUv.estimatedRemainingSeconds)
-        assertEquals(0.6, lowerUv.remainingDoseSed, EPSILON)
-    }
-
-    @Test
-    fun `exhausted daily allowance starts complete even with no UV`() {
-        val manager = ExposureSessionManager(useDailyBudget = true)
-        val start = manager.start(SkinType.II, 0.0, 0L, initialDailyDoseSed = 1.2)
-        assertEquals(ExposureStatus.COMPLETE, start.status)
-        assertEquals(0.0, start.remainingDoseSed, 0.0)
-        assertEquals(0.0, manager.refresh(60_000L).accumulatedDoseSed, 0.0)
-    }
-
-    @Test
-    fun `daily mode completes from daily dose and never writes it into session dose`() {
-        val manager = ExposureSessionManager(useDailyBudget = true)
-        manager.start(SkinType.II, 8.0, 0L, initialDailyDoseSed = 0.9)
-        manager.refresh(60_000L)
-        val complete = manager.updateDailyDose(1.02)
-        assertEquals(ExposureStatus.COMPLETE, complete.status)
-        assertEquals(0.12, complete.accumulatedDoseSed, EPSILON)
-        assertEquals(0.12, manager.refresh(120_000L).accumulatedDoseSed, EPSILON)
-        // A new date or deleted history does not silently restart a completed session.
-        assertEquals(ExposureStatus.COMPLETE, manager.updateDailyDose(0.0).status)
-    }
-
-    @Test
-    fun `daily allowance can change while session lifetime dose is preserved`() {
-        val manager = ExposureSessionManager(useDailyBudget = true)
-        manager.start(SkinType.II, 8.0, 0L, initialDailyDoseSed = 0.4)
-        manager.refresh(60_000L)
-        manager.updateDailyDose(0.52)
-        val nextDay = manager.updateDailyDose(0.02)
-        assertEquals(0.12, nextDay.accumulatedDoseSed, EPSILON)
-        assertEquals(0.98, nextDay.remainingDoseSed, EPSILON)
-        assertEquals(ExposureStatus.RUNNING, nextDay.status)
-        val loading = manager.updateDailyDose(null)
-        assertNull(loading.estimatedRemainingSeconds)
-        assertNull(loading.estimatedTotalSeconds)
-        assertEquals(ExposureStatus.RUNNING, loading.status)
-    }
-
     private companion object {
         const val EPSILON = 1e-9
     }

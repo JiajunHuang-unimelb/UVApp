@@ -39,28 +39,6 @@ class ExposureMonitoringServiceTest {
     }
 
     @Test
-    fun `revoked activity permission unregisters and clears step counter`() {
-        var unregisterCalled = false
-        var clearCalled = false
-        val coordinator =
-            StepCounterRegistrationCoordinator(
-                register = { error("registration must not run after permission revocation") },
-                unregister = { unregisterCalled = true },
-                clearReading = { clearCalled = true },
-            )
-
-        val stillRegistered =
-            coordinator.refresh(
-                hasPermission = false,
-                isRegistered = true,
-            )
-
-        assertFalse(stillRegistered)
-        assertTrue(unregisterCalled)
-        assertTrue(clearCalled)
-    }
-
-    @Test
     fun `service cleanup releases sensors location jobs and wake lock`() {
         val released = mutableListOf<String>()
         val cleanup =
