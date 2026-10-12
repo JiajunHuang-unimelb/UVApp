@@ -16,6 +16,9 @@ object UvIcons {
     val Refresh: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_refresh)
 
+    val Info: ImageVector
+        @Composable get() = ImageVector.vectorResource(R.drawable.ic_info)
+
     val Search: ImageVector
         @Composable get() = ImageVector.vectorResource(R.drawable.ic_search)
 

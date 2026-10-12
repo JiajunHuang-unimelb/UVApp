@@ -28,11 +28,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -48,7 +54,6 @@ import com.example.uvapp.platform.environment.AndroidExposureMonitoringControlle
 import com.example.uvapp.platform.environment.AndroidMicrophoneEnvironmentMonitor
 import com.example.uvapp.platform.location.FusedCurrentLocationProvider
 import com.example.uvapp.ui.components.BottomNav
-import com.example.uvapp.ui.components.RefreshButton
 import com.example.uvapp.ui.components.SearchDialogOverlay
 import com.example.uvapp.ui.components.TopLoadingBar
 import com.example.uvapp.ui.location.rememberLocationPermissionRequester
@@ -65,9 +70,14 @@ import com.example.uvapp.viewmodel.ForecastViewModel
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 private const val FIRST_RUN_PREFS = "first_run"
 private const val KEY_INDOOR_FEATURES_PROMPTED = "indoor_features_prompted"
+
+/** Shortest time the pull-to-refresh spinner stays visible. */
+private const val MIN_PULL_SPINNER_MILLIS = 600L
 
 /**
  * App shell: theme wiring, shared chrome (loading bar, refresh, bottom nav),
@@ -76,6 +86,7 @@ private const val KEY_INDOOR_FEATURES_PROMPTED = "indoor_features_prompted"
  * [requestedTab] comes from a launch intent (the weekly widget); it is applied once
  * and then cleared through [onRequestedTabHandled].
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UVAppRoot(
     requestedTab: Tab? = null,
@@ -361,6 +372,17 @@ fun UVAppRoot(
     }
 
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
+    // Pull-to-refresh spinner: on from the pull until the refresh it starts finishes loading, and
+    // never shorter than MIN_PULL_SPINNER_MILLIS so a fast refresh still reads as "this happened".
+    // The floor runs first so a load that starts and ends before this effect looks is not missed.
+    var pullRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(pullRefreshing) {
+        if (pullRefreshing) {
+            delay(MIN_PULL_SPINNER_MILLIS)
+            snapshotFlow { mainState.isLoading }.first { loading -> !loading }
+            pullRefreshing = false
+        }
+    }
 
     LaunchedEffect(mainState.exposureStarted) {
         if (!mainState.exposureStarted || firstRunPrefs.getBoolean(KEY_INDOOR_FEATURES_PROMPTED, false)) {
@@ -494,38 +516,8 @@ fun UVAppRoot(
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
-                when (mainState.selectedTab) {
-                    Tab.HOME -> HomeScreen(
-                        viewModel = mainViewModel,
-                        state = mainState,
-                        onLocate = requestCurrentLocation,
-                        indoorContent = {
-                            IndoorLocationsPanel(
-                                indoorViewModel,
-                                indoorState,
-                                requestSave,
-                                enableSuggestions,
-                            )
-                        },
-                    )
-
-                    Tab.FORECAST -> ForecastScreen(
-                        state = forecastState,
-                        onSearchClick = mainViewModel::onSearchClick,
-                        onLocate = requestCurrentLocation,
-                        onSelectDay = forecastViewModel::selectDay,
-                        onSelectTime = forecastViewModel::selectTime,
-                        onCurrentTime = forecastViewModel::selectCurrentTime,
-                    )
-
-                    Tab.SUN_LOG -> SunLogScreen(
-                        state = mainState,
-                        onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
-                        onNextWeek = mainViewModel::onSunLogNextWeek,
-                        onShowTime = mainViewModel::onSunLogShowTime,
-                    )
-
-                    Tab.SETTINGS -> SettingsScreen(
+                if (mainState.selectedTab == Tab.SETTINGS) {
+                    SettingsScreen(
                         viewModel = settingsViewModel,
                         state = settingsState,
                         indoorContent = {
@@ -545,21 +537,64 @@ fun UVAppRoot(
                         },
                         onEnhancedSensingToggle = toggleEnhancedSensing,
                     )
+                } else {
+                    // Pull down to refresh on every page except Settings. ForecastViewModel.refresh()
+                    // delegates to mainViewModel.onRefresh().
+                    val pullState = rememberPullToRefreshState()
+                    PullToRefreshBox(
+                        isRefreshing = pullRefreshing,
+                        onRefresh = {
+                            pullRefreshing = true
+                            forecastViewModel.refresh()
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        state = pullState,
+                    ) {
+                        // The page follows the pull and stays shifted under the spinner while refreshing.
+                        Box(
+                            Modifier.graphicsLayer {
+                                translationY = pullState.distanceFraction * PullToRefreshDefaults.PositionalThreshold.toPx()
+                            },
+                        ) {
+                            when (mainState.selectedTab) {
+                                Tab.HOME -> HomeScreen(
+                                    viewModel = mainViewModel,
+                                    state = mainState,
+                                    onLocate = requestCurrentLocation,
+                                    indoorContent = {
+                                        IndoorLocationsPanel(
+                                            indoorViewModel,
+                                            indoorState,
+                                            requestSave,
+                                            enableSuggestions,
+                                        )
+                                    },
+                                )
+
+                                Tab.FORECAST -> ForecastScreen(
+                                    state = forecastState,
+                                    onSearchClick = mainViewModel::onSearchClick,
+                                    onLocate = requestCurrentLocation,
+                                    onSelectDay = forecastViewModel::selectDay,
+                                    onSelectTime = forecastViewModel::selectTime,
+                                    onCurrentTime = forecastViewModel::selectCurrentTime,
+                                )
+
+                                else -> SunLogScreen(
+                                    state = mainState,
+                                    onPreviousWeek = mainViewModel::onSunLogPreviousWeek,
+                                    onNextWeek = mainViewModel::onSunLogNextWeek,
+                                    onShowTime = mainViewModel::onSunLogShowTime,
+                                )
+                            }
+                        }
+                    }
                 }
 
+                // Automatic loads show the thin top bar; a pull shows its own spinner instead.
                 TopLoadingBar(
-                    mainState.isLoading,
+                    mainState.isLoading && !pullRefreshing,
                     Modifier.align(Alignment.TopCenter),
-                )
-
-                RefreshButton(
-                    isLoading = mainState.isLoading,
-                    // ForecastViewModel.refresh() delegates to mainViewModel.onRefresh().
-                    // Calling both here would fire the same refresh twice.
-                    onClick = forecastViewModel::refresh,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 4.dp, end = 16.dp),
                 )
 
                 BottomNav(
