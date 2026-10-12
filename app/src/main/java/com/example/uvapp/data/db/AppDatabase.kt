@@ -31,6 +31,67 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DATABASE_NAME = "uvapp.db"
 
+        private val MIGRATION_1_2 =
+            object : Migration(1, 2) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS place_names (
+                            locationKey TEXT NOT NULL,
+                            latitude REAL NOT NULL,
+                            longitude REAL NOT NULL,
+                            label TEXT NOT NULL,
+                            locality TEXT,
+                            city TEXT,
+                            state TEXT,
+                            country TEXT,
+                            displayName TEXT NOT NULL,
+                            fetchedAtMillis INTEGER NOT NULL,
+                            PRIMARY KEY(locationKey)
+                        )
+                        """.trimIndent(),
+                    )
+                }
+            }
+
+        private val MIGRATION_2_3 =
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS exposure_sessions (
+                            sessionId TEXT NOT NULL,
+                            startedAtMillis INTEGER NOT NULL,
+                            recordedThroughMillis INTEGER NOT NULL,
+                            zoneId TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            PRIMARY KEY(sessionId)
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS exposure_days (
+                            sessionId TEXT NOT NULL,
+                            epochDay INTEGER NOT NULL,
+                            activeDurationMillis INTEGER NOT NULL,
+                            doseSed REAL NOT NULL,
+                            PRIMARY KEY(sessionId, epochDay),
+                            FOREIGN KEY(sessionId) REFERENCES exposure_sessions(sessionId)
+                                ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_exposure_sessions_startedAtMillis " +
+                            "ON exposure_sessions(startedAtMillis)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_exposure_days_epochDay ON exposure_days(epochDay)",
+                    )
+                }
+            }
+
         private val MIGRATION_3_4 =
             object : Migration(3, 4) {
                 override fun migrate(
@@ -59,6 +120,8 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
+        internal val MIGRATIONS = listOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -71,7 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                             AppDatabase::class.java,
                             DATABASE_NAME,
                         )
-                        .addMigrations(MIGRATION_3_4)
+                        .addMigrations(*MIGRATIONS.toTypedArray())
                         .build()
                         .also { database -> instance = database }
             }
