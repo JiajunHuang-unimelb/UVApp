@@ -74,12 +74,15 @@ Use JDK 21 and an Android SDK matching `app/build.gradle.kts` (currently compile
 and target SDK 37). Configure the SDK location in untracked `local.properties`.
 
 Database version 4 uses one `uvapp.db` for UV/place caches and exposure history.
-The registered 3→4 migration adds direct-sun, shade and unknown duration columns
-with SQL defaults of zero, without backfilling old duration breakdowns. Versions
-1/2 and the former separate `exposure_history.db` have no migration/import path.
-Migration compatibility and old-data preservation still need dedicated migration
-tests; clearing app data is not migration validation. See the
-[history storage guide](docs/exposure-tracking-api.md) before testing upgrades.
+The registered migration chain is 1→2→3→4: 1→2 adds the place-name cache, 2→3
+creates the exposure-history tables and indexes, and 3→4 adds direct-sun, shade
+and unknown duration columns with SQL defaults of zero. Existing caches and
+history are retained; old duration breakdowns are not backfilled. The former
+separate `exposure_history.db` still has no import path.
+`AppDatabaseMigrationTest` covers upgrades from versions 1, 2 and 3 to version 4.
+The tests have been compiled and their schema assets packaged, but have not yet
+been run on a device/emulator. Clearing app data is not migration validation.
+See the [history storage guide](docs/exposure-tracking-api.md) before testing upgrades.
 
 ```powershell
 .\gradlew.bat assembleDebug          # APK -> app/build/outputs/apk/debug/
@@ -90,6 +93,5 @@ tests; clearing app data is not migration validation. See the
 Install the APK on a device/emulator to run the app. Initial dependency resolution
 may require network access; offline builds require the necessary dependencies
 and SDK packages to already be installed. Android instrumentation tests require
-a connected device/emulator and are separate from JVM tests. MainViewModelTest
-is currently commented out; a successful JVM test task does not validate disabled
-tests or Android database/migration scenarios.
+a connected device/emulator and are separate from JVM tests. `MainViewModelTest`
+is enabled. Successful JVM tests do not validate Android database/migration scenarios.
