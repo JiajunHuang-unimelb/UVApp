@@ -106,8 +106,7 @@ and unknown duration columns with SQL defaults of zero. The migrations are
 designed to preserve existing caches and history; old duration breakdowns are
 not backfilled. The former separate `exposure_history.db` still has no import path.
 
-`AppDatabaseMigrationTest` contains upgrade cases from versions 1, 2 and 3 to
-version 4. The tests have been compiled and their schema assets packaged, but
-have not yet been run on a device/emulator. Clearing app data is not migration
-validation. See the [history storage guide](docs/exposure-tracking-api.md) before
-testing upgrades.
+All three instrumented migration tests (1→4, 2→4, and 3→4)
+have passed on an Android emulator, validating Room schema
+compatibility and preservation of previously stored data
+covered by the tests.
