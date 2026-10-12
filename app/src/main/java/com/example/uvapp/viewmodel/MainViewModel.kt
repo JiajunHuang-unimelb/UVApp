@@ -204,6 +204,8 @@ class MainViewModel(
     private val onHistorySaved: (suspend () -> Unit)? = null,
     /** Shows a sun protection notification (US-17 / US-18). */
     private val onSunProtectionAlert: ((SunProtectionAlert) -> Unit)? = null,
+    /** Shows a notification when the burn countdown reaches zero. */
+    private val onExposureLimitReached: (() -> Unit)? = null,
     /** "I've applied" taps from the notification. */
     private val sunscreenAppliedEvents: Flow<Unit>? = null,
 ) : ViewModel() {
@@ -999,6 +1001,7 @@ class MainViewModel(
         }
         if (snapshot.status == ExposureStatus.COMPLETE && previousStatus != ExposureStatus.COMPLETE) {
             alertGateway?.notifyExposureLimitReached()
+            onExposureLimitReached?.invoke()
         }
         if (snapshot.status == ExposureStatus.COMPLETE || snapshot.status == ExposureStatus.NOT_STARTED) {
             monitoringController?.stop()

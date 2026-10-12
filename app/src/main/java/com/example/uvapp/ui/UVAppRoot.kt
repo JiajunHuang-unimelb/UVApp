@@ -8,6 +8,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.uvapp.data.preferences.DataStoreIndoorLocationRepository
+import com.example.uvapp.platform.alerts.ExposureLimitNotifier
 import com.example.uvapp.platform.alerts.IndoorSuggestionNotifier
 import com.example.uvapp.platform.alerts.SunProtectionNotifier
 import com.example.uvapp.platform.alerts.SunscreenAppliedEvents
@@ -106,6 +107,8 @@ fun UVAppRoot(
         }
     val sunProtectionNotifier =
         remember(applicationContext) { SunProtectionNotifier(applicationContext) }
+    val exposureLimitNotifier =
+        remember(applicationContext) { ExposureLimitNotifier(applicationContext) }
 
     val settingsViewModel: SettingsViewModel = viewModel {
         SettingsViewModel(preferencesRepository)
@@ -125,6 +128,7 @@ fun UVAppRoot(
                 WeeklyExposureWidget().updateAll(applicationContext)
             },
             onSunProtectionAlert = sunProtectionNotifier::show,
+            onExposureLimitReached = exposureLimitNotifier::show,
             sunscreenAppliedEvents = SunscreenAppliedEvents.events,
         )
     }
