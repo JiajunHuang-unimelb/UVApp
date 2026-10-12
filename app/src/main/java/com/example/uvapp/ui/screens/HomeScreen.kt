@@ -21,8 +21,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uvapp.R
 import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.ui.components.CachedIndicator
 import com.example.uvapp.ui.components.ContextCard
@@ -81,10 +83,20 @@ fun HomeScreen(
             Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp),
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 48.dp,
+                    bottom = 80.dp,
+                ),
         ) {
             state.errorMessage?.let { message ->
                 ErrorBanner(message)
+                Spacer(Modifier.height(10.dp))
+            }
+            state.dailyDoseError?.let { message ->
+                ErrorBanner(message)
+                TextButton(onClick = viewModel::onRetryDailyDose) { Text("Retry") }
                 Spacer(Modifier.height(10.dp))
             }
 
@@ -107,6 +119,15 @@ fun HomeScreen(
                 exposureStatus = state.exposureStatus,
                 onPrimaryAction = onPrimaryAction,
                 onReset = onResetClick,
+                preparing = state.exposureStarting || state.dailyDoseLoading,
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = stringResource(R.string.exposure_estimate_note),
+                color = UvTheme.textSecondary,
+                fontSize = 12.sp,
             )
 
             if (state.exposureStarted && state.sunscreenRemindersEnabled) {

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -80,6 +82,28 @@ fun TopLoadingBar(visible: Boolean, modifier: Modifier = Modifier) {
     )
     if (visible) {
         Box(modifier.fillMaxWidth().height(3.dp).background(colors.accent.copy(alpha = alpha)))
+    }
+}
+
+/** Floating refresh button, top right (40 dp circle per high-fi). */
+@Composable
+fun RefreshButton(isLoading: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = UvTheme
+    Box(
+        modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(colors.surface)
+            .border(1.dp, colors.outline, CircleShape)
+            .clickable(enabled = !isLoading, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            UvIcons.Refresh,
+            contentDescription = "Refresh",
+            tint = if (isLoading) colors.textSecondary else colors.onBackground,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 

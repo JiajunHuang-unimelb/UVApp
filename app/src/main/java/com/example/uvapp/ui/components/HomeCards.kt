@@ -21,19 +21,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,10 +59,7 @@ import com.example.uvapp.ui.theme.BandPalettes
 import com.example.uvapp.ui.theme.UvTheme
 import com.example.uvapp.viewmodel.MainViewModel
 import com.example.uvapp.viewmodel.Tab
-import androidx.compose.ui.res.stringResource
-import com.example.uvapp.R
 import java.util.Locale
-import kotlinx.coroutines.launch
 import kotlin.math.log10
 import kotlin.math.pow
 
@@ -379,7 +367,6 @@ private fun LuxBar(
         Canvas(
             Modifier
                 .fillMaxWidth()
-                .minimumInteractiveComponentSize()
                 .height(30.dp)
                 .then(interactionModifier),
         ) {
@@ -424,7 +411,6 @@ private fun LuxBar(
 }
 
 /** Safe Timer card with progress ring and countdown. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SafeTimerCard(
     remainingSeconds: Long,
@@ -434,6 +420,7 @@ fun SafeTimerCard(
     onPrimaryAction: () -> Unit,
     onReset: (() -> Unit)? = null, 
     modifier: Modifier = Modifier,
+    preparing: Boolean = false,
 ) {
     val colors = UvTheme
     val finite = totalBurnSeconds < Long.MAX_VALUE
@@ -477,7 +464,9 @@ fun SafeTimerCard(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (finite && exposureStatus != ExposureStatus.NOT_STARTED) {
+                        if (exposureStatus == ExposureStatus.COMPLETE) {
+                            "00:00"
+                        } else if (finite && exposureStatus != ExposureStatus.NOT_STARTED) {
                             BurnCalculator.formatRemaining(remainingSeconds)
                         } else {
                             "--:--"
@@ -487,7 +476,7 @@ fun SafeTimerCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        when (exposureStatus) {
+                        if (preparing) "Loading today's exposure…" else when (exposureStatus) {
                             ExposureStatus.NOT_STARTED -> "Ready to track exposure"
                             ExposureStatus.RUNNING -> "Exposure tracking active"
                             ExposureStatus.PAUSED -> "Exposure tracking paused"
@@ -504,16 +493,15 @@ fun SafeTimerCard(
                 ExposureStatus.NOT_STARTED -> {
                     Box(
                         Modifier
-                            .minimumInteractiveComponentSize()
                             .width(148.dp)
                             .height(44.dp)
                             .clip(RoundedCornerShape(22.dp))
                             .background(if (isWarning) colors.warningResetPill else colors.surfaceVariant)
-                            .clickable(onClick = onPrimaryAction),
+                            .clickable(enabled = !preparing, onClick = onPrimaryAction),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "Start",
+                            if (preparing) "Loading…" else "Start",
                             color = if (isWarning) colors.error else colors.accent,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -523,7 +511,6 @@ fun SafeTimerCard(
                 ExposureStatus.RUNNING -> {
                     Box(
                         Modifier
-                            .minimumInteractiveComponentSize()
                             .width(148.dp)
                             .height(44.dp)
                             .clip(RoundedCornerShape(22.dp))
@@ -543,7 +530,6 @@ fun SafeTimerCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(
                             Modifier
-                                .minimumInteractiveComponentSize()
                                 .width(100.dp)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(22.dp))
@@ -561,7 +547,6 @@ fun SafeTimerCard(
                         if (onReset != null) {
                             Box(
                                 Modifier
-                                    .minimumInteractiveComponentSize()
                                     .width(100.dp)
                                     .height(44.dp)
                                     .clip(RoundedCornerShape(22.dp))
@@ -582,7 +567,6 @@ fun SafeTimerCard(
                 ExposureStatus.COMPLETE -> {
                     Box(
                         Modifier
-                            .minimumInteractiveComponentSize()
                             .width(148.dp)
                             .height(44.dp)
                             .clip(RoundedCornerShape(22.dp))
@@ -602,19 +586,6 @@ fun SafeTimerCard(
             // =======================================
 
             Spacer(Modifier.height(10.dp))
-        }
-        // (i) in the top-right corner: tap for what the countdown estimates; tap anywhere to close.
-        val aboutTooltip = rememberTooltipState(isPersistent = true)
-        val scope = rememberCoroutineScope()
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-            tooltip = { PlainTooltip { Text(stringResource(R.string.exposure_estimate_note)) } },
-            state = aboutTooltip,
-            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
-        ) {
-            IconButton(onClick = { scope.launch { aboutTooltip.show() } }) {
-                Icon(UvIcons.Info, contentDescription = "About this timer", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-            }
         }
     }
 }

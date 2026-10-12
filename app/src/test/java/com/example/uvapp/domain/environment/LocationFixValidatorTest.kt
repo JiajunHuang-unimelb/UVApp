@@ -28,6 +28,27 @@ class LocationFixValidatorTest {
         assertFalse(isUsable(accuracyMeters = Float.NaN, fixElapsedMillis = 90_000L, nowElapsedMillis = 100_000L))
     }
 
+
+    @Test
+    fun `precise fix replaces the held one`() {
+        assertTrue(LocationFixValidator.shouldReplace(accuracyMeters = 9.7f, maxAccuracyMeters = 50f))
+        assertTrue(LocationFixValidator.shouldReplace(accuracyMeters = 50f, maxAccuracyMeters = 50f))
+    }
+
+    @Test
+    fun `coarse or missing accuracy never replaces the held fix`() {
+        assertFalse(LocationFixValidator.shouldReplace(accuracyMeters = 206.8f, maxAccuracyMeters = 50f))
+        assertFalse(LocationFixValidator.shouldReplace(accuracyMeters = null, maxAccuracyMeters = 50f))
+        assertFalse(LocationFixValidator.shouldReplace(accuracyMeters = Float.NaN, maxAccuracyMeters = 50f))
+    }
+
+    @Test
+    fun `kept precise fix still expires after the age limit`() {
+        // A coarse fix arriving later is ignored, so the precise fix taken at 10 s stays in use.
+        assertTrue(isUsable(accuracyMeters = 15f, fixElapsedMillis = 10_000L, nowElapsedMillis = 85_000L))
+        assertFalse(isUsable(accuracyMeters = 15f, fixElapsedMillis = 10_000L, nowElapsedMillis = 85_001L))
+    }
+
     private fun isUsable(
         accuracyMeters: Float,
         fixElapsedMillis: Long?,

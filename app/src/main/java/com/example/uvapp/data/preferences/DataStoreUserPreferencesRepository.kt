@@ -33,6 +33,7 @@ class DataStoreUserPreferencesRepository(context: Context) : UserPreferencesRepo
                     onboardingCompleted = values[Keys.ONBOARDING_COMPLETED] ?: false,
                     skinType = values[Keys.SKIN_TYPE].toSkinType(),
                     spf = values[Keys.SPF] ?: 15,
+                    enhancedSensingEnabled = values[Keys.ENHANCED_SENSING_ENABLED] ?: false,
                 )
             }
 
@@ -42,6 +43,10 @@ class DataStoreUserPreferencesRepository(context: Context) : UserPreferencesRepo
 
     override suspend fun setSpf(spf: Int) {
         dataStore.edit { it[Keys.SPF] = spf }
+    }
+
+    override suspend fun setEnhancedSensingEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.ENHANCED_SENSING_ENABLED] = enabled }
     }
 
     override suspend fun completeOnboarding(skinType: SkinType, spf: Int) {
@@ -59,5 +64,6 @@ class DataStoreUserPreferencesRepository(context: Context) : UserPreferencesRepo
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val SKIN_TYPE = stringPreferencesKey("skin_type")
         val SPF = intPreferencesKey("spf")
+        val ENHANCED_SENSING_ENABLED = booleanPreferencesKey("enhanced_sensing_enabled")
     }
 }

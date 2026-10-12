@@ -11,5 +11,7 @@ interface UserPreferencesRepository {
 
     suspend fun setSpf(spf: Int)
 
+    suspend fun setEnhancedSensingEnabled(enabled: Boolean)
+
     suspend fun completeOnboarding(skinType: SkinType, spf: Int)
 }

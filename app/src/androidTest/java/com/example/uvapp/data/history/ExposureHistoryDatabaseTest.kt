@@ -23,6 +23,27 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class ExposureHistoryDatabaseTest {
+    @Test fun dailyAllowanceExcludesOnlyCurrentSessionAndLeavesSunLogTotalsIntact() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+            try {
+                val repository = RoomExposureHistoryRepository(db.exposureHistoryDao())
+                val previous = record().copy(sessionId = "previous", status = ExposureRecordStatus.COMPLETED)
+                val current = record().copy(sessionId = "current", days = record().days.map { it.copy(doseSed = 0.2) })
+                repository.save(previous).getOrThrow()
+                repository.save(current).getOrThrow()
+                assertEquals(0.3, repository.observeDaily(DATE, DATE.plusDays(1)).first().single().doseSed, 1e-9)
+                assertEquals(0.1, repository.observeDaily(DATE, DATE.plusDays(1), "current").first().single().doseSed, 1e-9)
+                assertEquals(0.3, repository.observeWeek(DATE).first().doseSed, 1e-9)
+                repository.save(current.copy(days = current.days.map { it.copy(doseSed = 0.4) })).getOrThrow()
+                assertEquals(0.1, repository.observeDaily(DATE, DATE.plusDays(1), "current").first().single().doseSed, 1e-9)
+                assertEquals(0.5, repository.observeWeek(DATE).first().doseSed, 1e-9)
+            } finally {
+                db.close()
+            }
+        }
+
     @Test fun freshDatabaseCreatesAllFourTables() =
         runBlocking {
             val context = InstrumentationRegistry.getInstrumentation().targetContext

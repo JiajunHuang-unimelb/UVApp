@@ -57,6 +57,7 @@ class SettingsViewModel(
                         onboardingCompleted = preferences.onboardingCompleted,
                         skinType = preferences.skinType,
                         spf = preferences.spf,
+                        enhancedSensingEnabled = preferences.enhancedSensingEnabled,
                     )
                 }
             }
@@ -106,5 +107,6 @@ class SettingsViewModel(
 
     fun setEnhancedSensingEnabled(enabled: Boolean) {
         _state.update { it.copy(enhancedSensingEnabled = enabled) }
+        viewModelScope.launch { preferencesRepository.setEnhancedSensingEnabled(enabled) }
     }
 }

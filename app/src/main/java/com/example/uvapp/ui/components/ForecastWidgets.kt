@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -115,7 +114,6 @@ fun TimeRow(
         Spacer(Modifier.weight(1f))
         Box(
             Modifier
-                .minimumInteractiveComponentSize()
                 .height(32.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(colors.surface)
@@ -125,7 +123,7 @@ fun TimeRow(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "Now",
+                "Current",
                 color = colors.accent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,

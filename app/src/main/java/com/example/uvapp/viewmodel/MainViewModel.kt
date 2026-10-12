@@ -38,6 +38,7 @@ import com.example.uvapp.domain.repository.PlaceRepository
 import com.example.uvapp.domain.repository.UvRepository as ForecastUvRepository
 import com.example.uvapp.domain.exposure.ExposureContextDetector
 import com.example.uvapp.domain.exposure.ExposureContextInput
+import com.example.uvapp.domain.exposure.ExposureContextStabilizer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -51,14 +52,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-
-/** Weeks the Sun log can show: the current week plus the three before it. */
-const val SUN_LOG_WEEK_COUNT = 4
 
 /** Bottom-navigation destinations. */
 enum class Tab { HOME, FORECAST, SUN_LOG, SETTINGS }
@@ -110,6 +111,9 @@ data class MainUiState(
     val exposureSessionId: Long = 0L,
     val exposureStarted: Boolean = false,
     val exposureRunning: Boolean = false,
+    val exposureStarting: Boolean = false,
+    val dailyDoseLoading: Boolean = false,
+    val dailyDoseError: String? = null,
     val accumulatedDoseSed: Double = 0.0,
     val doseLimitSed: Double = 1.0,
     val remainingDoseSed: Double = 1.0,
@@ -139,10 +143,8 @@ data class MainUiState(
     val spf: Int = 15,
     val devModeEnabled: Boolean = false,
     val dev: DevUiState = DevUiState(),
-    /** Sun log weeks, oldest first, current week last; empty until the first read arrives. */
-    val sunLogWeeks: List<ExposureWeeklySummary> = emptyList(),
-    /** Sun log page (index into [sunLogWeeks]) last settled on; starts on the current week. */
-    val sunLogPage: Int = SUN_LOG_WEEK_COUNT - 1,
+    /** Week shown on the Sun log tab; null until the first read arrives. */
+    val sunLogWeek: ExposureWeeklySummary? = null,
     /** Sun log chart numbers: false = % of daily limit, true = time in the sun. */
     val sunLogShowsTime: Boolean = false,
     val sunscreenRemindersEnabled: Boolean = true,
@@ -236,8 +238,9 @@ class MainViewModel(
 
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
-    private val exposureSession = ExposureSessionManager()
+    private val exposureSession = ExposureSessionManager(useDailyBudget = true)
     private val exposureContextDetector = ExposureContextDetector()
+    private val exposureContextStabilizer = ExposureContextStabilizer()
     private val sunProtection = SunProtectionTracker()
     private var exposureClockMillis = elapsedRealtimeMillis()
 
@@ -252,7 +255,13 @@ class MainViewModel(
 
     // Exposure history (see docs/exposure-tracking-api.md for the save contract).
     private val historySaveMutex = Mutex()
-    private var sunLogWeeksJob: Job? = null
+    private var exposureStartJob: Job? = null
+    private var exposureStartRequest = 0L
+    private var dailyDoseJob: Job? = null
+    private var dailyDoseKey: Pair<LocalDate, String?>? = null
+    private var otherDailyDoseSed: Double? = null
+    private var sunLogWeekJob: Job? = null
+    private var sunLogWeekDate: LocalDate = todayDate()
     private var historySessionId: String? = null
     private var historyStartedAtMillis = 0L
     private var historyZoneId: ZoneId = ZoneId.systemDefault()
@@ -306,7 +315,6 @@ class MainViewModel(
             viewModelScope.launch {
                 provider.samples.collect { sample ->
                     latestEnvironmentSample = sample
-                    val previousExposureContext = detectExposureContext()
                     _state.update { state ->
                         state.copy(
                             lux = sample.lux.coerceIn(0, MAX_LUX),
@@ -324,10 +332,7 @@ class MainViewModel(
                         )
                     }
                     evaluateIndoorTransition()
-                    val currentExposureContext = detectExposureContext()
-                    if (currentExposureContext != previousExposureContext) {
-                        syncExposure()
-                    }
+                    syncExposure()
                 }
             }
         }
@@ -355,7 +360,7 @@ class MainViewModel(
             locate()
         }
 
-        observeSunLogWeeks()
+        observeSunLogWeek(sunLogWeekDate)
     }
 
     // ---- User actions -------------------------------------------------------
@@ -364,8 +369,13 @@ class MainViewModel(
 
     fun onSunLogShowTime(showTime: Boolean) = _state.update { it.copy(sunLogShowsTime = showTime) }
 
-    /** Remembers the week the Sun log pager settled on, so it survives tab switches. */
-    fun onSunLogPageSettled(page: Int) = _state.update { it.copy(sunLogPage = page) }
+    fun onSunLogPreviousWeek() = observeSunLogWeek(sunLogWeekDate.minusDays(7))
+
+    fun onSunLogNextWeek() {
+        val next = sunLogWeekDate.plusDays(7)
+        if (next.isAfter(todayDate())) return
+        observeSunLogWeek(next)
+    }
 
     fun onSearchClick() = _state.update { it.copy(showSearchDialog = true) }
 
@@ -460,6 +470,9 @@ class MainViewModel(
     }
 
     fun onRefresh() {
+        if (_state.value.dailyDoseError != null && _state.value.exposureStarted) {
+            onRetryDailyDose()
+        }
         val fix = _state.value.locationFix
         if (fix != null && forecastRepository != null) {
             refreshForecast(fix)
@@ -467,10 +480,54 @@ class MainViewModel(
             locate()
         }
     }
+
+    fun onRetryDailyDose() {
+        if (_state.value.exposureStarted) {
+            observeDailyDose(historyDate(nowMillis()), historySessionId)
+        } else {
+            onStartExposure()
+        }
+    }
     
     fun onStartExposure() {
-        restartExposureSession()
-    
+        if (_state.value.exposureStarted || _state.value.exposureStarting) return
+        val repository = historyRepository
+        if (repository == null) {
+            startExposure(0.0)
+            return
+        }
+        _state.update { it.copy(exposureStarting = true, dailyDoseError = null) }
+        val request = ++exposureStartRequest
+        exposureStartJob = viewModelScope.launch {
+            try {
+                // Wait for the previous Save/Discard before reading the next session's allowance.
+                var date: LocalDate
+                var dose: Double
+                do {
+                    date = todayDate()
+                    dose = historySaveMutex.withLock {
+                        repository.observeDaily(date, date.plusDays(1)).first().sumOf { it.doseSed }
+                    }
+                } while (date != todayDate())
+                require(dose.isFinite() && dose >= 0.0)
+                startExposure(dose)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _state.update { it.copy(dailyDoseError = "Unable to read today's exposure. Tap Start to retry.") }
+            } finally {
+                if (request == exposureStartRequest) _state.update { it.copy(exposureStarting = false) }
+            }
+        }
+    }
+
+    private fun startExposure(previousDailyDoseSed: Double) {
+        advanceExposureClock()
+        exposureContextStabilizer.reset()
+        _state.update { it.copy(exposureSessionId = it.exposureSessionId + 1, luxOverride = null) }
+        evaluateIndoorTransition()
+        openHistorySession(nowMillis())
+        observeDailyDose(historyDate(nowMillis()), historySessionId, previousDailyDoseSed)
         val state = _state.value
     
         val snapshot =
@@ -479,11 +536,12 @@ class MainViewModel(
                 uvIndex = state.displayUv,
                 nowElapsedMs = exposureClockMillis,
                 context = detectExposureContext(),
+                initialDailyDoseSed = previousDailyDoseSed,
             )
     
         publishExposure(snapshot)
     
-        monitoringController?.start()
+        if (_state.value.exposureStatus == ExposureStatus.RUNNING) monitoringController?.start()
     
         pauseNewSessionIfAlreadyIndoor()
     }
@@ -496,10 +554,7 @@ class MainViewModel(
 
     fun onResumeExposure() {
         if (_state.value.indoorDetected) return
-        if (!_state.value.exposureStarted) {
-            restartExposureSession()
-            return
-        }
+        if (_state.value.exposureStatus != ExposureStatus.PAUSED) return
         monitoringController?.start()
         syncExposure()
         publishExposure(exposureSession.resume(exposureClockMillis))
@@ -515,19 +570,26 @@ class MainViewModel(
     fun onSunscreenNotificationsAllowed() = sunProtection.reset()
 
     fun onResetSession(save: Boolean) {
+        if (_state.value.exposureStarting) {
+            exposureStartRequest++
+            exposureStartJob?.cancel()
+            _state.update { it.copy(exposureStarting = false) }
+        }
         if (!_state.value.exposureStarted) return
-    
+        // Exposure uses elapsed time; calendar time is only for history dates.
+        advanceExposureClock()
         if (save) {
             closeHistorySession()
         } else {
             discardHistorySession()
         }
     
-        restartExposureSession()
+        resetExposureSession()
     }
+
+    @Deprecated("Use onResetSession(save) to explicitly choose whether to keep history")
     fun onResetTimer() {
-        restartExposureSession()
-        pauseNewSessionIfAlreadyIndoor()
+        onResetSession(save = true)
     }
 
     // ---- Exposure indicator (slidable lux, for testing) ----------------------
@@ -536,14 +598,9 @@ class MainViewModel(
     fun onLuxChange(lux: Int) {
         if (_state.value.exposureStarted) return
         val clamped = lux.coerceIn(0, MAX_LUX)
-        val previous = detectExposureContext()
-
         _state.update { it.copy(luxOverride = clamped) }
         evaluateIndoorTransition()
-        val current = detectExposureContext()
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
     // ---- Developer-mode overrides -------------------------------------------
@@ -559,7 +616,6 @@ class MainViewModel(
     }.also { syncExposure() }
 
     fun onOverrideLightToggle() {
-        val previous = detectExposureContext()
     
         _state.update {
             it.copy(
@@ -571,15 +627,10 @@ class MainViewModel(
     
         evaluateIndoorTransition()
     
-        val current = detectExposureContext()
-    
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
     fun onLightOverride(context: LightContext) {
-        val previous = detectExposureContext()
     
         _state.update {
             it.copy(
@@ -591,17 +642,16 @@ class MainViewModel(
     
         evaluateIndoorTransition()
     
-        val current = detectExposureContext()
-    
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
-    fun onAudioToggle() = _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
+    fun onAudioToggle() {
+        _state.update { it.copy(dev = it.dev.copy(overrideAudio = !it.dev.overrideAudio)) }
+        evaluateIndoorTransition()
+        syncExposure()
+    }
 
     fun onOccludedToggle() {
-        val previous = detectExposureContext()
     
         _state.update {
             it.copy(
@@ -613,11 +663,7 @@ class MainViewModel(
     
         evaluateIndoorTransition()
     
-        val current = detectExposureContext()
-    
-        if (current != previous) {
-            syncExposure()
-        }
+        syncExposure()
     }
 
     fun onOfflineToggle() = _state.update { it.copy(dev = it.dev.copy(forceOffline = !it.dev.forceOffline)) }
@@ -633,7 +679,11 @@ class MainViewModel(
         evaluateIndoorTransition()
     }
 
-    fun onActiveToggle() = _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
+    fun onActiveToggle() {
+        _state.update { it.copy(dev = it.dev.copy(simulateActive = !it.dev.simulateActive)) }
+        evaluateIndoorTransition()
+        syncExposure()
+    }
 
     fun onTestReapplyAlert() {
         alertGateway?.previewReapplyReminder()
@@ -824,29 +874,25 @@ class MainViewModel(
             }
     }
 
-    private fun restartExposureSession() {
-        monitoringController?.stop()
-    
-        val dbSessionId = java.util.UUID.randomUUID().toString()
-        val sessionStartMs = exposureClockMillis
-        val zoneId = java.time.ZoneId.systemDefault().id
-    
+    private fun resetExposureSession() {
+        dailyDoseJob?.cancel()
+        dailyDoseJob = null
+        dailyDoseKey = null
+        otherDailyDoseSed = null
         exposureSession.clear(exposureClockMillis)
-    
+        exposureContextStabilizer.reset()
+        historySessionId = null
+        historyDays.clear()
+        lastHistoryStatus = ExposureStatus.NOT_STARTED
+
         _state.update {
             it.copy(
-                exposureSessionId = it.exposureSessionId + 1,
                 luxOverride = null,
-                activeSessionId = dbSessionId,
-                activeSessionStartedAt = sessionStartMs,
-                activeSessionZoneId = zoneId,
-                exposureStatus = ExposureStatus.NOT_STARTED,
-                exposureStarted = false,
-                exposureRunning = false,
-                accumulatedDoseSed = 0.0,
-                exposureFraction = 0.0,
-                remainingSeconds = 0L,
-                totalBurnSeconds = 0L,
+                activeSessionId = null,
+                activeSessionStartedAt = null,
+                activeSessionZoneId = null,
+                dailyDoseLoading = false,
+                dailyDoseError = null,
             )
         }
     
@@ -855,13 +901,14 @@ class MainViewModel(
     /** Applies the two-threshold, location-aware debounce without coupling it to GPS. */
     private fun evaluateIndoorTransition() {
         val state = _state.value
+        val input = state.exposureContextInput()
         val target =
             when {
                 !state.indoorDetected &&
-                        state.hasTrustworthyIndoorEntryEvidence() -> true
+                        exposureContextDetector.canEnterIndoor(input) -> true
 
                 state.indoorDetected &&
-                        (!state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX) -> false
+                        exposureContextDetector.canExitIndoor(input) -> false
 
                 else -> null
             }
@@ -887,25 +934,16 @@ class MainViewModel(
 
     private fun confirmIndoorIfStillValid() {
         val state = _state.value
-        if (state.indoorDetected || !state.hasTrustworthyIndoorEntryEvidence()) return
+        if (state.indoorDetected || !exposureContextDetector.canEnterIndoor(state.exposureContextInput())) return
 
         _state.update { it.copy(indoorDetected = true) }
         syncExposure()
         autoPauseForIndoor(sendAlert = true)
     }
 
-    /** Pocketed or contradictory readings cannot establish a new indoor state. */
-    private fun MainUiState.hasTrustworthyIndoorEntryEvidence(): Boolean =
-        isWithinSavedIndoorLocation &&
-            displayLux < INDOOR_ENTER_LUX &&
-            effectiveDeviceOccluded != true &&
-            effectiveIsMoving != true &&
-            effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
-            devicePosture != DevicePosture.FACE_DOWN
-
     private fun confirmOutdoorIfStillValid() {
         val state = _state.value
-        val exitStillValid = !state.isWithinSavedIndoorLocation || state.displayLux > INDOOR_EXIT_LUX
+        val exitStillValid = exposureContextDetector.canExitIndoor(state.exposureContextInput())
         if (!state.indoorDetected || !exitStillValid) return
 
         val shouldResume = state.pauseReason == ExposurePauseReason.INDOOR_DETECTED
@@ -964,11 +1002,21 @@ class MainViewModel(
             }
     }
 
-    private fun publishExposure(snapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
+    private fun publishExposure(sessionSnapshot: ExposureSnapshot, reason: ExposurePauseReason? = _state.value.pauseReason) {
+        var snapshot = sessionSnapshot
+        if (snapshot.isStarted) {
+            val now = nowMillis()
+            addHistoryDelta(snapshot, now)
+            val date = historyDate(now)
+            if (dailyDoseKey != (date to historySessionId)) observeDailyDose(date, historySessionId)
+            val dailyDose = otherDailyDoseSed?.let { it + (historyDays[date]?.doseSed ?: 0.0) }
+            snapshot = exposureSession.updateDailyDose(dailyDose)
+        }
         val previousStatus = _state.value.exposureStatus
         _state.update { state ->
             val doseComplete = snapshot.status == ExposureStatus.COMPLETE
             state.copy(
+                exposureSnapshot = snapshot,
                 exposureStatus = snapshot.status,
                 pauseReason = if (snapshot.status == ExposureStatus.PAUSED) reason else null,
                 exposureStarted = snapshot.isStarted,
@@ -1026,6 +1074,35 @@ class MainViewModel(
 
     // ---- Exposure history -----------------------------------------------------
 
+    /** Query other sessions atomically; this session's saved checkpoints are replaced by its live daily total. */
+    private fun observeDailyDose(date: LocalDate, sessionId: String?, initialDose: Double? = null) {
+        dailyDoseJob?.cancel()
+        val key = date to sessionId
+        dailyDoseKey = key
+        otherDailyDoseSed = if (historyRepository == null) 0.0 else initialDose
+        _state.update { it.copy(dailyDoseLoading = otherDailyDoseSed == null, dailyDoseError = null) }
+        val repository = historyRepository ?: return
+        dailyDoseJob = viewModelScope.launch {
+            repository.observeDaily(date, date.plusDays(1), excludingSessionId = sessionId)
+                .map { days -> days.sumOf { it.doseSed }.also { require(it.isFinite() && it >= 0.0) } }
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    if (dailyDoseKey == key) {
+                        otherDailyDoseSed = null
+                        _state.update { it.copy(dailyDoseLoading = false, dailyDoseError = "Unable to read today's exposure. Please retry.") }
+                        if (_state.value.exposureStarted) syncExposure()
+                    }
+                }
+                .collect { dose ->
+                    if (dailyDoseKey != key) return@collect
+                    val changed = otherDailyDoseSed != dose
+                    otherDailyDoseSed = dose
+                    _state.update { it.copy(dailyDoseLoading = false, dailyDoseError = null) }
+                    if (changed && _state.value.exposureStarted) syncExposure()
+                }
+        }
+    }
+
     /**
      * Runs after every publishExposure(), so each start, pause, resume, context change and
      * tick settles the segment before it under that segment's own status and context.
@@ -1034,13 +1111,12 @@ class MainViewModel(
     private fun recordHistory() {
         if (historyRepository == null) return
         val snapshot = exposureSession.snapshot()
+        if (!snapshot.isStarted) return
         val now = nowMillis()
         val opened = historySessionId == null
         if (opened) {
             if (snapshot.status == ExposureStatus.NOT_STARTED) return
             openHistorySession(now)
-        } else {
-            addHistoryDelta(snapshot, now)
         }
         val statusChanged = opened || snapshot.status != lastHistoryStatus
         val checkpointDue =
@@ -1056,6 +1132,14 @@ class MainViewModel(
         historyStartedAtMillis = now
         historyZoneId = ZoneId.systemDefault()
         historyDays.clear()
+        lastHistoryStatus = ExposureStatus.NOT_STARTED
+        _state.update {
+            it.copy(
+                activeSessionId = historySessionId,
+                activeSessionStartedAt = now,
+                activeSessionZoneId = historyZoneId.id,
+            )
+        }
     
         lastHistoryWallMillis = now
         lastHistoryDoseSed = 0.0
@@ -1067,7 +1151,7 @@ class MainViewModel(
         lastRecordedThroughMillis = now
     }
 
-    /** Saves the session being replaced; called before start() resets the dose. */
+    /** Capture the final elapsed-time segment before clearing the session. */
     private fun closeHistorySession() {
         val sessionId = historySessionId ?: return
         val repository = historyRepository ?: return
@@ -1075,7 +1159,7 @@ class MainViewModel(
         val now = nowMillis()
     
         // Settle the final exposure interval.
-        val snapshot = exposureSession.refresh(now)
+        val snapshot = exposureSession.refresh(exposureClockMillis)
     
         // Add the final dose/duration delta to the in-memory history.
         addHistoryDelta(snapshot, now)
@@ -1095,45 +1179,21 @@ class MainViewModel(
         historySessionId = null
     
         viewModelScope.launch {
-            historySaveMutex.withLock {
-                val saved = repository.save(record).isSuccess
-                val callback = onHistorySaved
-                if (saved && callback != null) {
-                    callback()
-                }
-            }
+            val saved = historySaveMutex.withLock { repository.save(record).isSuccess }
+            if (saved) onHistorySaved?.invoke()
         }
-    
-        exposureSession.clear(now)
     }
     private fun discardHistorySession() {
         val sessionId = historySessionId
         val repository = historyRepository
-        val now = nowMillis()
-    
         // Detach the history session immediately.
         historySessionId = null
     
-        // Discard all in-memory exposure data.
-        exposureSession.clear(now)
-    
-       // Reset history bookkeeping.
-        historyDays.clear()
-        lastHistoryDoseSed = 0.0
-        lastHistoryDirectSunDurationMillis = 0L
-        lastHistoryShadeDurationMillis = 0L
-        lastHistoryUnknownDurationMillis = 0L
-        lastHistoryWallMillis = now
-        lastHistoryStatus = ExposureStatus.NOT_STARTED
-        lastHistoryContext = ExposureContext.UNKNOWN
-        lastHistorySaveWallMillis = now
-        lastRecordedThroughMillis = now
-    
         if (repository != null && sessionId != null) {
             viewModelScope.launch {
-                historySaveMutex.withLock {
-                    repository.deleteSession(sessionId)
-                }
+                // Delete after every queued checkpoint, so none can resurrect this session.
+                val deleted = historySaveMutex.withLock { repository.deleteSession(sessionId).isSuccess }
+                if (deleted) onHistorySaved?.invoke()
             }
         }
     }
@@ -1282,25 +1342,17 @@ class MainViewModel(
             else -> ExposureRecordStatus.ACTIVE
         }
 
-    /**
-     * Loads every viewable Sun log week (the current Mon-Sun week and the ones before it)
-     * with one daily query, so all pager pages are ready before the user swipes. Called again
-     * by pull-to-refresh, which re-anchors the range to today.
-     */
-    fun observeSunLogWeeks() {
+    private fun observeSunLogWeek(date: LocalDate) {
         val repository = historyRepository ?: return
-        val today = todayDate()
-        val currentWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
-        val firstWeekStart = currentWeekStart.minusWeeks((SUN_LOG_WEEK_COUNT - 1).toLong())
-        val daysFlow = repository.observeDaily(firstWeekStart, currentWeekStart.plusWeeks(1))
-        sunLogWeeksJob?.cancel()
-        sunLogWeeksJob = viewModelScope.launch {
-            // observeDaily returns every day in the range (zero when empty), so 7-day chunks are weeks.
-            daysFlow.collect { days ->
-                val weeks = days.chunked(7).map { weekDays -> ExposureWeeklySummary(weekDays.first().date, weekDays) }
-                _state.update { it.copy(sunLogWeeks = weeks) }
+        sunLogWeekDate = date
+        val weekFlow = repository.observeWeek(date)
+        sunLogWeekJob?.cancel()
+        sunLogWeekJob =
+            viewModelScope.launch {
+                weekFlow.collect { week ->
+                    _state.update { it.copy(sunLogWeek = week) }
+                }
             }
-        }
     }
 
     private fun todayDate(): LocalDate =
@@ -1316,26 +1368,31 @@ class MainViewModel(
 
     private fun List<UvForecastReading>.nearestTo(timestampMillis: Long): UvForecastReading? =
         minByOrNull { reading -> abs(reading.forecastTimeMillis - timestampMillis) }
+    private fun MainUiState.exposureContextInput(): ExposureContextInput =
+        ExposureContextInput(
+            indoorDetected = indoorDetected,
+            lux = displayLux,
+            deviceOccluded = effectiveDeviceOccluded,
+            isMoving = effectiveIsMoving,
+            nearIndoorLocation = isWithinSavedIndoorLocation,
+            acousticContext = effectiveAcousticContext,
+            posture = devicePosture,
+        )
+
     private fun detectExposureContext(): ExposureContext {
         val state = _state.value
-    
-        return exposureContextDetector.detect(
-            ExposureContextInput(
-                indoorDetected = state.indoorDetected,
-                lux = state.displayLux,
-                deviceOccluded = state.effectiveDeviceOccluded,
-                isMoving = state.effectiveIsMoving,
-                nearIndoorLocation = state.isWithinSavedIndoorLocation,
-                acousticContext = state.effectiveAcousticContext,
-                posture = state.devicePosture,
-            ),
-        )
+        val raw = exposureContextDetector.detect(state.exposureContextInput())
+
+        // Developer overrides should still take effect instantly on the debug card.
+        if (state.dev.overrideLight || state.dev.simulateOccluded || state.dev.simulateActive || state.dev.overrideAudio) {
+            exposureContextStabilizer.reset()
+            return raw
+        }
+        return exposureContextStabilizer.update(raw, elapsedRealtimeMillis())
     }
     private companion object {
         const val DEFAULT_LUX = 38_200
         const val MAX_LUX = 100_000
-        const val INDOOR_ENTER_LUX = 1_000
-        const val INDOOR_EXIT_LUX = 2_000
         const val INDOOR_TRANSITION_DELAY_MILLIS = 10_000L
         const val HISTORY_CHECKPOINT_MILLIS = 60_000L
     }
