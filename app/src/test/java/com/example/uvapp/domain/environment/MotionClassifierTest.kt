@@ -67,4 +67,38 @@ class MotionClassifierTest {
         assertNull(MotionClassifier().update(Float.NaN, 0f, 9.81f))
         assertNull(MotionClassifier().update(0f, Float.POSITIVE_INFINITY, 9.81f))
     }
+
+    @Test
+    fun `single knock on a still phone is not moving`() {
+        val classifier = MotionClassifier()
+        repeat(20) { classifier.update(0f, 0f, 9.81f) }
+
+        val readings =
+            listOf(12.5f, 8.2f).map { z -> classifier.update(0f, 0f, z)!! } +
+                (1..20).map { classifier.update(0f, 0f, 9.81f)!! }
+
+        assertTrue(readings.none { it.isMoving })
+    }
+
+    @Test
+    fun `sustained shaking is moving and settles quickly afterwards`() {
+        val classifier = MotionClassifier()
+        repeat(20) { classifier.update(0f, 0f, 9.81f) }
+
+        val shaking = (0 until 10).map { step -> classifier.update(0f, 0f, if (step % 2 == 0) 12f else 7.5f)!! }
+        assertTrue(shaking.last().isMoving)
+
+        // Eight still samples (about 1.3 s at the service's sampling rate) push the shaking out.
+        val settled = (1..8).map { classifier.update(0f, 0f, 9.81f)!! }.last()
+        assertFalse(settled.isMoving)
+    }
+
+    @Test
+    fun `hand tremor below the deviation threshold stays still`() {
+        val classifier = MotionClassifier()
+
+        val readings = (0 until 40).map { step -> classifier.update(0f, 0f, if (step % 2 == 0) 9.9f else 9.7f)!! }
+
+        assertTrue(readings.none { it.isMoving })
+    }
 }

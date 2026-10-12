@@ -72,6 +72,9 @@ import com.example.uvapp.viewmodel.SettingsViewModel
 import com.example.uvapp.viewmodel.Tab
 import kotlinx.coroutines.delay
 
+private const val FIRST_RUN_PREFS = "first_run"
+private const val KEY_INDOOR_FEATURES_PROMPTED = "indoor_features_prompted"
+
 /**
  * App shell: theme wiring, shared chrome (loading bar, refresh, bottom nav),
  * tab content and the search-dialog overlay. ViewModels are activity-scoped;
@@ -162,7 +165,9 @@ fun UVAppRoot(
             main = mainViewModel,
             notifySuggestion = notifier::show,
             reportIndoorProximity = { near ->
-                AndroidEnvironmentContextProvider.updateIndoorProximity(near == true)
+                // Without a fresh precise fix this view has no answer; leave the monitoring
+                // service's GPS-based result in place instead of overwriting it with false.
+                near?.let(AndroidEnvironmentContextProvider::updateIndoorProximity)
             },
         )
     }
@@ -224,12 +229,26 @@ fun UVAppRoot(
         mutableStateOf(EnhancedSensingPermissions())
     }
 
+    // One-time offer, shown after the first Start, to turn on both indoor features.
+    // Kept outside backed-up preferences so a fresh install offers it again.
+    val firstRunPrefs =
+        remember(applicationContext) {
+            applicationContext.getSharedPreferences(FIRST_RUN_PREFS, android.content.Context.MODE_PRIVATE)
+        }
+    var showIndoorFeaturesPrompt by remember { mutableStateOf(false) }
+    var enableSuggestionsAfterSensing by remember { mutableStateOf(false) }
+
     val finishEnhancedPermissionRequest: (EnhancedSensingPermissions) -> Unit = { updated ->
         enhancedPermissions = updated
         settingsViewModel.setEnhancedSensingEnabled(updated.hasAnyGrantedCapability)
         if (mainViewModel.state.value.exposureStarted) {
             // Refresh permission-dependent registrations without restarting the exposure session.
             monitoringController.start()
+        }
+        if (enableSuggestionsAfterSensing) {
+            // Ask for notifications only after the sensor requests so prompts never overlap.
+            enableSuggestionsAfterSensing = false
+            enableSuggestions()
         }
     }
 
@@ -307,6 +326,13 @@ fun UVAppRoot(
         }
     }
 
+    // The saved "on" choice must not outlive permissions revoked in system settings.
+    LaunchedEffect(settingsState.enhancedSensingEnabled) {
+        if (settingsState.enhancedSensingEnabled && !hasAnyEnhancedSensingPermission(applicationContext)) {
+            settingsViewModel.setEnhancedSensingEnabled(false)
+        }
+    }
+
     DisposableEffect(
         lifecycle,
         microphoneMonitor,
@@ -341,6 +367,16 @@ fun UVAppRoot(
     }
 
     val mainState by mainViewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(mainState.exposureStarted) {
+        if (!mainState.exposureStarted || firstRunPrefs.getBoolean(KEY_INDOOR_FEATURES_PROMPTED, false)) {
+            return@LaunchedEffect
+        }
+        firstRunPrefs.edit().putBoolean(KEY_INDOOR_FEATURES_PROMPTED, true).apply()
+        if (!settingsState.enhancedSensingEnabled || !indoorState.data.suggestionsEnabled) {
+            showIndoorFeaturesPrompt = true
+        }
+    }
 
     LaunchedEffect(mainState.devModeEnabled) {
         if (!mainState.devModeEnabled) {
@@ -380,6 +416,42 @@ fun UVAppRoot(
         accent = settingsState.accent,
     ) {
         IndoorSuggestionDialog(indoorViewModel, indoorState)
+
+        if (showIndoorFeaturesPrompt) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showIndoorFeaturesPrompt = false },
+                title = { Text("Turn on indoor features?") },
+                text = {
+                    Text(
+                        "Enhanced sensing and Suggest indoor places let the app notice when " +
+                            "you're indoors and offer to save the place, so tracking pauses there.\n\n" +
+                            "If you leave them off, you won't get indoor place suggestions, and " +
+                            "sound and motion won't be used to judge your surroundings. You can " +
+                            "turn them on anytime in Settings.",
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showIndoorFeaturesPrompt = false
+                            if (settingsState.enhancedSensingEnabled) {
+                                enableSuggestions()
+                            } else {
+                                enableSuggestionsAfterSensing = !indoorState.data.suggestionsEnabled
+                                requestMicrophone()
+                            }
+                        },
+                    ) {
+                        Text("Turn on")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showIndoorFeaturesPrompt = false }) {
+                        Text("Not now")
+                    }
+                },
+            )
+        }
 
         if (showEnhanceSensingRationale) {
             androidx.compose.material3.AlertDialog(
@@ -534,4 +606,16 @@ fun UVAppRoot(
             }
         }
     }
+}
+
+private fun hasAnyEnhancedSensingPermission(context: android.content.Context): Boolean {
+    fun granted(permission: String) =
+        androidx.core.content.ContextCompat.checkSelfPermission(context, permission) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    return granted(android.Manifest.permission.RECORD_AUDIO) ||
+        granted(android.Manifest.permission.CAMERA) ||
+        // Before Android 10 activity recognition needs no runtime permission.
+        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q ||
+        granted(android.Manifest.permission.ACTIVITY_RECOGNITION)
 }

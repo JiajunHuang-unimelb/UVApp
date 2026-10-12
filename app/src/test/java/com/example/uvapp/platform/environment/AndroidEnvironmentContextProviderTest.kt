@@ -4,6 +4,7 @@ import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.AcousticReading
 import com.example.uvapp.domain.environment.DevicePosture
 import com.example.uvapp.domain.environment.MotionReading
+import com.example.uvapp.domain.environment.SensorFreshnessTracker
 import com.example.uvapp.domain.environment.StepActivity
 import com.example.uvapp.domain.environment.StepActivityReading
 import org.junit.After
@@ -79,6 +80,24 @@ class AndroidEnvironmentContextProviderTest {
 
         AndroidEnvironmentContextProvider.markLuxUnavailable()
 
+        assertEquals(100_000, AndroidEnvironmentContextProvider.samples.value.lux)
+    }
+
+    @Test
+    fun `stale light reading is replaced with conservative fallback`() {
+        val freshness = SensorFreshnessTracker(staleAfterMillis = 30_000L)
+        freshness.monitoringStarted(elapsedMillis = 0L)
+        AndroidEnvironmentContextProvider.updateLux(500)
+        freshness.onSample(elapsedMillis = 1_000L)
+
+        assertFalse(freshness.consumeExpiration(nowElapsedMillis = 30_999L))
+        assertEquals(500, AndroidEnvironmentContextProvider.samples.value.lux)
+
+        if (freshness.consumeExpiration(nowElapsedMillis = 31_000L)) {
+            AndroidEnvironmentContextProvider.markLuxUnavailable()
+        }
+
+        // Missing light evidence must never leave an old indoor-looking value active.
         assertEquals(100_000, AndroidEnvironmentContextProvider.samples.value.lux)
     }
 

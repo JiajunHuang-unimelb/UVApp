@@ -35,6 +35,17 @@ data class ExposureContextInput(
  */
 class ExposureContextDetector {
 
+    /** Evidence must remain valid throughout the ViewModel's indoor debounce. */
+    fun canEnterIndoor(input: ExposureContextInput): Boolean =
+        input.nearIndoorLocation &&
+            input.lux in 0 until LightContext.INDOOR_MAX_LUX &&
+            input.deviceOccluded != true &&
+            !hasConflictingLowLightEvidence(input)
+
+    /** Use hysteresis, and do not use a covered sensor to infer an outdoor exit. */
+    fun canExitIndoor(input: ExposureContextInput): Boolean =
+        !input.nearIndoorLocation || (input.deviceOccluded != true && input.lux > INDOOR_EXIT_LUX)
+
     fun detect(input: ExposureContextInput): ExposureContext {
         /*
          * An already-confirmed indoor state has the highest priority.
@@ -52,7 +63,7 @@ class ExposureContextDetector {
          * Therefore, low lux must NOT automatically mean indoors.
          */
         if (input.deviceOccluded == true) {
-            return detectOccludedContext(input)
+            return ExposureContext.UNKNOWN
         }
 
         /*
@@ -60,11 +71,7 @@ class ExposureContextDetector {
          * report occlusion. A face-down phone, confirmed movement, or sustained
          * outdoor-like sound conflicts with treating that reading as shade.
          */
-        val hasConflictingLowLightEvidence =
-            input.isMoving == true ||
-                input.posture == DevicePosture.FACE_DOWN ||
-                input.acousticContext == AcousticContext.ACTIVE_OUTDOOR_LIKELY
-        if (input.lux in 1 until LightContext.SHADE_MAX_LUX && hasConflictingLowLightEvidence) {
+        if (input.lux in 1 until LightContext.SHADE_MAX_LUX && hasConflictingLowLightEvidence(input)) {
             return ExposureContext.UNKNOWN
         }
 
@@ -84,29 +91,12 @@ class ExposureContextDetector {
         }
     }
 
-    private fun detectOccludedContext(
-        input: ExposureContextInput,
-    ): ExposureContext {
-        /*
-         * A user moving while the phone is occluded is a strong reason
-         * not to classify low lux as indoor.
-         *
-         * Example:
-         *   outdoor walking + phone in jeans pocket + lux = 20
-         *
-         * The light sensor alone would suggest "indoor", but motion
-         * indicates that the low reading may simply be caused by occlusion.
-         */
-        if (input.isMoving == true) {
-            return ExposureContext.UNKNOWN
-        }
+    private fun hasConflictingLowLightEvidence(input: ExposureContextInput): Boolean =
+        input.isMoving == true ||
+            input.posture == DevicePosture.FACE_DOWN ||
+            input.acousticContext == AcousticContext.ACTIVE_OUTDOOR_LIKELY
 
-        /*
-         * A saved location cannot make an occluded lux reading trustworthy:
-         * the user may still be outdoors near their home with the phone in a
-         * pocket. Keep the result conservative until unobstructed evidence is
-         * available or the indoor state was confirmed before the occlusion.
-         */
-        return ExposureContext.UNKNOWN
+    private companion object {
+        const val INDOOR_EXIT_LUX = 2_000
     }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.uvapp.domain.environment.AcousticContext
 import com.example.uvapp.domain.environment.StepActivity
+import com.example.uvapp.domain.exposure.ExposureStatus
 import com.example.uvapp.domain.location.*
 import com.example.uvapp.domain.model.*
 import com.example.uvapp.domain.repository.IndoorLocationRepository
@@ -29,13 +30,18 @@ class IndoorLocationsViewModel(
     private var asked = false
     private var notified: String? = null
     private var notificationsEnabled = true
+    private var locationsLoaded = false
 
     init {
         viewModelScope.launch {
             repository.data.catch { mutable.update { it.copy(error = "Unable to read saved locations.") } }.collect { data ->
+                val suggestionsJustEnabled = data.suggestionsEnabled && (!locationsLoaded || !state.value.data.suggestionsEnabled)
                 mutable.update { it.copy(data = data, name = if (it.data.pending?.id != data.pending?.id) data.pending?.name.orEmpty() else it.name) }
+                locationsLoaded = true
                 proximity()
                 deliverNotification()
+                // Turning suggestions on mid-session checks the current surroundings straight away.
+                if (suggestionsJustEnabled && isSuggestionContextEligible()) prepareSuggestion()
             }
         }
         viewModelScope.launch {
@@ -43,7 +49,12 @@ class IndoorLocationsViewModel(
             main.state.collect { current ->
                 if (current.exposureSessionId != previous.exposureSessionId) asked = false
                 if (current.locationFix != previous.locationFix) { fix = current.locationFix; proximity() }
-                if (previous.exposureRunning && isSuggestionContextEligible(current)) {
+                // Suggest automatically while tracking; no manual pause is needed.
+                if (isSuggestionContextEligible(current) &&
+                    (!isSuggestionContextEligible(previous) ||
+                        current.exposureSessionId != previous.exposureSessionId ||
+                        current.locationFix != previous.locationFix)
+                ) {
                     prepareSuggestion()
                 }
                 previous = current
@@ -73,8 +84,9 @@ class IndoorLocationsViewModel(
         finally { mutable.update { it.copy(saving = false) } }
     }
     private fun isSuggestionContextEligible(current: MainUiState = main.state.value): Boolean =
-        current.pauseReason == com.example.uvapp.domain.exposure.ExposurePauseReason.MANUAL &&
-            !current.exposureRunning &&
+        locationsLoaded &&
+            (current.exposureStatus == ExposureStatus.RUNNING || current.exposureStatus == ExposureStatus.PAUSED) &&
+            !current.indoorDetected &&
             current.displayLux < 1_000 &&
             current.effectiveAcousticContext != null &&
             current.effectiveAcousticContext != AcousticContext.ACTIVE_OUTDOOR_LIKELY &&
@@ -170,7 +182,6 @@ class IndoorLocationsViewModel(
         }
     }
     fun dismiss() = change { it.copy(pending = null) }
-    fun dismissInvitation() = change { it.copy(invitationDismissed = true) }
     fun enableSuggestions(enabled: Boolean) = change { it.copy(suggestionsEnabled = enabled) }
     fun rename(id: String, name: String) { if (name.isNotBlank()) change { data -> data.copy(locations = data.locations.map { if (it.id == id) it.copy(name = name.trim().take(80)) else it }) } }
     fun delete(id: String) = change { data -> data.copy(locations = data.locations.filterNot { it.id == id }) }

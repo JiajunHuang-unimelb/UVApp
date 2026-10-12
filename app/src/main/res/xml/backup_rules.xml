@@ -4,4 +4,11 @@
     <exclude
         domain="database"
         path="." />
+    <!-- Saved indoor places hold precise home/work coordinates; first-run offers should reappear on a new install. -->
+    <exclude
+        domain="file"
+        path="datastore/indoor_locations.preferences_pb" />
+    <exclude
+        domain="sharedpref"
+        path="first_run.xml" />
 </full-backup-content>

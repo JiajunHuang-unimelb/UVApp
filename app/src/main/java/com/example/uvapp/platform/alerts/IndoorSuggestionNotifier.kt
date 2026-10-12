@@ -20,7 +20,7 @@ class IndoorSuggestionNotifier(private val context: Context) {
         val tap = PendingIntent.getActivity(context, 2002, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         try {
             manager.notify(2002, Notification.Builder(context, "indoor_suggestions")
-                .setSmallIcon(R.drawable.ic_locate).setContentTitle("Were you indoors when you paused?")
+                .setSmallIcon(R.drawable.ic_locate).setContentTitle("Are you indoors here?")
                 .setContentText("Tap to confirm and save this location.").setContentIntent(tap).setOnlyAlertOnce(true).setAutoCancel(true).build())
         } catch (_: SecurityException) { /* Pending suggestion remains available in the app. */ }
     }
